@@ -11,10 +11,16 @@ import type { Weapon } from "@/data/weapons";
 
 const DARK_METAL = new Color3(0.12, 0.12, 0.13);
 const TAN_POLYMER = new Color3(0.25, 0.23, 0.18);
+const SIGHT_HOUSING = new Color3(0.08, 0.08, 0.09);
+const IRON_SIGHT_TIP = new Color3(0.85, 0.55, 0.15);
 
 export interface Viewmodel {
   root: TransformNode;
   muzzle: TransformNode;
+  /** World-ish local offset of the sight/optic — WeaponController lines this up with screen centre on ADS. */
+  sightOffset: Vector3;
+  /** Bulky body/barrel/mag meshes — WeaponController hides these on ADS so the sight isn't a giant looming block. */
+  bodyMeshes: Mesh[];
 }
 
 /** Muzzle tip offset (local, metres forward/up) per weapon class. */
@@ -28,10 +34,20 @@ const MUZZLE_OFFSET: Record<Weapon["class"], Vector3> = {
   launcher: new Vector3(0, 0, 0.7),
 };
 
+function lensMaterial(scene: Scene, name: string, color: Color3): StandardMaterial {
+  const mat = new StandardMaterial(name, scene);
+  mat.emissiveColor = color;
+  mat.diffuseColor = color.scale(0.3);
+  mat.disableLighting = true;
+  return mat;
+}
+
 /**
  * Builds a recognisable low-poly silhouette per weapon class — bullpup for
  * rifles, long-barrel for snipers/DMRs, box+belt for LMGs, tube for launchers
- * — as a placeholder until real `.glb` models are swapped in via GLTFLoader.
+ * — plus a distinct sight/optic (reflex dot, iron sights, or a proper 2-lens
+ * scope) so aiming actually reads as "looking down the sights". Placeholder
+ * until real `.glb` models are swapped in via GLTFLoader.
  */
 export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
   const root = new TransformNode(`viewmodel_${weapon.id}`, scene);
@@ -39,7 +55,17 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
   mat.diffuseColor = weapon.class === "pistol" ? TAN_POLYMER : DARK_METAL;
   mat.specularColor = new Color3(0.15, 0.15, 0.15);
 
+  const housingMat = new StandardMaterial(`sightHousingMat_${weapon.id}`, scene);
+  housingMat.diffuseColor = SIGHT_HOUSING;
+  housingMat.specularColor = Color3.Black();
+
+  const ironMat = new StandardMaterial(`ironSightMat_${weapon.id}`, scene);
+  ironMat.diffuseColor = IRON_SIGHT_TIP;
+  ironMat.specularColor = Color3.Black();
+
   const parts: Mesh[] = [];
+  const sightParts: Mesh[] = [];
+  let sightOffset = new Vector3(0, 0.1, 0.1);
 
   switch (weapon.class) {
     case "rifle": {
@@ -54,6 +80,18 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
       const grip = MeshBuilder.CreateBox("grip", { width: 0.05, height: 0.16, depth: 0.06 }, scene);
       grip.position.set(0, -0.12, 0.08);
       parts.push(body, barrel, mag, grip);
+
+      // Reflex/holographic sight: housing + emissive dot, mounted centred on the top rail.
+      // Kept small — ADS brings the sight right up to the camera, so full-size gun-scale
+      // geometry here would loom into frame as a giant block.
+      sightOffset = new Vector3(0, 0.11, -0.02);
+      const housing = MeshBuilder.CreateBox("sightHousing", { width: 0.014, height: 0.017, depth: 0.028 }, scene);
+      housing.position.copyFrom(sightOffset);
+      housing.material = housingMat;
+      const window = MeshBuilder.CreateBox("sightWindow", { width: 0.01, height: 0.011, depth: 0.003 }, scene);
+      window.position.set(sightOffset.x, sightOffset.y, sightOffset.z + 0.014);
+      window.material = lensMaterial(scene, `dotLens_${weapon.id}`, new Color3(1, 0.15, 0.1));
+      sightParts.push(housing, window);
       break;
     }
     case "pistol": {
@@ -62,6 +100,16 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
       const grip = MeshBuilder.CreateBox("grip", { width: 0.05, height: 0.14, depth: 0.07 }, scene);
       grip.position.set(0, -0.09, -0.08);
       parts.push(slide, grip);
+
+      // Simple front-post + rear-notch iron sights (kept small — see rifle note above).
+      sightOffset = new Vector3(0, 0.075, -0.06);
+      const rearSight = MeshBuilder.CreateBox("rearSight", { width: 0.011, height: 0.004, depth: 0.004 }, scene);
+      rearSight.position.copyFrom(sightOffset);
+      rearSight.material = ironMat;
+      const frontSight = MeshBuilder.CreateBox("frontSight", { width: 0.0025, height: 0.005, depth: 0.0025 }, scene);
+      frontSight.position.set(0, 0.075, 0.12);
+      frontSight.material = ironMat;
+      sightParts.push(rearSight, frontSight);
       break;
     }
     case "dmr":
@@ -72,10 +120,27 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
       barrel.position.set(0, 0.01, 0.55);
       const mag = MeshBuilder.CreateBox("mag", { width: 0.05, height: 0.18, depth: 0.06 }, scene);
       mag.position.set(0, -0.13, 0.05);
-      const scopeBody = MeshBuilder.CreateCylinder("scope", { diameter: 0.04, height: 0.22 }, scene);
-      scopeBody.rotation.x = Math.PI / 2;
-      scopeBody.position.set(0, 0.09, 0.05);
-      parts.push(body, barrel, mag, scopeBody);
+      parts.push(body, barrel, mag);
+
+      // Full scope: tube + objective/ocular lenses (tinted glass) + turret knobs
+      // (kept small — see rifle note above).
+      sightOffset = new Vector3(0, 0.1, 0.05);
+      const scopeTube = MeshBuilder.CreateCylinder("scopeTube", { diameter: 0.012, height: 0.075 }, scene);
+      scopeTube.rotation.x = Math.PI / 2;
+      scopeTube.position.copyFrom(sightOffset);
+      scopeTube.material = mat;
+      const objective = MeshBuilder.CreateCylinder("objectiveLens", { diameter: 0.015, height: 0.004 }, scene);
+      objective.rotation.x = Math.PI / 2;
+      objective.position.set(sightOffset.x, sightOffset.y, sightOffset.z + 0.038);
+      objective.material = lensMaterial(scene, `objectiveLens_${weapon.id}`, new Color3(0.2, 0.5, 0.65));
+      const ocular = MeshBuilder.CreateCylinder("ocularLens", { diameter: 0.011, height: 0.003 }, scene);
+      ocular.rotation.x = Math.PI / 2;
+      ocular.position.set(sightOffset.x, sightOffset.y, sightOffset.z - 0.037);
+      ocular.material = lensMaterial(scene, `ocularLens_${weapon.id}`, new Color3(0.15, 0.35, 0.5));
+      const turret = MeshBuilder.CreateCylinder("turret", { diameter: 0.006, height: 0.008 }, scene);
+      turret.position.set(sightOffset.x, sightOffset.y + 0.008, sightOffset.z);
+      turret.material = housingMat;
+      sightParts.push(scopeTube, objective, ocular, turret);
       break;
     }
     case "lmg": {
@@ -92,15 +157,35 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
       bipodR.position.x = 0.05;
       bipodR.rotation.z = -Math.PI / 10;
       parts.push(body, barrel, beltBox, bipodL, bipodR);
+
+      // Carry-handle rear sight + front post — belt-fed guns keep it basic, optics are
+      // attachment-only (kept small — see rifle note above).
+      sightOffset = new Vector3(0, 0.13, -0.05);
+      const carryHandle = MeshBuilder.CreateBox("carryHandle", { width: 0.008, height: 0.018, depth: 0.04 }, scene);
+      carryHandle.position.copyFrom(sightOffset);
+      carryHandle.material = housingMat;
+      const frontPost = MeshBuilder.CreateBox("frontPost", { width: 0.0025, height: 0.008, depth: 0.0025 }, scene);
+      frontPost.position.set(0, 0.12, 0.4);
+      frontPost.material = ironMat;
+      sightParts.push(carryHandle, frontPost);
       break;
     }
     case "launcher": {
       const tube = MeshBuilder.CreateCylinder("tube", { diameter: 0.14, height: 1.0 }, scene);
       tube.rotation.x = Math.PI / 2;
       tube.position.set(0, 0, 0.2);
-      const sight = MeshBuilder.CreateBox("sight", { width: 0.03, height: 0.06, depth: 0.06 }, scene);
-      sight.position.set(0, 0.1, 0.2);
-      parts.push(tube, sight);
+      parts.push(tube);
+
+      // Reflex-style optic on the launcher's carry rail (kept small — see rifle note above).
+      sightOffset = new Vector3(0, 0.12, 0.2);
+      const sightBody = MeshBuilder.CreateBox("sight", { width: 0.008, height: 0.017, depth: 0.017 }, scene);
+      sightBody.position.copyFrom(sightOffset);
+      sightBody.material = housingMat;
+      const reticle = MeshBuilder.CreateDisc("reticle", { radius: 0.004, tessellation: 8 }, scene);
+      reticle.rotation.x = Math.PI / 2;
+      reticle.position.set(sightOffset.x, sightOffset.y, sightOffset.z);
+      reticle.material = lensMaterial(scene, `launcherLens_${weapon.id}`, new Color3(1, 0.2, 0.15));
+      sightParts.push(sightBody, reticle);
       break;
     }
     case "hmg": {
@@ -109,6 +194,12 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
       barrel.rotation.x = Math.PI / 2;
       barrel.position.set(0, 0.03, 0.55);
       parts.push(body, barrel);
+
+      sightOffset = new Vector3(0, 0.14, 0);
+      const housing = MeshBuilder.CreateBox("sightHousing", { width: 0.011, height: 0.013, depth: 0.021 }, scene);
+      housing.position.copyFrom(sightOffset);
+      housing.material = housingMat;
+      sightParts.push(housing);
       break;
     }
   }
@@ -118,10 +209,14 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
     part.parent = root;
     part.isPickable = false;
   }
+  for (const part of sightParts) {
+    part.parent = root;
+    part.isPickable = false;
+  }
 
   const muzzle = new TransformNode(`muzzle_${weapon.id}`, scene);
   muzzle.parent = root;
   muzzle.position = MUZZLE_OFFSET[weapon.class].clone();
 
-  return { root, muzzle };
+  return { root, muzzle, sightOffset, bodyMeshes: parts };
 }

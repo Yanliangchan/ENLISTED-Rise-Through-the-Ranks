@@ -87,11 +87,13 @@ export class GameState {
 
   addCredits(amount: number): void {
     this.data.credits += amount;
+    this.save();
   }
 
   spendCredits(amount: number): boolean {
     if (this.data.credits < amount) return false;
     this.data.credits -= amount;
+    this.save();
     return true;
   }
 

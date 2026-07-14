@@ -4,6 +4,7 @@ import type { Loadout } from "@/weapons/Loadout";
 import type { GameState } from "@/core/GameState";
 import type { WaveManager } from "@/world/WaveManager";
 import { ATTACHMENTS } from "@/data/attachments";
+import type { BuildingFootprint } from "@/world/Level";
 
 interface KillFeedEntry {
   text: string;
@@ -51,7 +52,8 @@ export class HUD {
     private readonly weaponController: WeaponController,
     private readonly loadout: Loadout,
     private readonly gameState: GameState,
-    private readonly waveManager: WaveManager
+    private readonly waveManager: WaveManager,
+    private readonly buildingLayout: BuildingFootprint[] = []
   ) {
     this.root = document.createElement("div");
     this.root.style.cssText = `
@@ -235,7 +237,7 @@ export class HUD {
   private phaseLabel(): string {
     const wm = this.waveManager;
     if (wm.phase === "intro") {
-      return `SCOUT THE SECTOR — Wave 1 begins in ${Math.max(0, Math.ceil(wm.introTimeRemaining))}s`;
+      return `SCOUT THE SECTOR — Wave ${wm.wave} begins in ${Math.max(0, Math.ceil(wm.introTimeRemaining))}s`;
     }
     if (wm.phase === "armoury") {
       return `ARMOURY — Wave ${wm.wave} in ${Math.max(0, Math.ceil(wm.armouryTimeRemaining))}s`;
@@ -279,6 +281,20 @@ export class HUD {
     ctx.save();
     ctx.translate(size / 2, size / 2);
     ctx.rotate(-this.player.yaw);
+
+    ctx.fillStyle = "rgba(140,150,120,0.55)";
+    ctx.strokeStyle = "rgba(0,0,0,0.4)";
+    ctx.lineWidth = 1;
+    for (const b of this.buildingLayout) {
+      const dx = b.x - this.player.position.x;
+      const dz = b.z - this.player.position.z;
+      const rx = (dx / range) * size;
+      const rz = (dz / range) * size;
+      const rsize = (b.size / range) * size;
+      if (Math.abs(rx) - rsize > size / 2 || Math.abs(rz) - rsize > size / 2) continue;
+      ctx.fillRect(rx - rsize / 2, -rz - rsize / 2, rsize, rsize);
+      ctx.strokeRect(rx - rsize / 2, -rz - rsize / 2, rsize, rsize);
+    }
 
     ctx.fillStyle = "#ff5540";
     for (const p of enemyPositions) {

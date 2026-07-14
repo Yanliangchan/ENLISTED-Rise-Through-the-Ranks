@@ -124,4 +124,19 @@ export class WaveManager {
   skipArmoury(): void {
     if (this.phase === "armoury" || this.phase === "intro") this.startWave();
   }
+
+  /**
+   * Redeploy after death: credits/unlocks/gear already earned this session
+   * are kept (GameState persists them independently) — only the wave count
+   * and combat state reset, and the player respawns full health straight
+   * into the armoury so they can spend before the next Wave 1.
+   */
+  restartRun(spawnPosition: import("@babylonjs/core").Vector3): void {
+    this.enemyManager.clearAll();
+    this.wave = 1;
+    this.gameState.data.wave = 1;
+    this.gameState.save();
+    this.player.respawn(spawnPosition);
+    this.beginArmoury();
+  }
 }

@@ -31,6 +31,35 @@ const BUILDING_COLORS = [
 /** Grid line positions for the street layout — the 0 line is left out to keep a clear central plaza. */
 const GRID_LINES = [-91, -65, -39, -13, 13, 39, 65, 91];
 
+export interface BuildingFootprint {
+  x: number;
+  z: number;
+  size: number;
+  height: number;
+}
+
+/**
+ * Deterministic building layout — the single source of truth for both the
+ * collidable meshes (buildStreetGrid) and the HUD radar, so the minimap
+ * always matches the real map instead of drifting out of sync. Pure/no
+ * scene side effects — safe to call from UI code.
+ */
+export function generateBuildingLayout(): BuildingFootprint[] {
+  const rand = mulberry32(1337);
+  const layout: BuildingFootprint[] = [];
+  for (const gx of GRID_LINES) {
+    for (const gz of GRID_LINES) {
+      if (rand() < 0.22) continue; // gap: open flanking route / sightline break
+      const footprint = 12 + rand() * 8; // 12-20m
+      const height = 8 + rand() * 12; // 8-20m
+      const jitterX = (rand() - 0.5) * 5;
+      const jitterZ = (rand() - 0.5) * 5;
+      layout.push({ x: gx + jitterX, z: gz + jitterZ, size: footprint, height });
+    }
+  }
+  return layout;
+}
+
 /**
  * Medium-size urban-estate map: a street grid of collidable "shophouse"
  * blocks around a clear central plaza (the player's spawn), plus scattered
@@ -77,12 +106,10 @@ export function buildLevel(scene: Scene): void {
 }
 
 /**
- * Singapore-flavoured shophouse blocks on a street grid: ~1-in-5 grid cells
- * are left empty for flanking routes/sightline breaks, sizes/heights vary
- * via a seeded RNG so the skyline reads as a real (if blocky) estate.
+ * Singapore-flavoured shophouse blocks built from `generateBuildingLayout`
+ * (~1-in-5 grid cells left empty for flanking routes/sightline breaks).
  */
 function buildStreetGrid(scene: Scene): void {
-  const rand = mulberry32(1337);
   const mats = BUILDING_COLORS.map((color, i) => {
     const mat = new StandardMaterial(`buildingMat_${i}`, scene);
     mat.diffuseColor = color;
@@ -90,37 +117,19 @@ function buildStreetGrid(scene: Scene): void {
     return mat;
   });
 
-  let buildingIndex = 0;
-  for (const gx of GRID_LINES) {
-    for (const gz of GRID_LINES) {
-      if (rand() < 0.22) continue; // gap: open flanking route / sightline break
+  const layout = generateBuildingLayout();
+  layout.forEach(({ x, z, size, height }, i) => {
+    const building = MeshBuilder.CreateBox(`building_${i}`, { width: size, height, depth: size }, scene);
+    building.position.set(x, height / 2, z);
+    building.material = mats[i % mats.length];
+    building.checkCollisions = true;
 
-      const footprint = 12 + rand() * 8; // 12-20m
-      const height = 8 + rand() * 12; // 8-20m
-      const jitterX = (rand() - 0.5) * 5;
-      const jitterZ = (rand() - 0.5) * 5;
-
-      const building = MeshBuilder.CreateBox(
-        `building_${buildingIndex}`,
-        { width: footprint, height, depth: footprint },
-        scene
-      );
-      building.position.set(gx + jitterX, height / 2, gz + jitterZ);
-      building.material = mats[buildingIndex % mats.length];
-      building.checkCollisions = true;
-      buildingIndex++;
-
-      // Roof trim band for a bit of visual read at a distance.
-      const trim = MeshBuilder.CreateBox(
-        `buildingTrim_${buildingIndex}`,
-        { width: footprint + 0.4, height: 0.6, depth: footprint + 0.4 },
-        scene
-      );
-      trim.position.set(gx + jitterX, height + 0.3, gz + jitterZ);
-      trim.material = mats[(buildingIndex + 1) % mats.length];
-      trim.isPickable = false;
-    }
-  }
+    // Roof trim band for a bit of visual read at a distance.
+    const trim = MeshBuilder.CreateBox(`buildingTrim_${i}`, { width: size + 0.4, height: 0.6, depth: size + 0.4 }, scene);
+    trim.position.set(x, height + 0.3, z);
+    trim.material = mats[(i + 1) % mats.length];
+    trim.isPickable = false;
+  });
 }
 
 /** Waist-high crates for close cover in the plaza and at street junctions. */

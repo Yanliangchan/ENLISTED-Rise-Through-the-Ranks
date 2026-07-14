@@ -6,7 +6,7 @@ import { Settings } from "@/core/Settings";
 import { AudioManager } from "@/core/AudioManager";
 import { PlayerController } from "@/player/PlayerController";
 import { applyGearToPlayer } from "@/player/Gear";
-import { buildLevel, applyWaveArcLighting } from "@/world/Level";
+import { buildLevel, applyWaveArcLighting, generateBuildingLayout } from "@/world/Level";
 import { WaveManager } from "@/world/WaveManager";
 import { WeaponController } from "@/weapons/WeaponController";
 import { Loadout } from "@/weapons/Loadout";
@@ -32,6 +32,7 @@ const game = new GameEngine(canvas);
 game.scene.collisionsEnabled = true;
 
 buildLevel(game.scene);
+const buildingLayout = generateBuildingLayout();
 
 const input = new InputManager(canvas);
 const gameState = new GameState();
@@ -103,15 +104,18 @@ const throwableController = new ThrowableController(
 );
 throwableController.onFlashbangScreen = (intensity) => hud.flashWhite(intensity);
 
-const hud = new HUD(uiRoot, player, weaponController, loadout, gameState, waveManager);
+const hud = new HUD(uiRoot, player, weaponController, loadout, gameState, waveManager, buildingLayout);
 const armoury = new Armoury(uiRoot, gameState, weaponController, player, audio);
 armoury.onStartWave = () => waveManager.skipArmoury();
 
 const pauseMenu = new PauseMenu(uiRoot, settings, audio, player, gameState);
 const gameOverScreen = new GameOverScreen(uiRoot, gameState);
 gameOverScreen.onRestart = () => {
-  gameState.resetRun();
-  location.reload();
+  // Credits/unlocks/gear already earned are kept in GameState (saved on the
+  // fly) — redeploying only resets the wave/combat state, and drops the
+  // player into the armoury so they can spend before the next Wave 1.
+  gameOverScreen.hide();
+  waveManager.restartRun(SPAWN_POINT);
 };
 const controlsOverlay = new ControlsOverlay(uiRoot);
 
@@ -132,7 +136,7 @@ window.addEventListener("keydown", (e) => {
 
 game.onUpdate((deltaSeconds) => {
   const dt = Math.min(deltaSeconds, 0.05);
-  const paused = pauseMenu.visible || armoury.visible;
+  const paused = pauseMenu.visible || armoury.visible || gameOverScreen.visible;
 
   if (!paused) {
     player.update(dt);

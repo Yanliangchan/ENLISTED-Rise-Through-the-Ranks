@@ -4,6 +4,7 @@ import type { GameState } from "@/core/GameState";
 export class GameOverScreen {
   private root: HTMLDivElement;
   onRestart?: () => void;
+  visible = false;
 
   constructor(container: HTMLElement, private readonly gameState: GameState) {
     this.root = document.createElement("div");
@@ -37,10 +38,12 @@ export class GameOverScreen {
     wrap.appendChild(btn);
     this.root.appendChild(wrap);
     this.root.style.display = "flex";
+    this.visible = true;
     document.exitPointerLock();
   }
 
   hide(): void {
     this.root.style.display = "none";
+    this.visible = false;
   }
 }

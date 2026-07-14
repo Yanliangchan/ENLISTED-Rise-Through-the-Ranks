@@ -146,8 +146,15 @@ export class WeaponController {
 
     if (this.activeViewmodel) {
       const hip = new Vector3(0.18, -0.16, 0.35);
-      const ads = new Vector3(0, -0.05, 0.28);
+      // Solve for the root position that puts the sight/optic at screen centre.
+      const sight = this.activeViewmodel.sightOffset;
+      const ads = new Vector3(-sight.x, -sight.y, 0.28 - sight.z);
       this.activeViewmodel.root.position = Vector3.Lerp(hip, ads, this.adsBlend);
+
+      // Hide the bulky body/barrel/mag once mostly aimed in — at ADS proximity + optic
+      // zoom, the full gun body would otherwise loom into frame as a giant dark block.
+      const showBody = this.adsBlend < 0.6;
+      for (const mesh of this.activeViewmodel.bodyMeshes) mesh.setEnabled(showBody);
     }
   }
 
@@ -213,8 +220,12 @@ export class WeaponController {
 
   private fire(): void {
     if (this.ammo.mag <= 0) {
-      this.audio.uiClick();
       this.callbacks.onEmptyClick?.();
+      if (this.ammo.reserve > 0) {
+        this.startReload(); // auto-reload on an empty trigger pull
+      } else {
+        this.audio.uiClick();
+      }
       this.fireCooldown = 0.2;
       return;
     }

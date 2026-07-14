@@ -5,7 +5,6 @@ import {
   Color3,
   Vector3,
   Mesh,
-  TransformNode,
   Ray,
 } from "@babylonjs/core";
 import { ENEMIES, ECONOMY, type EnemyType } from "@/data/gamedata";
@@ -46,7 +45,8 @@ export interface EngagementLimiter {
  */
 export class EnemyInstance implements Damageable {
   readonly id: string;
-  readonly root: TransformNode;
+  /** Invisible capsule collider that owns movement/collision; visual meshes ride on it. */
+  readonly root: Mesh;
   private bodyMesh: Mesh;
   private headMesh: Mesh;
   private bodyMat: StandardMaterial;
@@ -81,8 +81,13 @@ export class EnemyInstance implements Damageable {
     this.health = this.maxHealth;
     this.patrolTarget = spawnPosition.clone();
 
-    this.root = new TransformNode(this.id, scene);
+    this.root = MeshBuilder.CreateCapsule(`${this.id}_collider`, { height: 1.85, radius: 0.32 }, scene);
     this.root.position = spawnPosition.clone();
+    this.root.isVisible = false;
+    this.root.isPickable = false;
+    this.root.checkCollisions = true;
+    this.root.ellipsoid = new Vector3(0.32, 0.92, 0.32);
+    this.root.ellipsoidOffset = new Vector3(0, 0.92, 0);
 
     this.bodyMat = new StandardMaterial(`${this.id}_mat`, scene);
     this.bodyMat.diffuseColor = OPFOR_DARK;
@@ -252,7 +257,7 @@ export class EnemyInstance implements Damageable {
     if (dist < 0.05) return;
     dir.normalize();
     const speed = speedOverride ?? this.type.moveSpeed;
-    this.root.position.addInPlace(dir.scale(speed * dt));
+    this.root.moveWithCollisions(dir.scale(speed * dt));
     this.root.rotation.y = Math.atan2(dir.x, dir.z);
   }
 
