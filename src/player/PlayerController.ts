@@ -42,6 +42,10 @@ export class PlayerController {
   sensitivityMult = 1;
   /** Set by WeaponController while aiming — scopes/zoom feel less twitchy at higher magnification. */
   aimSensitivityMult = 1;
+  /** Written every frame by SafeZoneManager — true while standing inside the camp's protected radius. */
+  inSafeZone = false;
+  /** Written by SafeZoneManager on leaving the safe zone; grants brief incoming-damage immunity. Cancelled by firing/throwing. */
+  spawnProtected = false;
   private footstepTimer = 0;
 
   constructor(
@@ -183,8 +187,14 @@ export class PlayerController {
     this.collider.ellipsoidOffset.y = this.currentEyeHeight / 2;
   }
 
-  /** Armour absorbs damage at `armourDamageReduction` fraction until it breaks. */
+  /** Cancels the post-spawn-protection grace period the instant the player fires or throws — prevents abusing it as a free-hit window. */
+  breakSpawnProtection(): void {
+    this.spawnProtected = false;
+  }
+
+  /** Armour absorbs damage at `armourDamageReduction` fraction until it breaks. Fully immune inside the safe zone or during the brief spawn-protection grace period. */
   takeDamage(rawDamage: number): number {
+    if (this.inSafeZone || this.spawnProtected) return 0;
     let remaining = rawDamage;
     if (this.armour > 0) {
       const absorbed = Math.min(this.armour, rawDamage * this.armourDamageReduction);

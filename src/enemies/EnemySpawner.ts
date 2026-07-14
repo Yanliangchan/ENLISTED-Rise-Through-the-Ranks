@@ -2,13 +2,16 @@ import { Scene, Vector3 } from "@babylonjs/core";
 import { ENEMIES, WAVES } from "@/data/gamedata";
 import { EnemyInstance, type EnemyKillInfo } from "@/enemies/EnemyAI";
 import { blastDamageAtDistance } from "@/weapons/ballistics";
+import { ensureClearOfCamp } from "@/world/SafeZone";
 import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
 
 /**
  * Spawn points ring the map edge, just inside the boundary wall (see
  * Level.ts BOUNDARY_HALF = 100), so OPFOR has to move through the blocks
- * and cover to reach the plaza.
+ * and cover to reach the plaza. Every point is well clear of the camp's AI
+ * exclusion zone (see SafeZone.ts) — `ensureClearOfCamp` also re-checks the
+ * jittered spawn position at runtime as a second line of defence.
  */
 const SPAWN_POINTS: Vector3[] = [
   new Vector3(94, 0, 0),
@@ -18,9 +21,9 @@ const SPAWN_POINTS: Vector3[] = [
   new Vector3(65, 0, 65),
   new Vector3(-65, 0, 65),
   new Vector3(65, 0, -65),
-  // The SW diagonal point moved off the forest-camp spawn corner (~(-82,-82)) so
-  // OPFOR don't materialise right on top of the player at wave start.
-  new Vector3(-94, 0, -45),
+  // South edge, well east of the SW camp corner — clears the exclusion zone
+  // by a wide margin (unlike the old (-94,-45) point, which sat inside it).
+  new Vector3(-20, 0, -94),
 ];
 
 /** Enemy-type mix per wave band, roughly matching the story's escalation. */
@@ -107,7 +110,10 @@ export class EnemyManager {
       const typeId = this.isBossWave(wave) && i < Math.ceil(count * 0.4)
         ? "opfor_heavy"
         : pickTypeForWave(wave);
-      this.pendingSpawns.push({ type: typeId, delay: i * stagger, position: point.add(jitter) });
+      // Runtime safeguard on top of the hand-placed points: guarantees no
+      // jittered spawn can ever land inside the camp's minimum standoff.
+      const position = ensureClearOfCamp(point.add(jitter));
+      this.pendingSpawns.push({ type: typeId, delay: i * stagger, position });
     }
     this.spawnClock = 0;
   }

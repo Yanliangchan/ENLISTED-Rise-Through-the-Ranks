@@ -1424,6 +1424,53 @@ function buildCamp(scene: Scene): void {
     crate.material = crateMat;
     crate.checkCollisions = true;
   });
+
+  buildCampExits(scene);
+}
+
+/**
+ * Three staggered exit chicanes around the camp clearing's edge — a pair of
+ * offset low walls plus a hedge at each, so nobody standing at the treeline
+ * outside has a clean sightline straight into the camp. Purely visual/cover
+ * dressing; the actual no-combat guarantee comes from the AI exclusion zone
+ * (SafeZone.ts) which keeps OPFOR out to begin with.
+ */
+function buildCampExits(scene: Scene): void {
+  const wallMat = solidMat(scene, "campExitWallMat", new Color3(0.42, 0.4, 0.36));
+  const hedgeMat = solidMat(scene, "campExitHedgeMat", new Color3(0.19, 0.32, 0.17));
+
+  // Three exits toward the city (NE), the rest of the garden/canal (N), and
+  // the checkpoint/road (E) — the directions a player would actually walk.
+  const exitAngles = [Math.PI / 4, Math.PI / 2, 0];
+  const gateRadius = CAMP_CLEARING_RADIUS + 1.5;
+
+  exitAngles.forEach((angle, i) => {
+    const gx = CAMP_POSITION.x + Math.cos(angle) * gateRadius;
+    const gz = CAMP_POSITION.z + Math.sin(angle) * gateRadius;
+    const perp = angle + Math.PI / 2;
+
+    // Two walls staggered left/right of the exit line, offset inward and
+    // outward, so a straight-through sightline never lines up.
+    buildLowWall(
+      scene,
+      gx + Math.cos(perp) * 2.4,
+      gz + Math.sin(perp) * 2.4,
+      angle,
+      wallMat,
+      i * 2,
+      "campExitWall"
+    );
+    buildLowWall(
+      scene,
+      gx - Math.cos(perp) * 2.4 + Math.cos(angle) * 3,
+      gz - Math.sin(perp) * 2.4 + Math.sin(angle) * 3,
+      angle,
+      wallMat,
+      i * 2 + 1,
+      "campExitWall"
+    );
+    buildHedge(scene, gx + Math.cos(angle) * 4, gz + Math.sin(angle) * 4, angle + Math.PI / 2, hedgeMat, 800 + i);
+  });
 }
 
 /** Simple two-panel canvas tent: a triangular-prism roof over a low box body. */

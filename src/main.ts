@@ -18,6 +18,7 @@ import { ControlsOverlay } from "@/ui/ControlsOverlay";
 import { SupplyCrateManager } from "@/world/SupplyCrates";
 import { LandingPage } from "@/ui/LandingPage";
 import { ScopeOverlay } from "@/ui/ScopeOverlay";
+import { SafeZoneManager } from "@/world/SafeZone";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -133,6 +134,10 @@ gameOverScreen.onRestart = () => {
 const controlsOverlay = new ControlsOverlay(uiRoot);
 const supplyCrates = new SupplyCrateManager(game.scene, player, weaponController, input, audio);
 
+const safeZone = new SafeZoneManager(player);
+safeZone.onEnter = () => hud.showCenterMessage("SAFE ZONE — protected", 2000);
+safeZone.onExit = () => hud.showCenterMessage("LEAVING SAFE ZONE", 2200);
+
 applyWaveArcLighting(game.scene, waveManager.wave);
 
 const landingPage = new LandingPage(uiRoot);
@@ -159,6 +164,7 @@ game.onUpdate((deltaSeconds) => {
 
   if (!paused) {
     player.update(dt);
+    safeZone.update(dt);
     loadout.update();
     weaponController.update(dt);
     throwableController.update(dt);

@@ -23,7 +23,9 @@ export function fireProjectile(
   blast: BlastSpec,
   enemyManager: EnemyManager,
   player: PlayerController,
-  audio: AudioManager
+  audio: AudioManager,
+  /** False when fired from inside the safe zone — the projectile still flies and detonates visually, it just can't hurt anything. */
+  canDealDamage = true
 ): void {
   const mesh = MeshBuilder.CreateSphere("projectile", { diameter: 0.12 }, scene);
   mesh.position = origin.clone();
@@ -56,11 +58,13 @@ export function fireProjectile(
   const detonate = (at: Vector3) => {
     mesh.dispose();
     audio.explosion();
-    enemyManager.damageInRadius(at, blast.radiusM, blast.centreDamage);
-    const distToPlayer = Vector3.Distance(at, player.position);
-    if (distToPlayer < blast.radiusM) {
-      const t = distToPlayer / blast.radiusM;
-      player.takeDamage(blast.centreDamage * (1 - t) + blast.edgeDamage * t);
+    if (canDealDamage) {
+      enemyManager.damageInRadius(at, blast.radiusM, blast.centreDamage);
+      const distToPlayer = Vector3.Distance(at, player.position);
+      if (distToPlayer < blast.radiusM) {
+        const t = distToPlayer / blast.radiusM;
+        player.takeDamage(blast.centreDamage * (1 - t) + blast.edgeDamage * t);
+      }
     }
     const flash = MeshBuilder.CreateSphere("blastFlash", { diameter: 1.2 }, scene);
     flash.position = at;

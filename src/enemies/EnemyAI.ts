@@ -11,6 +11,8 @@ import { ENEMIES, ECONOMY, type EnemyType } from "@/data/gamedata";
 import type { Damageable, HitMeshMetadata } from "@/weapons/Damageable";
 import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
+import { CAMP_POSITION } from "@/world/Level";
+import { isInSafeZone, isInExclusionZone, steerAroundExclusionZone } from "@/world/SafeZone";
 
 export type EnemyState =
   | "idle"
@@ -150,6 +152,7 @@ export class EnemyInstance implements Damageable {
   /** Called by the weapon system whenever the player fires, for hearing checks. */
   hearGunshot(position: Vector3, effectiveHearingRangeM: number): void {
     if (this.state === "dead") return;
+    if (isInSafeZone(position)) return; // shots fired from inside the camp never alert OPFOR
     const dist = Vector3.Distance(this.root.position, position);
     if (dist <= Math.min(this.type.hearingRangeM, effectiveHearingRangeM)) {
       if (this.state === "idle" || this.state === "patrol") {
@@ -198,11 +201,28 @@ export class EnemyInstance implements Damageable {
       return;
     }
 
+    // AI must never occupy the army base: if a knockback/blast or navigation
+    // edge case ever lands one inside the exclusion zone, immediately retreat
+    // instead of running the normal FSM this frame.
+    if (isInExclusionZone(this.root.position)) {
+      this.retreatFromExclusionZone(dt);
+      return;
+    }
+
     this.stateTimer += dt;
     if (this.fireCooldown > 0) this.fireCooldown -= dt;
 
+    const playerInSafeZone = isInSafeZone(player.position);
+    // Losing aggro the moment the player is back in the safe zone means OPFOR
+    // never detect, target, or fire at players inside it.
+    if (playerInSafeZone && this.state !== "idle" && this.state !== "patrol") {
+      this.engageLimiter?.releaseEngage(this.id);
+      this.state = "patrol";
+      this.patrolTarget = this.root.position.clone();
+    }
+
     const distToPlayer = this.distanceToPlayer(player);
-    const canSeePlayer = distToPlayer <= this.type.sightRangeM && this.hasLineOfSight(player);
+    const canSeePlayer = !playerInSafeZone && distToPlayer <= this.type.sightRangeM && this.hasLineOfSight(player);
 
     switch (this.state) {
       case "idle":
@@ -256,9 +276,24 @@ export class EnemyInstance implements Damageable {
     const dist = dir.length();
     if (dist < 0.05) return;
     dir.normalize();
+    // Curve around the camp's exclusion zone instead of walking straight at
+    // its edge and stalling there — this is what lets OPFOR reroute around
+    // the army base rather than clustering just outside it.
+    const steered = steerAroundExclusionZone(this.root.position, dir);
     const speed = speedOverride ?? this.type.moveSpeed;
-    this.root.moveWithCollisions(dir.scale(speed * dt));
-    this.root.rotation.y = Math.atan2(dir.x, dir.z);
+    this.root.moveWithCollisions(steered.scale(speed * dt));
+    this.root.rotation.y = Math.atan2(steered.x, steered.z);
+  }
+
+  /** Walks straight away from the camp centre until clear of the exclusion zone — the fallback for the rare case an enemy ends up inside it. */
+  private retreatFromExclusionZone(dt: number): void {
+    const away = new Vector3(this.root.position.x - CAMP_POSITION.x, 0, this.root.position.z - CAMP_POSITION.z);
+    if (away.lengthSquared() < 0.0001) away.set(1, 0, 0);
+    away.normalize();
+    this.root.moveWithCollisions(away.scale(this.type.moveSpeed * 1.3 * dt));
+    this.root.rotation.y = Math.atan2(away.x, away.z);
+    this.engageLimiter?.releaseEngage(this.id);
+    this.state = "patrol";
   }
 
   private facePlayer(player: PlayerController): void {

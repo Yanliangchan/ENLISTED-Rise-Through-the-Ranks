@@ -157,6 +157,7 @@ export class WeaponController {
     if (!this.effective.hasGrenadeLauncher) return;
     if (this.secondaryFireCooldown > 0) return;
     if (!this.input.wasPressed("KeyH")) return;
+    this.player.breakSpawnProtection();
     this.secondaryFireCooldown = 1.5;
     this.audio.gunshot(true);
     this.fireProjectileFromMuzzle(M203_BLAST, 80, 500);
@@ -188,7 +189,9 @@ export class WeaponController {
     // fires from the camera's exact look direction), fades in with ADS blend so it
     // never affects hip-fire and never throws off where the reticle is pointing.
     this.swayTime += dt;
-    const swayScale = 0.0035 * this.adsBlend;
+    // Reduced from the original amplitude — enough to feel handheld and alive
+    // without the sight visibly wandering off the target while aiming.
+    const swayScale = 0.0018 * this.adsBlend;
     const swayX = Math.sin(this.swayTime * 1.3) * swayScale;
     const swayY = Math.cos(this.swayTime * 0.9) * swayScale * 0.6;
 
@@ -256,7 +259,9 @@ export class WeaponController {
 
   private updateRecoilRecovery(dt: number): void {
     if (this.recoilKickPitch <= 0) return;
-    const recoveryRad = this.weapon.recoil.recovery * 0.022 * dt;
+    // Faster recovery than the raw per-shot kick accumulates, so sustained fire
+    // settles back onto the sight picture instead of climbing frame over frame.
+    const recoveryRad = this.weapon.recoil.recovery * 0.03 * dt;
     const step = Math.min(this.recoilKickPitch, recoveryRad);
     this.player.camera.rotation.x += step;
     this.recoilKickPitch -= step;
@@ -297,6 +302,7 @@ export class WeaponController {
       return;
     }
 
+    this.player.breakSpawnProtection();
     this.ammo.mag -= 1;
     this.fireCooldown = 60 / this.weapon.fireRateRpm;
     this.audio.gunshot(this.effective.suppressed);
@@ -324,16 +330,19 @@ export class WeaponController {
     const origin = this.activeViewmodel
       ? this.activeViewmodel.muzzle.getAbsolutePosition()
       : camera.globalPosition;
-    fireProjectile(this.scene, origin, direction, speedMps, maxRangeM, blast, this.enemyManager, this.player, this.audio);
+    fireProjectile(this.scene, origin, direction, speedMps, maxRangeM, blast, this.enemyManager, this.player, this.audio, !this.player.inSafeZone);
   }
 
   private applyRecoil(): void {
+    // Tuned down from the original values — muzzle climb and horizontal jitter
+    // stayed readable shot-to-shot but added up to a wandering, unpredictable
+    // group over a full mag. This keeps recoil present but smooth/controllable.
     const bipodMult = this.bipodDeployed ? 0.25 : 1;
-    const kick = this.effective.recoilVertical * 0.007 * bipodMult;
+    const kick = this.effective.recoilVertical * 0.0045 * bipodMult;
     this.player.camera.rotation.x -= kick;
     this.recoilKickPitch += kick;
 
-    const jitter = (Math.random() * 2 - 1) * this.effective.recoilHorizontal * 0.006 * bipodMult;
+    const jitter = (Math.random() * 2 - 1) * this.effective.recoilHorizontal * 0.0035 * bipodMult;
     this.player.addYaw(jitter);
   }
 
@@ -378,7 +387,9 @@ export class WeaponController {
     if (pick?.hit && pick.pickedPoint) {
       this.drawTracer(muzzleWorld, pick.pickedPoint);
       const meta = pick.pickedMesh?.metadata as HitMeshMetadata | undefined;
-      if (meta?.damageable && !meta.damageable.isDead) {
+      // Firing from inside the safe zone can't deal damage — the shot still draws
+      // and impacts visually, it just never hurts anything.
+      if (meta?.damageable && !meta.damageable.isDead && !this.player.inSafeZone) {
         const distance = pick.distance;
         const dmg = damageAtRange(this.effective.damage, distance, this.weapon.falloff);
         const isHeadshot = !!meta.isHeadshotMesh;

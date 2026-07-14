@@ -20,6 +20,8 @@ interface FlyingThrowable {
   fuseRemaining: number;
   /** Touching the ground — still slides briefly under friction before coming to rest. */
   grounded: boolean;
+  /** False when thrown from inside the safe zone — still flies/detonates visually, just can't hurt anything. */
+  canDealDamage: boolean;
 }
 
 /**
@@ -112,6 +114,7 @@ export class ThrowableController {
       this.audio.uiClick();
       return;
     }
+    this.player.breakSpawnProtection();
     this.gameState.data.loadout.throwableCount -= 1;
 
     const forward = this.player.camera.getDirection(Vector3.Forward());
@@ -125,7 +128,10 @@ export class ThrowableController {
     mesh.material = mat;
     mesh.isPickable = false;
 
-    this.flying.push({ throwable, mesh, velocity, fuseRemaining: throwable.fuseSec, grounded: false });
+    // Thrown from inside the safe zone can't hurt anything, mirroring gunfire —
+    // captured at throw time so a mid-flight zone crossing doesn't matter.
+    const canDealDamage = !this.player.inSafeZone;
+    this.flying.push({ throwable, mesh, velocity, fuseRemaining: throwable.fuseSec, grounded: false, canDealDamage });
     this.audio.throwableFuse();
   }
 
@@ -136,13 +142,13 @@ export class ThrowableController {
 
     switch (f.throwable.type) {
       case "frag":
-        this.detonateFrag(pos, f.throwable);
+        this.detonateFrag(pos, f.throwable, f.canDealDamage);
         break;
       case "smoke":
         this.detonateSmoke(pos, f.throwable);
         break;
       case "flashbang":
-        this.detonateFlashbang(pos, f.throwable);
+        this.detonateFlashbang(pos, f.throwable, f.canDealDamage);
         break;
       case "flare":
         this.detonateFlare(pos, f.throwable);
@@ -150,13 +156,15 @@ export class ThrowableController {
     }
   }
 
-  private detonateFrag(pos: Vector3, throwable: Throwable): void {
+  private detonateFrag(pos: Vector3, throwable: Throwable, canDealDamage: boolean): void {
     this.audio.explosion();
-    this.enemyManager.damageInRadius(pos, throwable.radiusM, throwable.damage ?? 150);
-    const distToPlayer = Vector3.Distance(pos, this.player.position);
-    if (distToPlayer < throwable.radiusM) {
-      const dmg = (throwable.damage ?? 150) * (1 - distToPlayer / throwable.radiusM);
-      this.player.takeDamage(dmg);
+    if (canDealDamage) {
+      this.enemyManager.damageInRadius(pos, throwable.radiusM, throwable.damage ?? 150);
+      const distToPlayer = Vector3.Distance(pos, this.player.position);
+      if (distToPlayer < throwable.radiusM) {
+        const dmg = (throwable.damage ?? 150) * (1 - distToPlayer / throwable.radiusM);
+        this.player.takeDamage(dmg);
+      }
     }
     this.spawnFlashSprite(pos, new Color3(1, 0.6, 0.2), 0.6, 250);
   }
@@ -173,13 +181,15 @@ export class ThrowableController {
     this.smokeVolumes.push({ mesh: smoke, expiresAt: performance.now() + throwable.effectDurationSec * 1000 });
   }
 
-  private detonateFlashbang(pos: Vector3, throwable: Throwable): void {
+  private detonateFlashbang(pos: Vector3, throwable: Throwable, canDealDamage: boolean): void {
     this.audio.explosion();
-    this.enemyManager.stunInRadius(pos, throwable.radiusM, throwable.effectDurationSec);
-    const distToPlayer = Vector3.Distance(pos, this.player.position);
-    if (distToPlayer < throwable.radiusM) {
-      const intensity = 1 - distToPlayer / throwable.radiusM;
-      this.onFlashbangScreen?.(intensity);
+    if (canDealDamage) {
+      this.enemyManager.stunInRadius(pos, throwable.radiusM, throwable.effectDurationSec);
+      const distToPlayer = Vector3.Distance(pos, this.player.position);
+      if (distToPlayer < throwable.radiusM) {
+        const intensity = 1 - distToPlayer / throwable.radiusM;
+        this.onFlashbangScreen?.(intensity);
+      }
     }
     this.spawnFlashSprite(pos, Color3.White(), 1.2, 150);
   }

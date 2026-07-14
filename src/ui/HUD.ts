@@ -38,6 +38,7 @@ export class HUD {
   private lockHintEl: HTMLDivElement;
   private centerMessageEl: HTMLDivElement;
   private interactPromptEl: HTMLDivElement;
+  private safeZoneEl: HTMLDivElement;
   private radarCanvas: HTMLCanvasElement;
   private radarCtx: CanvasRenderingContext2D;
 
@@ -74,14 +75,18 @@ export class HUD {
     `;
     const style = document.createElement("style");
     style.textContent = `
-      .ch-line { position: absolute; background: rgba(225,235,220,0.85); }
-      .ch-top, .ch-bottom { left: 50%; width: 1.5px; height: 6px; margin-left: -0.75px; }
-      .ch-left, .ch-right { top: 50%; height: 1.5px; width: 6px; margin-top: -0.75px; }
+      .ch-line {
+        position: absolute; background: rgba(230,240,225,0.95);
+        box-shadow: 0 0 1.5px 0.5px rgba(0,0,0,0.85);
+      }
+      .ch-top, .ch-bottom { left: 50%; width: 1.5px; height: 5px; margin-left: -0.75px; }
+      .ch-left, .ch-right { top: 50%; height: 1.5px; width: 5px; margin-top: -0.75px; }
       .ch-top { top: 0; } .ch-bottom { bottom: 0; }
       .ch-left { left: 0; } .ch-right { right: 0; }
       .ch-dot {
         position: absolute; top: 50%; left: 50%; width: 1.5px; height: 1.5px;
-        margin: -0.75px; border-radius: 50%; background: rgba(225,235,220,0.7);
+        margin: -0.75px; border-radius: 50%; background: rgba(230,240,225,0.8);
+        box-shadow: 0 0 1.5px 0.5px rgba(0,0,0,0.85);
       }
     `;
     this.root.appendChild(style);
@@ -147,6 +152,12 @@ export class HUD {
       opacity: 0;
     `);
 
+    this.safeZoneEl = el("div", `
+      position:absolute; top:172px; left:50%; transform:translateX(-50%);
+      font-size:13px; font-weight:bold; letter-spacing:2px; padding:5px 16px;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.9); opacity:0; white-space:nowrap;
+    `);
+
     this.radarCanvas = document.createElement("canvas");
     this.radarCanvas.width = 140;
     this.radarCanvas.height = 140;
@@ -168,6 +179,7 @@ export class HUD {
     this.root.appendChild(this.centerMessageEl);
     this.root.appendChild(this.lockHintEl);
     this.root.appendChild(this.interactPromptEl);
+    this.root.appendChild(this.safeZoneEl);
     this.root.appendChild(this.radarCanvas);
     container.appendChild(this.root);
   }
@@ -231,8 +243,26 @@ export class HUD {
     this.waveEl.textContent = phaseLabel;
 
     this.crosshair.style.display = this.weaponController.isScopedIn ? "none" : "block";
-    const spreadPx = 6 + this.currentSpreadDeg() * 4;
+    // Small, sharp, and mostly static — a light touch of dynamic spread reads as
+    // feedback without the crosshair ballooning across the screen while moving/firing.
+    const spreadPx = 4 + Math.min(10, this.currentSpreadDeg() * 1.6);
     this.applyCrosshairSpread(spreadPx);
+
+    if (this.player.inSafeZone) {
+      this.safeZoneEl.textContent = "SAFE ZONE";
+      this.safeZoneEl.style.color = "#baf0ba";
+      this.safeZoneEl.style.background = "rgba(20,60,25,0.75)";
+      this.safeZoneEl.style.border = "1px solid rgba(140,220,140,0.6)";
+      this.safeZoneEl.style.opacity = "1";
+    } else if (this.player.spawnProtected) {
+      this.safeZoneEl.textContent = "SPAWN PROTECTED";
+      this.safeZoneEl.style.color = "#f0dc9a";
+      this.safeZoneEl.style.background = "rgba(60,48,15,0.75)";
+      this.safeZoneEl.style.border = "1px solid rgba(220,190,110,0.6)";
+      this.safeZoneEl.style.opacity = "1";
+    } else {
+      this.safeZoneEl.style.opacity = "0";
+    }
 
     this.hitmarker.style.opacity = now < this.hitmarkerUntil ? "1" : "0";
 
