@@ -41,7 +41,7 @@ const settings = new Settings();
 const audio = new AudioManager();
 audio.setVolume(settings.data.volume);
 
-const player = new PlayerController(game.scene, input, SPAWN_POINT);
+const player = new PlayerController(game.scene, input, SPAWN_POINT, audio);
 player.sensitivityMult = settings.data.sensitivity;
 applyGearToPlayer(gameState, player);
 player.health = player.maxHealth;

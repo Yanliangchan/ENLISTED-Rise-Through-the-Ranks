@@ -1,11 +1,15 @@
 import { UniversalCamera, Scene, Vector3, MeshBuilder, Mesh } from "@babylonjs/core";
 import type { InputManager } from "@/core/InputManager";
+import type { AudioManager } from "@/core/AudioManager";
+
+const FOOTSTEP_INTERVAL_WALK = 0.46; // seconds between footstep sounds at walk speed
+const FOOTSTEP_INTERVAL_SPRINT = 0.32;
 
 const WALK_SPEED = 4.5; // m/s
 const SPRINT_MULT = 1.6;
 const CROUCH_MULT = 0.5;
-const JUMP_SPEED = 5.5;
-const GRAVITY = -18;
+const JUMP_SPEED = 4.2; // gives ~0.9m of jump height at real gravity below
+const GRAVITY = -9.81; // real-world m/s^2
 const MOUSE_SENSITIVITY = 0.0022;
 
 const STAND_EYE_HEIGHT = 1.7;
@@ -36,11 +40,15 @@ export class PlayerController {
   weaponSpeedMult = 1;
   /** User sensitivity multiplier from settings (1 = default). */
   sensitivityMult = 1;
+  /** Set by WeaponController while aiming — scopes/zoom feel less twitchy at higher magnification. */
+  aimSensitivityMult = 1;
+  private footstepTimer = 0;
 
   constructor(
     private readonly scene: Scene,
     private readonly input: InputManager,
-    spawnPosition: Vector3
+    spawnPosition: Vector3,
+    private readonly audio?: AudioManager
   ) {
     this.collider = MeshBuilder.CreateCapsule(
       "playerCollider",
@@ -96,7 +104,7 @@ export class PlayerController {
 
   private applyMouseLook(): void {
     if (!this.input.isPointerLocked) return;
-    const sens = MOUSE_SENSITIVITY * this.sensitivityMult;
+    const sens = MOUSE_SENSITIVITY * this.sensitivityMult * this.aimSensitivityMult;
     this.collider.rotation.y += this.input.mouseDeltaX * sens;
     this.camera.rotation.x += this.input.mouseDeltaY * sens;
     const maxPitch = Math.PI / 2 - 0.01;
@@ -130,6 +138,16 @@ export class PlayerController {
       moveVector = dir.scale(speed * dt);
     }
 
+    if (moving && this.isGrounded) {
+      this.footstepTimer -= dt;
+      if (this.footstepTimer <= 0) {
+        this.audio?.footstep();
+        this.footstepTimer = sprinting ? FOOTSTEP_INTERVAL_SPRINT : FOOTSTEP_INTERVAL_WALK;
+      }
+    } else {
+      this.footstepTimer = 0;
+    }
+
     // Gravity + jump
     if (this.isGrounded && this.input.wasPressed("Space")) {
       this.verticalVelocity = JUMP_SPEED;
@@ -141,12 +159,18 @@ export class PlayerController {
     const beforeY = this.collider.position.y;
     this.collider.moveWithCollisions(moveVector);
 
-    // Grounded check: collision engine zeroed vertical motion against the floor.
+    // Grounded check: only true when the collision engine actually cut the fall
+    // short (actualDy measurably closer to zero than the requested moveVector.y).
+    // In free fall the two are equal, so the threshold must require a real gap —
+    // getting this backwards previously made every falling frame register as
+    // "landed" (zeroing velocity each tick, and re-arming the jump mid-air).
     const actualDy = this.collider.position.y - beforeY;
-    if (this.verticalVelocity <= 0 && actualDy > moveVector.y - 1e-4) {
+    if (this.verticalVelocity <= 0 && actualDy > moveVector.y + 0.001) {
       this.isGrounded = true;
       this.verticalVelocity = 0;
     } else if (this.verticalVelocity > 0) {
+      this.isGrounded = false;
+    } else {
       this.isGrounded = false;
     }
 

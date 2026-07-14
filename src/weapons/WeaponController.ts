@@ -52,6 +52,7 @@ export class WeaponController {
   private reloadTimer = 0;
   private fireCooldown = 0;
   private recoilKickPitch = 0; // accumulated upward kick still to recover
+  private swayTime = 0;
   bipodDeployed = false;
   private readonly scopeLens: ScopeLens;
 
@@ -166,13 +167,27 @@ export class WeaponController {
     // "isScope") still get a small FOV nudge for a bit of ADS feel.
     const targetFov = isScope ? BASE_FOV : BASE_FOV / (1 + (this.effective.zoom - 1) * this.adsBlend);
     this.player.camera.fov = targetFov;
-    this.scopeLens.update(isScope, this.adsBlend, this.effective.zoom);
+
+    // Higher-power scopes feel less twitchy to aim with, like real optics — scale
+    // mouse sensitivity down with zoom while aiming, blending back to normal at hip.
+    const aimSens = wantsAim ? 1 / Math.sqrt(Math.max(1, this.effective.zoom)) : 1;
+    this.player.aimSensitivityMult = 1 + (aimSens - 1) * this.adsBlend;
+
+    // Subtle idle weapon sway while aiming — purely visual (the hitscan ray still
+    // fires from the camera's exact look direction), fades in with ADS blend so it
+    // never affects hip-fire and never throws off where the reticle is pointing.
+    this.swayTime += dt;
+    const swayScale = 0.0035 * this.adsBlend;
+    const swayX = Math.sin(this.swayTime * 1.3) * swayScale;
+    const swayY = Math.cos(this.swayTime * 0.9) * swayScale * 0.6;
+
+    this.scopeLens.update(isScope, this.adsBlend, this.effective.zoom, swayX, swayY);
 
     if (this.activeViewmodel) {
       const hip = new Vector3(0.18, -0.16, 0.35);
       // Solve for the root position that puts the sight/optic at screen centre.
       const sight = this.activeViewmodel.sightOffset;
-      const ads = new Vector3(-sight.x, -sight.y, 0.28 - sight.z);
+      const ads = new Vector3(-sight.x + swayX, -sight.y + swayY, 0.28 - sight.z);
       this.activeViewmodel.root.position = Vector3.Lerp(hip, ads, this.adsBlend);
 
       if (isScope) {
@@ -201,6 +216,16 @@ export class WeaponController {
       return;
     }
     this.reloadTimer -= dt;
+
+    // Simple reload "animation": dip the weapon down and bring it back up over the
+    // reload duration (no skeleton/rig to work with, so this is a stand-in for a
+    // real lower-mag-insert-raise sequence).
+    if (this.activeViewmodel) {
+      const progress = 1 - Math.max(0, this.reloadTimer) / Math.max(0.01, this.effective.reloadTimeSec);
+      const dip = Math.sin(Math.min(1, progress) * Math.PI) * 0.09;
+      this.activeViewmodel.root.position.y -= dip;
+    }
+
     if (this.reloadTimer <= 0) {
       const needed = this.effective.magSize - this.ammo.mag;
       const loaded = Math.min(needed, this.ammo.reserve);
@@ -220,7 +245,7 @@ export class WeaponController {
 
   private updateRecoilRecovery(dt: number): void {
     if (this.recoilKickPitch <= 0) return;
-    const recoveryRad = this.weapon.recoil.recovery * 0.01 * dt;
+    const recoveryRad = this.weapon.recoil.recovery * 0.022 * dt;
     const step = Math.min(this.recoilKickPitch, recoveryRad);
     this.player.camera.rotation.x += step;
     this.recoilKickPitch -= step;
@@ -293,26 +318,37 @@ export class WeaponController {
 
   private applyRecoil(): void {
     const bipodMult = this.bipodDeployed ? 0.25 : 1;
-    const kick = this.effective.recoilVertical * 0.012 * bipodMult;
+    const kick = this.effective.recoilVertical * 0.007 * bipodMult;
     this.player.camera.rotation.x -= kick;
     this.recoilKickPitch += kick;
 
-    const jitter = (Math.random() * 2 - 1) * this.effective.recoilHorizontal * 0.01 * bipodMult;
+    const jitter = (Math.random() * 2 - 1) * this.effective.recoilHorizontal * 0.006 * bipodMult;
     this.player.addYaw(jitter);
   }
 
   private computeSpreadRadians(): number {
-    const base = this.isAiming ? this.effective.spreadAds : this.effective.spreadHip;
+    // ADS gets a further accuracy multiplier on top of the weapon's own tight ADS
+    // stat — aiming down sights should feel reliably precise, not just "less wide".
+    const base = this.isAiming ? this.effective.spreadAds * 0.5 : this.effective.spreadHip;
     const moveExtra = this.player.isMoving && !this.bipodDeployed ? this.weapon.spread.movePenalty : 0;
+    // Leaving the ground (jumping/falling) throws aim off hard, same as most shooters.
+    const airborneExtra = this.player.grounded ? 0 : this.weapon.spread.movePenalty * 1.8 + 1.2;
+    // Crouching or standing fully still tightens the group; bipod (handled below) supersedes this.
+    const crouchMult = this.player.crouching && !this.bipodDeployed ? 0.55 : 1;
     const bipodMult = this.bipodDeployed ? 0.25 : 1;
-    return ((base + moveExtra) * bipodMult * Math.PI) / 180;
+    return ((base + moveExtra + airborneExtra) * crouchMult * bipodMult * Math.PI) / 180;
   }
 
   private raycastShot(): void {
     const camera = this.player.camera;
     const spreadRad = this.computeSpreadRadians();
-    const randYaw = (Math.random() * 2 - 1) * spreadRad;
-    const randPitch = (Math.random() * 2 - 1) * spreadRad;
+    // Uniform sampling over a disk (not an independent-axis square) so the actual
+    // worst-case miss angle matches the weapon's spread stat exactly instead of
+    // overshooting by up to sqrt(2)x at the corners.
+    const angle = Math.random() * Math.PI * 2;
+    const radiusFrac = Math.sqrt(Math.random());
+    const randYaw = Math.cos(angle) * spreadRad * radiusFrac;
+    const randPitch = Math.sin(angle) * spreadRad * radiusFrac;
 
     const localDir = Vector3.TransformCoordinates(
       new Vector3(0, 0, 1),
@@ -341,10 +377,27 @@ export class WeaponController {
         if (isHeadshot) this.audio.headshot();
         this.callbacks.onHit?.(finalDmg, isHeadshot);
         if (meta.damageable.isDead) this.callbacks.onKill?.(meta.damageable.id);
+        this.spawnImpactEffect(pick.pickedPoint, true);
+      } else {
+        this.audio.impact();
+        this.spawnImpactEffect(pick.pickedPoint, false);
       }
     } else {
       this.drawTracer(muzzleWorld, origin.add(worldDir.scale(200)));
     }
+  }
+
+  /** Quick spark/blood-tint flash at the bullet's impact point — world hits vs flesh hits read differently. */
+  private spawnImpactEffect(position: Vector3, isFlesh: boolean): void {
+    const spark = MeshBuilder.CreateDisc("impactSpark", { radius: 0.05, tessellation: 6 }, this.scene);
+    spark.position = position.clone();
+    spark.billboardMode = 7; // BILLBOARDMODE_ALL
+    spark.isPickable = false;
+    const mat = new StandardMaterial("impactSparkMat", this.scene);
+    mat.emissiveColor = isFlesh ? new Color3(0.6, 0.05, 0.05) : new Color3(0.9, 0.75, 0.4);
+    mat.disableLighting = true;
+    spark.material = mat;
+    setTimeout(() => spark.dispose(), 90);
   }
 
   private spawnMuzzleFlash(): void {

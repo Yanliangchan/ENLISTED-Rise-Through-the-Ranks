@@ -51,6 +51,12 @@ export class ScopeLens {
     this.rtt = new RenderTargetTexture("scopeRTT", 512, scene, false);
     this.rtt.activeCamera = this.scopeCamera;
     this.rtt.refreshRate = 1;
+    // Without an explicit renderList, RTT falls back to the main camera's last
+    // active-mesh set rather than evaluating fresh for the scope camera — that
+    // left the lens showing nothing but the clear colour. scene.meshes is a live
+    // array (renderList tracks pushes/removals automatically), so this stays
+    // correct as enemies/crates spawn later.
+    this.rtt.renderList = scene.meshes;
     scene.customRenderTargets.push(this.rtt);
 
     const lensMat = new StandardMaterial("scopeLensMat", scene);
@@ -105,8 +111,8 @@ export class ScopeLens {
     this.rtt.refreshRate = v ? 1 : RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
   }
 
-  /** blend: 0..1 ADS progress. zoom: the fitted optic's magnification. */
-  update(active: boolean, blend: number, zoom: number): void {
+  /** blend: 0..1 ADS progress. zoom: the fitted optic's magnification. swayX/Y: subtle idle sway offset. */
+  update(active: boolean, blend: number, zoom: number, swayX = 0, swayY = 0): void {
     this.setVisible(active && blend > 0.5);
     if (!this.visible) return;
     this.scopeCamera.fov = BASE_FOV / zoom;
@@ -115,6 +121,10 @@ export class ScopeLens {
     const scale = 0.7 + 0.3 * growth;
     this.disc.scaling.set(scale, scale, scale);
     this.rim.scaling.set(scale, scale, scale);
+
+    this.disc.position.set(swayX, swayY, LENS_DISTANCE);
+    this.rim.position.set(swayX, swayY, LENS_DISTANCE);
+    for (const part of this.reticleParts) part.position.set(swayX, swayY, LENS_DISTANCE - 0.001);
   }
 
   dispose(): void {

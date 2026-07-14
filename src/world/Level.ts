@@ -119,9 +119,20 @@ export function buildLevel(scene: Scene): void {
   const sun = new DirectionalLight("sunLight", new Vector3(-0.5, -1, 0.3), scene);
   sun.intensity = 0.9;
 
+  // Distance fog for depth/atmosphere — cheap (no extra draw calls) and hides the
+  // ground/building pop-in at the far edge of the play space.
+  scene.fogMode = Scene.FOGMODE_LINEAR;
+  scene.fogStart = 70;
+  scene.fogEnd = 220;
+  scene.fogColor = new Color3(0.5, 0.58, 0.68);
+
   const groundMat = new StandardMaterial("groundMat", scene);
   groundMat.diffuseColor = new Color3(0.3, 0.32, 0.28);
   groundMat.specularColor = Color3.Black();
+  const pavementTex = createPavementTexture(scene);
+  pavementTex.uScale = 60;
+  pavementTex.vScale = 60;
+  groundMat.diffuseTexture = pavementTex;
 
   const ground = MeshBuilder.CreateGround("ground", { width: 260, height: 260 }, scene);
   ground.material = groundMat;
@@ -201,15 +212,18 @@ function buildRoads(scene: Scene): void {
  * different building types instead of uniform boxes.
  */
 function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
-  const windowTex = createWindowTexture(scene);
-
+  // Each material gets its own DynamicTexture instance rather than sharing/cloning
+  // one — Texture.clone() reloads from a `url`, which a canvas-based DynamicTexture
+  // doesn't have, so cloned copies came out blank (that's what made buildings look
+  // see-through: the facade texture had no image data).
   const shophouseMats = SHOPHOUSE_COLORS.map((color, i) => {
     const mat = new StandardMaterial(`shophouseMat_${i}`, scene);
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
-    const tex = windowTex.clone();
+    const tex = createWindowTexture(scene, `shophouseWindowTex_${i}`);
     tex.uScale = 3;
     tex.vScale = 4;
+    tex.hasAlpha = false;
     mat.diffuseTexture = tex;
     return mat;
   });
@@ -217,9 +231,10 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
     const mat = new StandardMaterial(`hdbMat_${i}`, scene);
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
-    const tex = windowTex.clone();
+    const tex = createWindowTexture(scene, `hdbWindowTex_${i}`);
     tex.uScale = 2.5;
     tex.vScale = 9;
+    tex.hasAlpha = false;
     mat.diffuseTexture = tex;
     return mat;
   });
@@ -263,9 +278,34 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
 }
 
 /** Procedural window-grid facade texture, shared/cloned across building materials. */
-function createWindowTexture(scene: Scene): DynamicTexture {
+/** Tiled concrete-slab texture for the ground — breaks up the previously flat colour. */
+function createPavementTexture(scene: Scene): DynamicTexture {
+  const size = 128;
+  const tex = new DynamicTexture("pavementTex", { width: size, height: size }, scene, false);
+  const ctx = tex.getContext() as CanvasRenderingContext2D;
+  ctx.fillStyle = "#4a4d46";
+  ctx.fillRect(0, 0, size, size);
+
+  const rand = mulberry32(55);
+  // Speckled noise for a rough concrete look.
+  for (let i = 0; i < 500; i++) {
+    const shade = 60 + Math.floor(rand() * 30);
+    ctx.fillStyle = `rgb(${shade},${shade + 2},${shade - 2})`;
+    ctx.fillRect(rand() * size, rand() * size, 1.5, 1.5);
+  }
+  // Slab joint lines.
+  ctx.strokeStyle = "#33352f";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, size - 2, size - 2);
+
+  tex.update();
+  tex.hasAlpha = false;
+  return tex;
+}
+
+function createWindowTexture(scene: Scene, name: string): DynamicTexture {
   const size = 256;
-  const tex = new DynamicTexture("windowTex", { width: size, height: size }, scene, false);
+  const tex = new DynamicTexture(name, { width: size, height: size }, scene, false);
   const ctx = tex.getContext() as CanvasRenderingContext2D;
   ctx.fillStyle = "#33322f";
   ctx.fillRect(0, 0, size, size);
@@ -652,6 +692,7 @@ export function applyWaveArcLighting(scene: Scene, wave: number): void {
   }
   const [, color, intensity] = band;
   scene.clearColor = new Color4(color.r, color.g, color.b, 1);
+  scene.fogColor = color;
   const hemi = scene.getLightByName("hemiLight");
   if (hemi) hemi.intensity = intensity;
 }

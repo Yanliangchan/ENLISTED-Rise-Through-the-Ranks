@@ -114,4 +114,12 @@ export class AudioManager {
   uiClick(): void {
     this.tone(700, 0.03, "square", 0.1);
   }
+
+  footstep(): void {
+    this.noiseBurst(0.07, 0.18, 300);
+  }
+
+  impact(): void {
+    this.noiseBurst(0.05, 0.25, 900);
+  }
 }
