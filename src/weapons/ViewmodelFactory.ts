@@ -81,17 +81,23 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
       grip.position.set(0, -0.12, 0.08);
       parts.push(body, barrel, mag, grip);
 
-      // Reflex/holographic sight: housing + emissive dot, mounted centred on the top rail.
-      // Kept small — ADS brings the sight right up to the camera, so full-size gun-scale
-      // geometry here would loom into frame as a giant block.
+      // Compact integral scope (matches the SAR 21's real 1.5x integral optic): short
+      // tube + objective/ocular lenses. Kept small — ADS brings the sight right up to
+      // the camera, so full-size gun-scale geometry here would loom into frame as a block.
       sightOffset = new Vector3(0, 0.11, -0.02);
-      const housing = MeshBuilder.CreateBox("sightHousing", { width: 0.014, height: 0.017, depth: 0.028 }, scene);
-      housing.position.copyFrom(sightOffset);
-      housing.material = housingMat;
-      const window = MeshBuilder.CreateBox("sightWindow", { width: 0.01, height: 0.011, depth: 0.003 }, scene);
-      window.position.set(sightOffset.x, sightOffset.y, sightOffset.z + 0.014);
-      window.material = lensMaterial(scene, `dotLens_${weapon.id}`, new Color3(1, 0.15, 0.1));
-      sightParts.push(housing, window);
+      const scopeTube = MeshBuilder.CreateCylinder("sightScopeTube", { diameter: 0.013, height: 0.045 }, scene);
+      scopeTube.rotation.x = Math.PI / 2;
+      scopeTube.position.copyFrom(sightOffset);
+      scopeTube.material = housingMat;
+      const objective = MeshBuilder.CreateCylinder("sightObjective", { diameter: 0.016, height: 0.004 }, scene);
+      objective.rotation.x = Math.PI / 2;
+      objective.position.set(sightOffset.x, sightOffset.y, sightOffset.z + 0.023);
+      objective.material = lensMaterial(scene, `sightObjectiveLens_${weapon.id}`, new Color3(0.9, 0.2, 0.15));
+      const ocular = MeshBuilder.CreateCylinder("sightOcular", { diameter: 0.012, height: 0.003 }, scene);
+      ocular.rotation.x = Math.PI / 2;
+      ocular.position.set(sightOffset.x, sightOffset.y, sightOffset.z - 0.022);
+      ocular.material = lensMaterial(scene, `sightOcularLens_${weapon.id}`, new Color3(0.15, 0.35, 0.5));
+      sightParts.push(scopeTube, objective, ocular);
       break;
     }
     case "pistol": {

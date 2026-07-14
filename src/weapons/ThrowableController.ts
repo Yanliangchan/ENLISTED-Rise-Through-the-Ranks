@@ -6,16 +6,20 @@ import type { AudioManager } from "@/core/AudioManager";
 import type { GameState } from "@/core/GameState";
 import type { InputManager } from "@/core/InputManager";
 
-const THROW_SPEED = 16;
-const THROW_ARC_UP = 4;
+const THROW_SPEED = 11;
+const THROW_ARC_UP = 3;
 const GRAVITY = -18;
+/** Fraction of horizontal speed lost per second of ground contact (rolling friction). */
+const GROUND_FRICTION_PER_SEC = 6;
+const RESTING_SPEED_THRESHOLD = 0.15;
 
 interface FlyingThrowable {
   throwable: Throwable;
   mesh: Mesh;
   velocity: Vector3;
   fuseRemaining: number;
-  landed: boolean;
+  /** Touching the ground — still slides briefly under friction before coming to rest. */
+  grounded: boolean;
 }
 
 /**
@@ -44,23 +48,41 @@ export class ThrowableController {
   update(dt: number): void {
     if (this.input.wasPressed("KeyG")) this.throwEquipped();
 
+    const justArmed: FlyingThrowable[] = [];
     for (const f of this.flying) {
-      if (f.landed) continue;
-      f.velocity.y += GRAVITY * dt;
-      const nextPos = f.mesh.position.add(f.velocity.scale(dt));
-      if (nextPos.y <= 0.15) {
-        nextPos.y = 0.15;
-        f.landed = f.throwable.type !== "frag"; // frag can bounce briefly; others settle
-        if (f.throwable.type === "tripflare") {
-          this.tripflares.push({ position: nextPos.clone(), radiusM: f.throwable.radiusM, triggered: false });
-          f.mesh.dispose();
-          this.flying = this.flying.filter((x) => x !== f);
-          continue;
+      if (!f.grounded) {
+        f.velocity.y += GRAVITY * dt;
+        const nextPos = f.mesh.position.add(f.velocity.scale(dt));
+        if (nextPos.y <= 0.1) {
+          // Touch down: kill vertical speed, keep a damped fraction of horizontal
+          // speed so it rolls a little rather than either stopping dead or sliding forever.
+          nextPos.y = 0.1;
+          f.grounded = true;
+          f.velocity.y = 0;
+          f.velocity.x *= 0.4;
+          f.velocity.z *= 0.4;
+          if (f.throwable.type === "tripflare") justArmed.push(f);
+        }
+        f.mesh.position = nextPos;
+      } else {
+        // Ground friction decays horizontal speed exponentially until it stops.
+        const decay = Math.max(0, 1 - GROUND_FRICTION_PER_SEC * dt);
+        f.velocity.x *= decay;
+        f.velocity.z *= decay;
+        if (f.velocity.lengthSquared() < RESTING_SPEED_THRESHOLD * RESTING_SPEED_THRESHOLD) {
+          f.velocity.setAll(0);
+        } else {
+          f.mesh.position.addInPlace(f.velocity.scale(dt));
         }
       }
-      f.mesh.position = nextPos;
       f.fuseRemaining -= dt;
       if (f.fuseRemaining <= 0) this.detonate(f);
+    }
+
+    for (const f of justArmed) {
+      this.tripflares.push({ position: f.mesh.position.clone(), radiusM: f.throwable.radiusM, triggered: false });
+      f.mesh.dispose();
+      this.flying = this.flying.filter((x) => x !== f);
     }
 
     const now = performance.now();
@@ -103,7 +125,7 @@ export class ThrowableController {
     mesh.material = mat;
     mesh.isPickable = false;
 
-    this.flying.push({ throwable, mesh, velocity, fuseRemaining: throwable.fuseSec, landed: false });
+    this.flying.push({ throwable, mesh, velocity, fuseRemaining: throwable.fuseSec, grounded: false });
     this.audio.throwableFuse();
   }
 

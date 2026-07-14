@@ -11,8 +11,11 @@ import type { AudioManager } from "@/core/AudioManager";
 import type { GameState } from "@/core/GameState";
 import type { EnemyManager } from "@/enemies/EnemySpawner";
 import type { HitMeshMetadata } from "@/weapons/Damageable";
+import type { ScopeOverlay } from "@/ui/ScopeOverlay";
 
 const BASE_FOV = 1.1;
+/** Optics at or above this zoom get the full CoD-style scope-in overlay instead of just a centred in-world sight. */
+const SCOPE_ZOOM_THRESHOLD = 1.3;
 
 interface AmmoState {
   mag: number;
@@ -58,7 +61,8 @@ export class WeaponController {
     private readonly audio: AudioManager,
     private readonly gameState: GameState,
     private readonly enemyManager: EnemyManager,
-    private readonly callbacks: WeaponControllerCallbacks = {}
+    private readonly callbacks: WeaponControllerCallbacks = {},
+    private readonly scopeOverlay?: ScopeOverlay
   ) {
     this.weapon = WEAPONS.sar21;
     this.effective = computeEffectiveStats(this.weapon, []);
@@ -144,6 +148,9 @@ export class WeaponController {
     const targetFov = BASE_FOV / (1 + (this.effective.zoom - 1) * this.adsBlend);
     this.player.camera.fov = targetFov;
 
+    const isScope = this.effective.zoom >= SCOPE_ZOOM_THRESHOLD;
+    this.scopeOverlay?.update(isScope, this.adsBlend);
+
     if (this.activeViewmodel) {
       const hip = new Vector3(0.18, -0.16, 0.35);
       // Solve for the root position that puts the sight/optic at screen centre.
@@ -151,10 +158,17 @@ export class WeaponController {
       const ads = new Vector3(-sight.x, -sight.y, 0.28 - sight.z);
       this.activeViewmodel.root.position = Vector3.Lerp(hip, ads, this.adsBlend);
 
-      // Hide the bulky body/barrel/mag once mostly aimed in — at ADS proximity + optic
-      // zoom, the full gun body would otherwise loom into frame as a giant dark block.
-      const showBody = this.adsBlend < 0.6;
-      for (const mesh of this.activeViewmodel.bodyMeshes) mesh.setEnabled(showBody);
+      if (isScope) {
+        // CoD-style scope-in: the ScopeOverlay takes over the screen, so the whole
+        // viewmodel (not just the bulky body) hides once mostly aimed in.
+        this.activeViewmodel.root.setEnabled(this.adsBlend < 0.5);
+      } else {
+        this.activeViewmodel.root.setEnabled(true);
+        // Hide the bulky body/barrel/mag once mostly aimed in — at ADS proximity + optic
+        // zoom, the full gun body would otherwise loom into frame as a giant dark block.
+        const showBody = this.adsBlend < 0.6;
+        for (const mesh of this.activeViewmodel.bodyMeshes) mesh.setEnabled(showBody);
+      }
     }
   }
 
