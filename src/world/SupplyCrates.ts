@@ -14,18 +14,18 @@ interface CrateSpot {
 
 /** Tucked into alleys, mid-block gaps, and the garden — off the main plaza sightlines. */
 const CRATE_SPOTS: CrateSpot[] = [
-  { x: 26, z: 13, type: "ammo" },
-  { x: -26, z: -13, type: "health" },
-  { x: 52, z: 26, type: "ammo" },
-  { x: -52, z: 26, type: "health" },
-  { x: 26, z: -52, type: "ammo" },
-  { x: -26, z: 52, type: "ammo" },
-  { x: 78, z: 0, type: "health" },
-  { x: -78, z: 0, type: "ammo" },
-  { x: 0, z: 78, type: "health" },
-  { x: -60, z: -60, type: "ammo" },
-  { x: -70, z: -30, type: "health" },
-  { x: 10, z: -14, type: "ammo" },
+  { x: 22, z: 11, type: "ammo" },
+  { x: -22, z: -11, type: "health" },
+  { x: 44, z: 22, type: "ammo" },
+  { x: -44, z: 22, type: "health" },
+  { x: 22, z: -44, type: "ammo" },
+  { x: -22, z: 44, type: "ammo" },
+  { x: 66, z: 0, type: "health" },
+  { x: -66, z: 0, type: "ammo" },
+  { x: 0, z: 66, type: "health" },
+  { x: -51, z: -51, type: "ammo" },
+  { x: -59, z: -25, type: "health" },
+  { x: 8, z: -12, type: "ammo" },
 ];
 
 const INTERACT_RADIUS = 2.3;

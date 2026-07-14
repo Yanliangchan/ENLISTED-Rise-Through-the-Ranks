@@ -64,20 +64,25 @@ export class HUD {
     `;
 
     this.crosshair = el("div", `
-      position: absolute; top: 50%; left: 50%; width: 20px; height: 20px;
+      position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
       transform: translate(-50%, -50%);
     `);
     this.crosshair.innerHTML = `
       <div class="ch-line ch-top"></div><div class="ch-line ch-bottom"></div>
       <div class="ch-line ch-left"></div><div class="ch-line ch-right"></div>
+      <div class="ch-dot"></div>
     `;
     const style = document.createElement("style");
     style.textContent = `
-      .ch-line { position: absolute; background: rgba(255,255,255,0.9); box-shadow: 0 0 2px rgba(0,0,0,0.9); }
-      .ch-top, .ch-bottom { left: 50%; width: 2px; height: 7px; margin-left: -1px; }
-      .ch-left, .ch-right { top: 50%; height: 2px; width: 7px; margin-top: -1px; }
+      .ch-line { position: absolute; background: rgba(225,235,220,0.85); }
+      .ch-top, .ch-bottom { left: 50%; width: 1.5px; height: 6px; margin-left: -0.75px; }
+      .ch-left, .ch-right { top: 50%; height: 1.5px; width: 6px; margin-top: -0.75px; }
       .ch-top { top: 0; } .ch-bottom { bottom: 0; }
       .ch-left { left: 0; } .ch-right { right: 0; }
+      .ch-dot {
+        position: absolute; top: 50%; left: 50%; width: 1.5px; height: 1.5px;
+        margin: -0.75px; border-radius: 50%; background: rgba(225,235,220,0.7);
+      }
     `;
     this.root.appendChild(style);
 

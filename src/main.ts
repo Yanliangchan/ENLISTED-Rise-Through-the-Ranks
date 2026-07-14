@@ -17,6 +17,7 @@ import { GameOverScreen } from "@/ui/GameOverScreen";
 import { ControlsOverlay } from "@/ui/ControlsOverlay";
 import { SupplyCrateManager } from "@/world/SupplyCrates";
 import { LandingPage } from "@/ui/LandingPage";
+import { ScopeOverlay } from "@/ui/ScopeOverlay";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -81,6 +82,7 @@ const waveManager = new WaveManager(game.scene, player, gameState, audio, {
   },
 });
 
+const scopeOverlay = new ScopeOverlay(uiRoot);
 const weaponController = new WeaponController(
   game.scene,
   player,
@@ -90,7 +92,8 @@ const weaponController = new WeaponController(
   waveManager.enemyManager,
   {
     onHit: () => hud.notifyHit(),
-  }
+  },
+  scopeOverlay
 );
 
 const loadout = new Loadout(input, gameState, weaponController);

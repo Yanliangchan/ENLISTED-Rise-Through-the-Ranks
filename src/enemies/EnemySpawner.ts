@@ -6,21 +6,21 @@ import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
 
 /**
- * Spawn points ring the map edge, just outside the street-grid buildings
- * (see Level.ts GRID_LINES, max extent ~104m), so OPFOR has to move through
- * the blocks and cover to reach the plaza.
+ * Spawn points ring the map edge, just inside the boundary wall (see
+ * Level.ts BOUNDARY_HALF = 100), so OPFOR has to move through the blocks
+ * and cover to reach the plaza.
  */
 const SPAWN_POINTS: Vector3[] = [
-  new Vector3(108, 0, 0),
-  new Vector3(-108, 0, 0),
-  new Vector3(0, 0, 108),
-  new Vector3(0, 0, -108),
-  new Vector3(76, 0, 76),
-  new Vector3(-76, 0, 76),
-  new Vector3(76, 0, -76),
-  // The SW diagonal point moved off the forest-camp spawn corner (~(-92,-92)) so
+  new Vector3(94, 0, 0),
+  new Vector3(-94, 0, 0),
+  new Vector3(0, 0, 94),
+  new Vector3(0, 0, -94),
+  new Vector3(65, 0, 65),
+  new Vector3(-65, 0, 65),
+  new Vector3(65, 0, -65),
+  // The SW diagonal point moved off the forest-camp spawn corner (~(-82,-82)) so
   // OPFOR don't materialise right on top of the player at wave start.
-  new Vector3(-108, 0, -55),
+  new Vector3(-94, 0, -45),
 ];
 
 /** Enemy-type mix per wave band, roughly matching the story's escalation. */

@@ -11,7 +11,7 @@ import type { AudioManager } from "@/core/AudioManager";
 import type { GameState } from "@/core/GameState";
 import type { EnemyManager } from "@/enemies/EnemySpawner";
 import type { HitMeshMetadata } from "@/weapons/Damageable";
-import { ScopeLens } from "@/weapons/ScopeLens";
+import type { ScopeOverlay } from "@/ui/ScopeOverlay";
 
 const BASE_FOV = 1.1;
 /** Optics at or above this zoom get the real windowed scope lens instead of just a centred in-world sight. */
@@ -54,7 +54,6 @@ export class WeaponController {
   private recoilKickPitch = 0; // accumulated upward kick still to recover
   private swayTime = 0;
   bipodDeployed = false;
-  private readonly scopeLens: ScopeLens;
 
   constructor(
     private readonly scene: Scene,
@@ -63,11 +62,11 @@ export class WeaponController {
     private readonly audio: AudioManager,
     private readonly gameState: GameState,
     private readonly enemyManager: EnemyManager,
-    private readonly callbacks: WeaponControllerCallbacks = {}
+    private readonly callbacks: WeaponControllerCallbacks = {},
+    private readonly scopeOverlay?: ScopeOverlay
   ) {
     this.weapon = WEAPONS.sar21;
     this.effective = computeEffectiveStats(this.weapon, []);
-    this.scopeLens = new ScopeLens(scene, player.camera);
   }
 
   private secondaryFireCooldown = 0;
@@ -173,11 +172,11 @@ export class WeaponController {
 
     const isScope = this.effective.zoom >= SCOPE_ZOOM_THRESHOLD;
 
-    // Scope zoom is handled entirely by the lens (a second camera composited onto a
-    // physical disc) so the player can still see their surroundings around it — the
-    // main camera's own FOV never narrows for scoped optics. Reflex/iron sights (not
-    // "isScope") still get a small FOV nudge for a bit of ADS feel.
-    const targetFov = isScope ? BASE_FOV : BASE_FOV / (1 + (this.effective.zoom - 1) * this.adsBlend);
+    // A plain FOV narrow for every optic, scoped or not — a normal perspective
+    // view stays undistorted (no lens-disc/fisheye artefacts) and gives a fast,
+    // responsive scope-in feel. Scoped optics additionally show the circular
+    // vignette + reticle overlay for the "looking through glass" read.
+    const targetFov = BASE_FOV / (1 + (this.effective.zoom - 1) * this.adsBlend);
     this.player.camera.fov = targetFov;
 
     // Higher-power scopes feel less twitchy to aim with, like real optics — scale
@@ -193,7 +192,7 @@ export class WeaponController {
     const swayX = Math.sin(this.swayTime * 1.3) * swayScale;
     const swayY = Math.cos(this.swayTime * 0.9) * swayScale * 0.6;
 
-    this.scopeLens.update(isScope, this.adsBlend, this.effective.zoom, swayX, swayY);
+    this.scopeOverlay?.update(isScope, this.adsBlend);
 
     if (this.activeViewmodel) {
       const hip = new Vector3(0.18, -0.16, 0.35);
