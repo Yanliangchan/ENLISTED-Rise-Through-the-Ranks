@@ -33,7 +33,7 @@ export class ScopeLens {
   private rtt: RenderTargetTexture;
   private disc: Mesh;
   private rim: Mesh;
-  private reticleParts: Mesh[] = [];
+  private reticleParts: Array<{ mesh: Mesh; baseX: number; baseY: number }> = [];
   // Starts true so the constructor's initial setVisible(false) actually runs (its
   // early-return guard only skips when the state already matches the target).
   private visible = true;
@@ -51,6 +51,9 @@ export class ScopeLens {
     this.rtt = new RenderTargetTexture("scopeRTT", 512, scene, false);
     this.rtt.activeCamera = this.scopeCamera;
     this.rtt.refreshRate = 1;
+    // Render targets in Babylon come out V-flipped relative to a normal image texture
+    // (a WebGL framebuffer convention), which is what made the scope view upside down.
+    this.rtt.vScale = -1;
     // Without an explicit renderList, RTT falls back to the main camera's last
     // active-mesh set rather than evaluating fresh for the scope camera — that
     // left the lens showing nothing but the clear colour. scene.meshes is a live
@@ -73,10 +76,11 @@ export class ScopeLens {
     this.disc.layerMask = VIEWMODEL_LAYER;
     this.disc.isPickable = false;
 
+    // Slim, clean rim — a simple dark ring rather than a thick bezel.
     const rimMat = new StandardMaterial("scopeRimMat", scene);
-    rimMat.diffuseColor = new Color3(0.04, 0.04, 0.045);
-    rimMat.specularColor = new Color3(0.15, 0.15, 0.15);
-    this.rim = MeshBuilder.CreateTorus("scopeRim", { diameter: LENS_RADIUS * 2 + 0.01, thickness: 0.016, tessellation: 32 }, scene);
+    rimMat.diffuseColor = new Color3(0.05, 0.05, 0.055);
+    rimMat.specularColor = new Color3(0.1, 0.1, 0.1);
+    this.rim = MeshBuilder.CreateTorus("scopeRim", { diameter: LENS_RADIUS * 2 + 0.006, thickness: 0.008, tessellation: 32 }, scene);
     this.rim.parent = mainCamera;
     this.rim.position.set(0, 0, LENS_DISTANCE);
     this.rim.rotation.x = Math.PI / 2;
@@ -84,19 +88,28 @@ export class ScopeLens {
     this.rim.layerMask = VIEWMODEL_LAYER;
     this.rim.isPickable = false;
 
+    // Simple thin crosshair — no extra tick marks or dot, just clean intersecting lines
+    // that stop short of the centre so they don't obscure the target point itself.
     const reticleMat = new StandardMaterial("scopeReticleMat", scene);
-    reticleMat.diffuseColor = new Color3(0.02, 0.02, 0.02);
+    reticleMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
     reticleMat.disableLighting = true;
-    const barLen = LENS_RADIUS * 1.9;
-    const barH = MeshBuilder.CreateBox("scopeReticleH", { width: barLen, height: 0.0012, depth: 0.001 }, scene);
-    const barV = MeshBuilder.CreateBox("scopeReticleV", { width: 0.0012, height: barLen, depth: 0.001 }, scene);
-    for (const bar of [barH, barV]) {
+    const barLen = LENS_RADIUS * 0.75;
+    const gap = LENS_RADIUS * 0.18;
+    const barThickness = 0.0008;
+    const barSpecs: Array<[number, number, number, number]> = [
+      [-gap - barLen / 2, 0, barLen, barThickness], // left
+      [gap + barLen / 2, 0, barLen, barThickness], // right
+      [0, -gap - barLen / 2, barThickness, barLen], // bottom
+      [0, gap + barLen / 2, barThickness, barLen], // top
+    ];
+    for (const [x, y, w, h] of barSpecs) {
+      const bar = MeshBuilder.CreateBox("scopeReticleBar", { width: w, height: h, depth: 0.001 }, scene);
       bar.material = reticleMat;
       bar.parent = mainCamera;
-      bar.position.set(0, 0, LENS_DISTANCE - 0.001);
+      bar.position.set(x, y, LENS_DISTANCE - 0.001);
       bar.layerMask = VIEWMODEL_LAYER;
       bar.isPickable = false;
-      this.reticleParts.push(bar);
+      this.reticleParts.push({ mesh: bar, baseX: x, baseY: y });
     }
 
     this.setVisible(false);
@@ -107,7 +120,7 @@ export class ScopeLens {
     this.visible = v;
     this.disc.setEnabled(v);
     this.rim.setEnabled(v);
-    for (const part of this.reticleParts) part.setEnabled(v);
+    for (const part of this.reticleParts) part.mesh.setEnabled(v);
     this.rtt.refreshRate = v ? 1 : RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
   }
 
@@ -124,7 +137,9 @@ export class ScopeLens {
 
     this.disc.position.set(swayX, swayY, LENS_DISTANCE);
     this.rim.position.set(swayX, swayY, LENS_DISTANCE);
-    for (const part of this.reticleParts) part.position.set(swayX, swayY, LENS_DISTANCE - 0.001);
+    for (const part of this.reticleParts) {
+      part.mesh.position.set(part.baseX + swayX, part.baseY + swayY, LENS_DISTANCE - 0.001);
+    }
   }
 
   dispose(): void {
@@ -132,6 +147,6 @@ export class ScopeLens {
     this.scopeCamera.dispose();
     this.disc.dispose();
     this.rim.dispose();
-    for (const part of this.reticleParts) part.dispose();
+    for (const part of this.reticleParts) part.mesh.dispose();
   }
 }

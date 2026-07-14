@@ -88,6 +88,18 @@ export class WeaponController {
     }
   }
 
+  /** Full resupply on spawn/redeploy: every touched weapon gets a full mag and full reserve back. */
+  resetAllAmmo(): void {
+    for (const weaponId of this.ammoByWeapon.keys()) {
+      const weapon = WEAPONS[weaponId];
+      if (!weapon) continue;
+      const effective = computeEffectiveStats(weapon, this.gameState.getFittedAttachments(weaponId));
+      this.ammoByWeapon.set(weaponId, { mag: effective.magSize, reserve: weapon.reserveAmmo });
+    }
+    this.isReloading = false;
+    this.reloadTimer = 0;
+  }
+
   equip(weaponId: string): void {
     const weapon = WEAPONS[weaponId];
     if (!weapon) return;

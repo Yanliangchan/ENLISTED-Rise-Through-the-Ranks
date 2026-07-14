@@ -40,6 +40,9 @@ const MAP_SPAN = 240;
 
 /** South-west quadrant reserved for the park district — kept clear of street-grid buildings. */
 const GARDEN_BOUNDS = { minX: -100, maxX: -22, minZ: -100, maxZ: -22 };
+/** Concealed forest clearing in the map's SW corner — the player's tented deployment point. */
+export const CAMP_POSITION = new Vector3(-92, 2, -92);
+const CAMP_CLEARING_RADIUS = 11;
 
 export type BuildingType = "shophouse" | "hdb";
 
@@ -328,41 +331,121 @@ function createWindowTexture(scene: Scene, name: string): DynamicTexture {
 }
 
 /** Waist-high crates for close cover in the plaza and at street junctions. */
+type CoverType = "crate" | "cratePile" | "sandbags" | "barrier";
+
+/**
+ * Varied close-quarters cover scattered through the plaza and streets —
+ * crates, stacked crate piles, sandbag walls, and concrete barriers instead
+ * of one box repeated everywhere.
+ */
 function buildCover(scene: Scene): void {
   const crateMat = new StandardMaterial("crateMat", scene);
   crateMat.diffuseColor = new Color3(0.4, 0.35, 0.25);
   crateMat.specularColor = Color3.Black();
 
-  const crateLayout: Array<[number, number, number]> = [
-    // Central plaza — near player spawn, ring of low cover.
-    [8, 1, 6],
-    [-9, 1, 5],
-    [6, 1, -9],
-    [-7, 1, -8],
-    [0, 1.3, 16],
-    [14, 1, 2],
-    [-14, 1, -3],
-    [3, 1, -17],
+  const sandbagMat = new StandardMaterial("sandbagMat", scene);
+  sandbagMat.diffuseColor = new Color3(0.55, 0.48, 0.32);
+  sandbagMat.specularColor = Color3.Black();
+
+  const barrierMat = new StandardMaterial("barrierMat", scene);
+  barrierMat.diffuseColor = new Color3(0.62, 0.6, 0.58);
+  barrierMat.specularColor = Color3.Black();
+
+  const coverLayout: Array<[number, number, CoverType, number]> = [
+    // Central plaza — near player spawn, ring of varied low cover.
+    [8, 6, "crate", 0],
+    [-9, 5, "sandbags", 0.3],
+    [6, -9, "barrier", 0.9],
+    [-7, -8, "cratePile", 0],
+    [0, 16, "sandbags", 0],
+    [14, 2, "crate", 0],
+    [-14, -3, "barrier", 1.4],
+    [3, -17, "cratePile", 0.5],
     // Street junctions further out.
-    [26, 1, 13],
-    [-26, 1, -13],
-    [13, 1, -26],
-    [-13, 1, 26],
-    [39, 1.4, 0],
-    [-39, 1.4, 0],
-    [0, 1.4, 39],
-    [0, 1.4, -39],
+    [26, 13, "barrier", 0],
+    [-26, -13, "sandbags", 0.7],
+    [13, -26, "crate", 0],
+    [-13, 26, "cratePile", 0],
+    [39, 0, "sandbags", Math.PI / 2],
+    [-39, 0, "barrier", Math.PI / 2],
+    [0, 39, "crate", 0],
+    [0, -39, "cratePile", 0.2],
+    [52, 26, "sandbags", 0],
+    [-52, -26, "barrier", 0.4],
+    [26, 52, "cratePile", 0],
+    [-26, -52, "crate", 0],
   ];
-  crateLayout.forEach(([x, halfHeight, z], i) => {
-    const crate = MeshBuilder.CreateBox(
-      `crate_${i}`,
-      { width: 2, height: halfHeight * 2, depth: 2 },
-      scene
-    );
-    crate.position.set(x, halfHeight, z);
-    crate.material = crateMat;
-    crate.checkCollisions = true;
+
+  coverLayout.forEach(([x, z, type, rot], i) => {
+    switch (type) {
+      case "crate": {
+        const crate = MeshBuilder.CreateBox(`crate_${i}`, { width: 2, height: 2, depth: 2 }, scene);
+        crate.position.set(x, 1, z);
+        crate.rotation.y = rot;
+        crate.material = crateMat;
+        crate.checkCollisions = true;
+        break;
+      }
+      case "cratePile": {
+        const base = MeshBuilder.CreateBox(`cratePileBase_${i}`, { width: 2.2, height: 1.4, depth: 2.2 }, scene);
+        base.position.set(x, 0.7, z);
+        base.rotation.y = rot;
+        base.material = crateMat;
+        base.checkCollisions = true;
+        const top = MeshBuilder.CreateBox(`cratePileTop_${i}`, { width: 1.3, height: 1.1, depth: 1.3 }, scene);
+        top.position.set(x + 0.5, 1.4 + 0.55, z + 0.4);
+        top.rotation.y = rot + 0.4;
+        top.material = crateMat;
+        top.checkCollisions = true;
+        break;
+      }
+      case "sandbags": {
+        buildSandbagWall(scene, x, z, rot, sandbagMat, i);
+        break;
+      }
+      case "barrier": {
+        buildConcreteBarrier(scene, x, z, rot, barrierMat, i);
+        break;
+      }
+    }
   });
+}
+
+/** Low stacked sandbag wall — two rows of squat bags, good chest-high cover. */
+function buildSandbagWall(scene: Scene, x: number, z: number, rotY: number, mat: StandardMaterial, index: number): void {
+  const wall = MeshBuilder.CreateBox(`sandbagWall_${index}`, { width: 3, height: 1.1, depth: 0.8 }, scene);
+  wall.position.set(x, 0.55, z);
+  wall.rotation.y = rotY;
+  wall.material = mat;
+  wall.checkCollisions = true;
+
+  for (let i = 0; i < 5; i++) {
+    const bag = MeshBuilder.CreateSphere(`sandbag_${index}_${i}`, { diameterX: 0.55, diameterY: 0.35, diameterZ: 0.4 }, scene);
+    const along = -1.15 + i * 0.58;
+    bag.position.set(
+      x + Math.cos(rotY) * along,
+      1.15,
+      z - Math.sin(rotY) * along
+    );
+    bag.rotation.y = rotY;
+    bag.material = mat;
+    bag.isPickable = false;
+  }
+}
+
+/** Concrete Jersey barrier — a wedge-profile block, common roadside/checkpoint cover. */
+function buildConcreteBarrier(scene: Scene, x: number, z: number, rotY: number, mat: StandardMaterial, index: number): void {
+  const base = MeshBuilder.CreateBox(`barrierBase_${index}`, { width: 2.4, height: 0.5, depth: 0.7 }, scene);
+  base.position.set(x, 0.25, z);
+  base.rotation.y = rotY;
+  base.material = mat;
+  base.checkCollisions = true;
+
+  const top = MeshBuilder.CreateBox(`barrierTop_${index}`, { width: 2.4, height: 0.6, depth: 0.35 }, scene);
+  top.position.set(x, 0.8, z);
+  top.rotation.y = rotY;
+  top.material = mat;
+  top.checkCollisions = true;
 }
 
 const CAR_COLORS = [new Color3(0.75, 0.1, 0.1), new Color3(0.1, 0.15, 0.5), new Color3(0.85, 0.85, 0.85), new Color3(0.15, 0.15, 0.15)];
@@ -543,7 +626,7 @@ function buildTrashBin(
   lid.isPickable = false;
 }
 
-/** Park district: grass patch, a lake (visual, ringed with a low collidable kerb), trees, and benches. */
+/** Park/forest district: grass patch, a lake, dense trees, bushes, flowers, benches, and the camp clearing. */
 function buildGardenDistrict(scene: Scene): void {
   const grassMat = new StandardMaterial("grassMat", scene);
   grassMat.diffuseColor = new Color3(0.24, 0.38, 0.2);
@@ -561,7 +644,9 @@ function buildGardenDistrict(scene: Scene): void {
 
   buildLake(scene, centerX + 8, centerZ - 6, 16);
   buildTrees(scene, centerX, centerZ, width, depth);
+  buildBushesAndFlowers(scene, centerX, centerZ, width, depth);
   buildBenches(scene, centerX, centerZ);
+  buildCamp(scene);
 }
 
 function buildLake(scene: Scene, x: number, z: number, diameter: number): void {
@@ -608,10 +693,11 @@ function buildTrees(scene: Scene, centerX: number, centerZ: number, width: numbe
     return mat;
   });
 
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 55; i++) {
     const x = centerX - width / 2 + rand() * width;
     const z = centerZ - depth / 2 + rand() * depth;
     if (Vector3.Distance(new Vector3(x, 0, z), new Vector3(centerX + 8, 0, centerZ - 6)) < 11) continue; // avoid the lake
+    if (Vector3.Distance(new Vector3(x, 0, z), CAMP_POSITION) < CAMP_CLEARING_RADIUS) continue; // keep the camp clearing open
 
     const trunk = MeshBuilder.CreateCylinder(`tree_${i}_trunk`, { diameter: 0.35, height: 2.2 }, scene);
     trunk.position.set(x, 1.1, z);
@@ -623,6 +709,126 @@ function buildTrees(scene: Scene, centerX: number, centerZ: number, width: numbe
     canopy.material = canopyMats[i % canopyMats.length];
     canopy.isPickable = false;
   }
+}
+
+/** Low bushes (small trunkless canopies) and clusters of flowers scattered through the forest. */
+function buildBushesAndFlowers(scene: Scene, centerX: number, centerZ: number, width: number, depth: number): void {
+  const rand = mulberry32(212);
+  const bushMat = new StandardMaterial("bushMat", scene);
+  bushMat.diffuseColor = new Color3(0.2, 0.34, 0.17);
+  bushMat.specularColor = Color3.Black();
+
+  const flowerColors = [
+    new Color3(0.85, 0.2, 0.25),
+    new Color3(0.95, 0.8, 0.15),
+    new Color3(0.95, 0.95, 0.9),
+    new Color3(0.8, 0.4, 0.75),
+  ];
+  const flowerMats = flowerColors.map((c, i) => {
+    const mat = new StandardMaterial(`flowerMat_${i}`, scene);
+    mat.diffuseColor = c;
+    mat.emissiveColor = c.scale(0.25);
+    mat.specularColor = Color3.Black();
+    return mat;
+  });
+
+  for (let i = 0; i < 34; i++) {
+    const x = centerX - width / 2 + rand() * width;
+    const z = centerZ - depth / 2 + rand() * depth;
+    if (Vector3.Distance(new Vector3(x, 0, z), new Vector3(centerX + 8, 0, centerZ - 6)) < 10) continue;
+    if (Vector3.Distance(new Vector3(x, 0, z), CAMP_POSITION) < CAMP_CLEARING_RADIUS - 3) continue;
+
+    const bush = MeshBuilder.CreateSphere(`bush_${i}`, { diameter: 1.1 + rand() * 0.6, segments: 6 }, scene);
+    bush.scaling.y = 0.6;
+    bush.position.set(x, 0.4, z);
+    bush.material = bushMat;
+    bush.checkCollisions = true;
+  }
+
+  for (let cluster = 0; cluster < 16; cluster++) {
+    const cx = centerX - width / 2 + rand() * width;
+    const cz = centerZ - depth / 2 + rand() * depth;
+    if (Vector3.Distance(new Vector3(cx, 0, cz), CAMP_POSITION) < CAMP_CLEARING_RADIUS - 4) continue;
+    const mat = flowerMats[cluster % flowerMats.length];
+    for (let f = 0; f < 5; f++) {
+      const fx = cx + (rand() - 0.5) * 1.8;
+      const fz = cz + (rand() - 0.5) * 1.8;
+      const flower = MeshBuilder.CreateSphere(`flower_${cluster}_${f}`, { diameter: 0.14, segments: 4 }, scene);
+      flower.position.set(fx, 0.14, fz);
+      flower.material = mat;
+      flower.isPickable = false;
+    }
+  }
+}
+
+/**
+ * The player's SAF deployment point — a concealed tented camp tucked in the
+ * forest's clearing (see CAMP_POSITION/CAMP_CLEARING_RADIUS). Two tents, a
+ * flagpole, and supply crates; player always spawns/redeploys here.
+ */
+function buildCamp(scene: Scene): void {
+  const dirtMat = new StandardMaterial("campDirtMat", scene);
+  dirtMat.diffuseColor = new Color3(0.32, 0.28, 0.2);
+  dirtMat.specularColor = Color3.Black();
+  const clearing = MeshBuilder.CreateGround("campClearing", { width: CAMP_CLEARING_RADIUS * 2, height: CAMP_CLEARING_RADIUS * 2 }, scene);
+  clearing.position.set(CAMP_POSITION.x, 0.03, CAMP_POSITION.z);
+  clearing.material = dirtMat;
+  clearing.isPickable = false;
+
+  buildTent(scene, CAMP_POSITION.x - 4, CAMP_POSITION.z + 2, 0.3, "camp_tent_0");
+  buildTent(scene, CAMP_POSITION.x - 2, CAMP_POSITION.z - 4, -0.6, "camp_tent_1");
+
+  const poleMat = new StandardMaterial("campFlagpoleMat", scene);
+  poleMat.diffuseColor = new Color3(0.15, 0.15, 0.16);
+  const pole = MeshBuilder.CreateCylinder("campFlagpole", { diameter: 0.14, height: 5 }, scene);
+  pole.position.set(CAMP_POSITION.x + 3, 2.5, CAMP_POSITION.z);
+  pole.material = poleMat;
+  pole.checkCollisions = true;
+
+  const flagMat = new StandardMaterial("campFlagMat", scene);
+  flagMat.diffuseColor = new Color3(0.85, 0.1, 0.1);
+  flagMat.backFaceCulling = false;
+  const flag = MeshBuilder.CreatePlane("campFlag", { width: 1.1, height: 0.7 }, scene);
+  flag.position.set(CAMP_POSITION.x + 3.55, 4.5, CAMP_POSITION.z);
+  flag.rotation.y = Math.PI / 2;
+  flag.material = flagMat;
+  flag.isPickable = false;
+
+  const crateMat = new StandardMaterial("campCrateMat", scene);
+  crateMat.diffuseColor = new Color3(0.38, 0.33, 0.22);
+  crateMat.specularColor = Color3.Black();
+  const cratePositions: Array<[number, number]> = [
+    [CAMP_POSITION.x + 2, CAMP_POSITION.z + 3.5],
+    [CAMP_POSITION.x + 2.8, CAMP_POSITION.z + 4.3],
+  ];
+  cratePositions.forEach(([x, z], i) => {
+    const crate = MeshBuilder.CreateBox(`campCrate_${i}`, { width: 1.2, height: 1, depth: 1.2 }, scene);
+    crate.position.set(x, 0.5, z);
+    crate.material = crateMat;
+    crate.checkCollisions = true;
+  });
+}
+
+/** Simple two-panel canvas tent: a triangular-prism roof over a low box body. */
+function buildTent(scene: Scene, x: number, z: number, rotY: number, name: string): void {
+  const canvasMat = new StandardMaterial(`${name}Mat`, scene);
+  canvasMat.diffuseColor = new Color3(0.28, 0.32, 0.22); // olive canvas
+  canvasMat.specularColor = Color3.Black();
+
+  const roof = MeshBuilder.CreateCylinder(`${name}_roof`, { diameter: 2.6, height: 3.4, tessellation: 3 }, scene);
+  roof.rotation.z = Math.PI / 2;
+  roof.rotation.y = rotY;
+  roof.position.set(x, 1.1, z);
+  roof.material = canvasMat;
+  roof.checkCollisions = true;
+
+  const floorMat = new StandardMaterial(`${name}FloorMat`, scene);
+  floorMat.diffuseColor = new Color3(0.22, 0.2, 0.15);
+  const floor = MeshBuilder.CreateBox(`${name}_floor`, { width: 3.4, height: 0.1, depth: 2.6 }, scene);
+  floor.rotation.y = rotY;
+  floor.position.set(x, 0.05, z);
+  floor.material = floorMat;
+  floor.isPickable = false;
 }
 
 function buildBenches(scene: Scene, centerX: number, centerZ: number): void {

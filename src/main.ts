@@ -1,12 +1,11 @@
-import { Vector3 } from "@babylonjs/core";
 import { GameEngine } from "@/core/Engine";
 import { InputManager } from "@/core/InputManager";
 import { GameState } from "@/core/GameState";
 import { Settings } from "@/core/Settings";
 import { AudioManager } from "@/core/AudioManager";
 import { PlayerController } from "@/player/PlayerController";
-import { applyGearToPlayer } from "@/player/Gear";
-import { buildLevel, applyWaveArcLighting, generateBuildingLayout } from "@/world/Level";
+import { applyGearToPlayer, maxThrowableCapacity } from "@/player/Gear";
+import { buildLevel, applyWaveArcLighting, generateBuildingLayout, CAMP_POSITION } from "@/world/Level";
 import { WaveManager } from "@/world/WaveManager";
 import { WeaponController } from "@/weapons/WeaponController";
 import { Loadout } from "@/weapons/Loadout";
@@ -17,11 +16,12 @@ import { PauseMenu } from "@/ui/PauseMenu";
 import { GameOverScreen } from "@/ui/GameOverScreen";
 import { ControlsOverlay } from "@/ui/ControlsOverlay";
 import { SupplyCrateManager } from "@/world/SupplyCrates";
+import { LandingPage } from "@/ui/LandingPage";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
 
-const SPAWN_POINT = new Vector3(0, 2, 0);
+const SPAWN_POINT = CAMP_POSITION;
 const STORY_BEATS: Array<[number, string]> = [
   [1, "DEFENCE — Hold the strongpoint"],
   [5, "HOLDING ACTION — Marksmen and drones inbound"],
@@ -111,19 +111,33 @@ armoury.onStartWave = () => waveManager.skipArmoury();
 
 const pauseMenu = new PauseMenu(uiRoot, settings, audio, player, gameState);
 const gameOverScreen = new GameOverScreen(uiRoot, gameState);
+
+/** Full resupply on every spawn/redeploy — mags, reserve ammo, and throwables all come back to full. */
+function resupplyOnSpawn(): void {
+  weaponController.resetAllAmmo();
+  gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
+  gameState.save();
+}
+
 gameOverScreen.onRestart = () => {
   // Credits/unlocks/gear already earned are kept in GameState (saved on the
   // fly) — redeploying only resets the wave/combat state, and drops the
   // player into the armoury so they can spend before the next Wave 1.
   gameOverScreen.hide();
   waveManager.restartRun(SPAWN_POINT);
+  resupplyOnSpawn();
 };
 const controlsOverlay = new ControlsOverlay(uiRoot);
 const supplyCrates = new SupplyCrateManager(game.scene, player, weaponController, input, audio);
 
 applyWaveArcLighting(game.scene, waveManager.wave);
-hud.showCenterMessage("OPERATION SENTINEL SHIELD — Scout the sector before OPFOR forms up", 4000);
-waveManager.beginIntro();
+
+const landingPage = new LandingPage(uiRoot);
+landingPage.onDeploy = () => {
+  hud.showCenterMessage("OPERATION SENTINEL SHIELD — Scout the sector before OPFOR forms up", 4000);
+  waveManager.beginIntro();
+  resupplyOnSpawn();
+};
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") pauseMenu.toggle();
@@ -138,7 +152,7 @@ window.addEventListener("keydown", (e) => {
 
 game.onUpdate((deltaSeconds) => {
   const dt = Math.min(deltaSeconds, 0.05);
-  const paused = pauseMenu.visible || armoury.visible || gameOverScreen.visible;
+  const paused = pauseMenu.visible || armoury.visible || gameOverScreen.visible || landingPage.visible;
 
   if (!paused) {
     player.update(dt);

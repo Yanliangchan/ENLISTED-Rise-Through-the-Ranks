@@ -18,7 +18,9 @@ const SPAWN_POINTS: Vector3[] = [
   new Vector3(76, 0, 76),
   new Vector3(-76, 0, 76),
   new Vector3(76, 0, -76),
-  new Vector3(-76, 0, -76),
+  // The SW diagonal point moved off the forest-camp spawn corner (~(-92,-92)) so
+  // OPFOR don't materialise right on top of the player at wave start.
+  new Vector3(-108, 0, -55),
 ];
 
 /** Enemy-type mix per wave band, roughly matching the story's escalation. */
