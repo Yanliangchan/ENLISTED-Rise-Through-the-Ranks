@@ -1,0 +1,159 @@
+import { Scene, Vector3 } from "@babylonjs/core";
+import { ENEMIES, WAVES } from "@/data/gamedata";
+import { EnemyInstance, type EnemyKillInfo } from "@/enemies/EnemyAI";
+import { blastDamageAtDistance } from "@/weapons/ballistics";
+import type { PlayerController } from "@/player/PlayerController";
+import type { AudioManager } from "@/core/AudioManager";
+
+const SPAWN_POINTS: Vector3[] = [
+  new Vector3(30, 0, 30),
+  new Vector3(-30, 0, 30),
+  new Vector3(30, 0, -30),
+  new Vector3(-30, 0, -30),
+  new Vector3(0, 0, 45),
+  new Vector3(45, 0, 0),
+];
+
+/** Enemy-type mix per wave band, roughly matching the story's escalation. */
+function pickTypeForWave(wave: number): string {
+  const roll = Math.random();
+  if (wave >= 10 && roll < 0.25) return "opfor_heavy";
+  if (wave >= 5 && roll < 0.4) return "opfor_marksman";
+  return "opfor_grunt";
+}
+
+export interface EnemyManagerCallbacks {
+  onCredits?: (amount: number) => void;
+  onKillFeed?: (enemyName: string, headshot: boolean) => void;
+  onPlayerDamaged?: (damage: number, sourcePosition: Vector3) => void;
+}
+
+/**
+ * Spawns and ticks all live OPFOR for the current wave, using `WAVES` for
+ * count/health scaling and `ENEMIES` for per-type stats. A boss wave every
+ * `WAVES.bossEvery` skews the mix toward Heavies.
+ */
+export class EnemyManager {
+  private enemies: EnemyInstance[] = [];
+  private pendingSpawns: Array<{ type: string; delay: number; position: Vector3 }> = [];
+  private spawnClock = 0;
+
+  constructor(
+    private readonly scene: Scene,
+    private readonly audio: AudioManager,
+    private readonly callbacks: EnemyManagerCallbacks = {}
+  ) {}
+
+  get aliveCount(): number {
+    return this.enemies.filter((e) => !e.isDead).length;
+  }
+
+  livePositions(): Array<{ x: number; z: number }> {
+    return this.enemies
+      .filter((e) => !e.isDead)
+      .map((e) => ({ x: e.root.position.x, z: e.root.position.z }));
+  }
+
+  get totalForWaveRemaining(): number {
+    return this.aliveCount + this.pendingSpawns.length;
+  }
+
+  waveEnemyCount(wave: number): number {
+    return WAVES.enemiesBase + WAVES.enemiesPerWave * (wave - 1);
+  }
+
+  waveHealthMultiplier(wave: number): number {
+    return Math.pow(1 + WAVES.healthScalingPerWave, wave - 1);
+  }
+
+  isBossWave(wave: number): boolean {
+    return wave % WAVES.bossEvery === 0;
+  }
+
+  startWave(wave: number): void {
+    this.enemies = this.enemies.filter((e) => !e.isDead);
+    const count = this.waveEnemyCount(wave);
+    this.pendingSpawns = [];
+    for (let i = 0; i < count; i++) {
+      const point = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+      const jitter = new Vector3((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6);
+      const typeId = this.isBossWave(wave) && i < Math.ceil(count * 0.4)
+        ? "opfor_heavy"
+        : pickTypeForWave(wave);
+      this.pendingSpawns.push({ type: typeId, delay: i * 0.8, position: point.add(jitter) });
+    }
+    this.spawnClock = 0;
+  }
+
+  update(dt: number, player: PlayerController, wave: number): void {
+    this.spawnClock += dt;
+    this.pendingSpawns = this.pendingSpawns.filter((spawn) => {
+      if (this.spawnClock >= spawn.delay) {
+        this.spawnEnemy(spawn.type, spawn.position, wave);
+        return false;
+      }
+      return true;
+    });
+
+    for (const enemy of this.enemies) {
+      enemy.update(dt, player);
+    }
+    this.enemies = this.enemies.filter((e) => !e.disposed);
+  }
+
+  private spawnEnemy(typeId: string, position: Vector3, wave: number): void {
+    const type = ENEMIES[typeId];
+    if (!type) return;
+    const enemy = new EnemyInstance(this.scene, type, position, this.waveHealthMultiplier(wave), this.audio);
+    enemy.onDeath = (info: EnemyKillInfo) => {
+      this.callbacks.onCredits?.(info.creditsAwarded);
+      this.callbacks.onKillFeed?.(type.name, info.headshot);
+    };
+    enemy.onDamagePlayer = (dmg, sourcePos) => this.callbacks.onPlayerDamaged?.(dmg, sourcePos);
+    this.enemies.push(enemy);
+  }
+
+  /** Broadcast a gunshot to all living enemies for hearing-based alerting. */
+  broadcastGunshot(position: Vector3, effectiveHearingRangeM: number): void {
+    for (const enemy of this.enemies) {
+      if (!enemy.isDead) enemy.hearGunshot(position, effectiveHearingRangeM);
+    }
+  }
+
+  /** Apply blast damage (linear falloff to 0 at radiusM) to every living enemy in range. */
+  damageInRadius(center: Vector3, radiusM: number, centreDamage: number): void {
+    for (const enemy of this.enemies) {
+      if (enemy.isDead) continue;
+      const dist = Vector3.Distance(enemy.root.position, center);
+      if (dist >= radiusM) continue;
+      const dmg = blastDamageAtDistance(centreDamage, dist, radiusM);
+      if (dmg > 0) enemy.takeDamage(dmg, false);
+    }
+  }
+
+  /** Stun (Suppressed state) every living enemy within radiusM of a flashbang/etc. */
+  stunInRadius(center: Vector3, radiusM: number, durationSec: number): void {
+    for (const enemy of this.enemies) {
+      if (enemy.isDead) continue;
+      if (Vector3.Distance(enemy.root.position, center) < radiusM) {
+        enemy.suppress(durationSec);
+      }
+    }
+  }
+
+  anyEnemyWithin(center: Vector3, radiusM: number): boolean {
+    return this.enemies.some((e) => !e.isDead && Vector3.Distance(e.root.position, center) < radiusM);
+  }
+
+  alertAllToPosition(position: Vector3): void {
+    for (const enemy of this.enemies) {
+      if (!enemy.isDead) enemy.hearGunshot(position, 9999);
+    }
+  }
+
+  clearAll(): void {
+    for (const enemy of this.enemies) enemy.dispose();
+    this.enemies = [];
+    this.pendingSpawns = [];
+  }
+}

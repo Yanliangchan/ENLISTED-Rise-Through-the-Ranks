@@ -1,27 +1,134 @@
-import { Vector3, Color4 } from "@babylonjs/core";
+import { Vector3 } from "@babylonjs/core";
 import { GameEngine } from "@/core/Engine";
 import { InputManager } from "@/core/InputManager";
+import { GameState } from "@/core/GameState";
+import { Settings } from "@/core/Settings";
+import { AudioManager } from "@/core/AudioManager";
 import { PlayerController } from "@/player/PlayerController";
-import { buildLevel } from "@/world/Level";
+import { applyGearToPlayer } from "@/player/Gear";
+import { buildLevel, applyWaveArcLighting } from "@/world/Level";
+import { WaveManager } from "@/world/WaveManager";
+import { WeaponController } from "@/weapons/WeaponController";
+import { Loadout } from "@/weapons/Loadout";
+import { ThrowableController } from "@/weapons/ThrowableController";
 import { HUD } from "@/ui/HUD";
+import { Armoury } from "@/ui/Armoury";
+import { PauseMenu } from "@/ui/PauseMenu";
+import { GameOverScreen } from "@/ui/GameOverScreen";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
 
+const SPAWN_POINT = new Vector3(0, 2, 0);
+const STORY_BEATS: Array<[number, string]> = [
+  [1, "DEFENCE — Hold the strongpoint"],
+  [5, "HOLDING ACTION — Marksmen and drones inbound"],
+  [10, "COUNTER-ATTACK — Heavies moving in. MATADOR earns its keep"],
+  [15, "RETAKE — Push OPFOR back"],
+];
+
 const game = new GameEngine(canvas);
-game.scene.clearColor = new Color4(0.55, 0.65, 0.75, 1);
 game.scene.collisionsEnabled = true;
-game.scene.gravity = new Vector3(0, -0.5, 0); // unused: PlayerController drives its own gravity
 
 buildLevel(game.scene);
 
 const input = new InputManager(canvas);
-const player = new PlayerController(game.scene, input, new Vector3(0, 2, 0));
-const hud = new HUD(uiRoot, player);
+const gameState = new GameState();
+const settings = new Settings();
+const audio = new AudioManager();
+audio.setVolume(settings.data.volume);
+
+const player = new PlayerController(game.scene, input, SPAWN_POINT);
+player.sensitivityMult = settings.data.sensitivity;
+applyGearToPlayer(gameState, player);
+player.health = player.maxHealth;
+player.armour = player.maxArmour;
+
+const waveManager = new WaveManager(game.scene, player, gameState, audio, {
+  onKillFeed: (name, headshot) => hud.notifyKill(name, headshot),
+  onPlayerDamaged: (_dmg, sourcePos) => {
+    const bearing = Math.atan2(sourcePos.x - player.position.x, sourcePos.z - player.position.z);
+    hud.notifyDamageFrom(bearing);
+  },
+  onWaveStart: (wave) => {
+    applyWaveArcLighting(game.scene, wave);
+    const beat = [...STORY_BEATS].reverse().find(([w]) => wave === w);
+    hud.showCenterMessage(beat ? beat[1] : `WAVE ${wave}`, 3000);
+  },
+  onWaveClear: (wave, bonus) => {
+    hud.showCenterMessage(`WAVE ${wave} CLEAR — +${bonus} credits`, 2000);
+  },
+  onPhaseChange: (phase) => {
+    if (phase === "armoury") {
+      armoury.show();
+    } else {
+      armoury.hide();
+    }
+    if (phase === "gameover") {
+      gameOverScreen.show(waveManager.wave);
+    }
+  },
+  onGameOver: () => {
+    audio.explosion();
+  },
+});
+
+const weaponController = new WeaponController(
+  game.scene,
+  player,
+  input,
+  audio,
+  gameState,
+  waveManager.enemyManager,
+  {
+    onHit: () => hud.notifyHit(),
+  }
+);
+
+const loadout = new Loadout(input, gameState, weaponController);
+
+const throwableController = new ThrowableController(
+  game.scene,
+  player,
+  input,
+  waveManager.enemyManager,
+  gameState,
+  audio
+);
+throwableController.onFlashbangScreen = (intensity) => hud.flashWhite(intensity);
+
+const hud = new HUD(uiRoot, player, weaponController, loadout, gameState, waveManager);
+const armoury = new Armoury(uiRoot, gameState, weaponController, player, audio);
+armoury.onStartWave = () => waveManager.skipArmoury();
+
+const pauseMenu = new PauseMenu(uiRoot, settings, audio, player, gameState);
+const gameOverScreen = new GameOverScreen(uiRoot, gameState);
+gameOverScreen.onRestart = () => {
+  gameState.resetRun();
+  location.reload();
+};
+
+applyWaveArcLighting(game.scene, waveManager.wave);
+hud.showCenterMessage("OPERATION SENTINEL SHIELD — Click to engage", 3500);
+waveManager.beginArmoury();
+
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Escape") pauseMenu.toggle();
+});
 
 game.onUpdate((deltaSeconds) => {
-  player.update(deltaSeconds);
-  hud.update(input.isPointerLocked);
+  const dt = Math.min(deltaSeconds, 0.05);
+  const paused = pauseMenu.visible || armoury.visible;
+
+  if (!paused) {
+    player.update(dt);
+    loadout.update();
+    weaponController.update(dt);
+    throwableController.update(dt);
+    waveManager.update(dt);
+  }
+
+  hud.update(input.isPointerLocked, waveManager.enemyManager.livePositions());
   input.resetFrame();
 });
 

@@ -9,6 +9,7 @@ export class InputManager {
 
   mouseDeltaX = 0;
   mouseDeltaY = 0;
+  wheelDelta = 0;
   isPointerLocked = false;
 
   leftMouseDown = false;
@@ -22,8 +23,13 @@ export class InputManager {
     canvas.addEventListener("mousedown", this.onMouseDown);
     canvas.addEventListener("mouseup", this.onMouseUp);
     document.addEventListener("mousemove", this.onMouseMove);
+    canvas.addEventListener("wheel", this.onWheel, { passive: true });
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   }
+
+  private onWheel = (e: WheelEvent) => {
+    this.wheelDelta += e.deltaY;
+  };
 
   private requestPointerLock = () => {
     this.canvas.requestPointerLock();
@@ -72,6 +78,7 @@ export class InputManager {
   resetFrame(): void {
     this.mouseDeltaX = 0;
     this.mouseDeltaY = 0;
+    this.wheelDelta = 0;
     this.keysPressedThisFrame.clear();
   }
 

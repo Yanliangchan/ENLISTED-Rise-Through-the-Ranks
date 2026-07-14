@@ -25,9 +25,17 @@ export class PlayerController {
   private verticalVelocity = 0;
   private isGrounded = false;
   private isCrouching = false;
+  private _isMoving = false;
   private currentEyeHeight = STAND_EYE_HEIGHT;
   health = 100;
+  maxHealth = 100;
   armour = 0;
+  maxArmour = 0;
+  armourDamageReduction = 0;
+  /** Current weapon's moveSpeedMult (heavier weapons slow the player). */
+  weaponSpeedMult = 1;
+  /** User sensitivity multiplier from settings (1 = default). */
+  sensitivityMult = 1;
 
   constructor(
     private readonly scene: Scene,
@@ -61,10 +69,36 @@ export class PlayerController {
     this.applyMovement(deltaSeconds);
   }
 
+  /** Nudge horizontal look angle — used by weapon recoil. */
+  addYaw(delta: number): void {
+    this.collider.rotation.y += delta;
+  }
+
+  get isMoving(): boolean {
+    return this._isMoving;
+  }
+
+  get crouching(): boolean {
+    return this.isCrouching;
+  }
+
+  get grounded(): boolean {
+    return this.isGrounded;
+  }
+
+  get position(): Vector3 {
+    return this.collider.position;
+  }
+
+  get yaw(): number {
+    return this.collider.rotation.y;
+  }
+
   private applyMouseLook(): void {
     if (!this.input.isPointerLocked) return;
-    this.collider.rotation.y += this.input.mouseDeltaX * MOUSE_SENSITIVITY;
-    this.camera.rotation.x += this.input.mouseDeltaY * MOUSE_SENSITIVITY;
+    const sens = MOUSE_SENSITIVITY * this.sensitivityMult;
+    this.collider.rotation.y += this.input.mouseDeltaX * sens;
+    this.camera.rotation.x += this.input.mouseDeltaY * sens;
     const maxPitch = Math.PI / 2 - 0.01;
     this.camera.rotation.x = Math.max(-maxPitch, Math.min(maxPitch, this.camera.rotation.x));
   }
@@ -82,10 +116,11 @@ export class PlayerController {
     if (this.input.isDown("KeyA")) moveX -= 1;
 
     const moving = moveX !== 0 || moveZ !== 0;
+    this._isMoving = moving;
     this.isCrouching = this.input.isDown("ControlLeft") || this.input.isDown("ControlRight");
     const sprinting = this.input.isDown("ShiftLeft") && moveZ > 0 && !this.isCrouching;
 
-    let speed = WALK_SPEED;
+    let speed = WALK_SPEED * this.weaponSpeedMult;
     if (sprinting) speed *= SPRINT_MULT;
     if (this.isCrouching) speed *= CROUCH_MULT;
 
@@ -122,5 +157,32 @@ export class PlayerController {
     this.camera.position.y = this.currentEyeHeight - STAND_EYE_HEIGHT / 2;
     this.collider.ellipsoid.y = this.currentEyeHeight / 2;
     this.collider.ellipsoidOffset.y = this.currentEyeHeight / 2;
+  }
+
+  /** Armour absorbs damage at `armourDamageReduction` fraction until it breaks. */
+  takeDamage(rawDamage: number): number {
+    let remaining = rawDamage;
+    if (this.armour > 0) {
+      const absorbed = Math.min(this.armour, rawDamage * this.armourDamageReduction);
+      this.armour -= absorbed;
+      remaining -= absorbed;
+    }
+    this.health = Math.max(0, this.health - remaining);
+    return remaining;
+  }
+
+  heal(amount: number): void {
+    this.health = Math.min(this.maxHealth, this.health + amount);
+  }
+
+  get isDead(): boolean {
+    return this.health <= 0;
+  }
+
+  respawn(position: Vector3): void {
+    this.health = this.maxHealth;
+    this.armour = this.maxArmour;
+    this.verticalVelocity = 0;
+    this.collider.position = position.clone();
   }
 }
