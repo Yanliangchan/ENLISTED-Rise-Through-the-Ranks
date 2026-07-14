@@ -11,10 +11,10 @@ import type { AudioManager } from "@/core/AudioManager";
 import type { GameState } from "@/core/GameState";
 import type { EnemyManager } from "@/enemies/EnemySpawner";
 import type { HitMeshMetadata } from "@/weapons/Damageable";
-import type { ScopeOverlay } from "@/ui/ScopeOverlay";
+import { ScopeLens } from "@/weapons/ScopeLens";
 
 const BASE_FOV = 1.1;
-/** Optics at or above this zoom get the full CoD-style scope-in overlay instead of just a centred in-world sight. */
+/** Optics at or above this zoom get the real windowed scope lens instead of just a centred in-world sight. */
 const SCOPE_ZOOM_THRESHOLD = 1.3;
 
 interface AmmoState {
@@ -53,6 +53,7 @@ export class WeaponController {
   private fireCooldown = 0;
   private recoilKickPitch = 0; // accumulated upward kick still to recover
   bipodDeployed = false;
+  private readonly scopeLens: ScopeLens;
 
   constructor(
     private readonly scene: Scene,
@@ -61,17 +62,29 @@ export class WeaponController {
     private readonly audio: AudioManager,
     private readonly gameState: GameState,
     private readonly enemyManager: EnemyManager,
-    private readonly callbacks: WeaponControllerCallbacks = {},
-    private readonly scopeOverlay?: ScopeOverlay
+    private readonly callbacks: WeaponControllerCallbacks = {}
   ) {
     this.weapon = WEAPONS.sar21;
     this.effective = computeEffectiveStats(this.weapon, []);
+    this.scopeLens = new ScopeLens(scene, player.camera);
   }
 
   private secondaryFireCooldown = 0;
 
   get ammo(): AmmoState {
     return this.ammoByWeapon.get(this.weapon.id)!;
+  }
+
+  /** True once the physical scope lens has taken over the view — HUD hides its 2D crosshair then. */
+  get isScopedIn(): boolean {
+    return this.effective.zoom >= SCOPE_ZOOM_THRESHOLD && this.adsBlend > 0.5;
+  }
+
+  /** Supply-crate ammo pickup: tops up every weapon whose ammo state has already been touched this run. */
+  resupplyAmmo(amount: number): void {
+    for (const state of this.ammoByWeapon.values()) {
+      state.reserve += amount;
+    }
   }
 
   equip(weaponId: string): void {
@@ -145,11 +158,15 @@ export class WeaponController {
     const rate = 1 / Math.max(0.05, this.effective.adsTimeSec);
     this.adsBlend += (target - this.adsBlend) * Math.min(1, rate * dt);
 
-    const targetFov = BASE_FOV / (1 + (this.effective.zoom - 1) * this.adsBlend);
-    this.player.camera.fov = targetFov;
-
     const isScope = this.effective.zoom >= SCOPE_ZOOM_THRESHOLD;
-    this.scopeOverlay?.update(isScope, this.adsBlend);
+
+    // Scope zoom is handled entirely by the lens (a second camera composited onto a
+    // physical disc) so the player can still see their surroundings around it — the
+    // main camera's own FOV never narrows for scoped optics. Reflex/iron sights (not
+    // "isScope") still get a small FOV nudge for a bit of ADS feel.
+    const targetFov = isScope ? BASE_FOV : BASE_FOV / (1 + (this.effective.zoom - 1) * this.adsBlend);
+    this.player.camera.fov = targetFov;
+    this.scopeLens.update(isScope, this.adsBlend, this.effective.zoom);
 
     if (this.activeViewmodel) {
       const hip = new Vector3(0.18, -0.16, 0.35);
@@ -159,8 +176,8 @@ export class WeaponController {
       this.activeViewmodel.root.position = Vector3.Lerp(hip, ads, this.adsBlend);
 
       if (isScope) {
-        // CoD-style scope-in: the ScopeOverlay takes over the screen, so the whole
-        // viewmodel (not just the bulky body) hides once mostly aimed in.
+        // The lens disc takes over the view once mostly aimed in, so the whole
+        // viewmodel (not just the bulky body) hides rather than clipping through it.
         this.activeViewmodel.root.setEnabled(this.adsBlend < 0.5);
       } else {
         this.activeViewmodel.root.setEnabled(true);

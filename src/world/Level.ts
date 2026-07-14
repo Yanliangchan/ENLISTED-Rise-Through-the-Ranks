@@ -4,6 +4,7 @@ import {
   DirectionalLight,
   MeshBuilder,
   StandardMaterial,
+  DynamicTexture,
   Color3,
   Color4,
   Vector3,
@@ -30,8 +31,12 @@ const SHOPHOUSE_COLORS = [
 const HDB_COLORS = [new Color3(0.72, 0.72, 0.7), new Color3(0.66, 0.68, 0.7), new Color3(0.75, 0.74, 0.68)];
 const HDB_ACCENT = new Color3(0.35, 0.5, 0.62);
 
-/** Grid line positions for the street layout — the 0 line is left out to keep a clear central plaza. */
+/** Grid line positions — buildings are centred on these (the street grid's "blocks"). */
 const GRID_LINES = [-91, -65, -39, -13, 13, 39, 65, 91];
+/** Midpoints between grid lines — always clear of building footprints, so roads/cars/props live here. */
+const MID_LINES = [-78, -52, -26, 0, 26, 52, 78];
+const ROAD_HALF_WIDTH = 4.5;
+const MAP_SPAN = 240;
 
 /** South-west quadrant reserved for the park district — kept clear of street-grid buildings. */
 const GARDEN_BOUNDS = { minX: -100, maxX: -22, minZ: -100, maxZ: -22 };
@@ -55,6 +60,14 @@ function inGardenDistrict(x: number, z: number, margin: number): boolean {
   );
 }
 
+function overlapsAnyBuilding(x: number, z: number, clearance: number, layout: BuildingFootprint[]): boolean {
+  for (const b of layout) {
+    const halfSpan = b.size / 2 + clearance;
+    if (Math.abs(x - b.x) < halfSpan && Math.abs(z - b.z) < halfSpan) return true;
+  }
+  return false;
+}
+
 /**
  * Deterministic building layout — the single source of truth for both the
  * collidable meshes (buildStreetGrid) and the HUD radar, so the minimap
@@ -72,16 +85,16 @@ export function generateBuildingLayout(): BuildingFootprint[] {
       if (rand() < skipChance) continue; // gap: open flanking route / sightline break
       if (inGardenDistrict(gx, gz, 10)) continue; // reserved for the park
 
-      const jitterX = (rand() - 0.5) * 5;
-      const jitterZ = (rand() - 0.5) * 5;
+      const jitterX = (rand() - 0.5) * 3;
+      const jitterZ = (rand() - 0.5) * 3;
       const x = gx + jitterX;
       const z = gz + jitterZ;
       if (isHdb) {
         // Slab residential tower: narrower footprint, much taller.
-        layout.push({ x, z, size: 10 + rand() * 4, height: 24 + rand() * 16, type: "hdb" });
+        layout.push({ x, z, size: 9 + rand() * 4, height: 24 + rand() * 16, type: "hdb" });
       } else {
         // Low/mid-rise shophouse block.
-        layout.push({ x, z, size: 12 + rand() * 8, height: 8 + rand() * 10, type: "shophouse" });
+        layout.push({ x, z, size: 10 + rand() * 6, height: 8 + rand() * 10, type: "shophouse" });
       }
     }
   }
@@ -91,11 +104,13 @@ export function generateBuildingLayout(): BuildingFootprint[] {
 /**
  * Medium-size urban-estate map modelled loosely on a Singapore town centre:
  * a street grid mixing shophouse blocks and taller HDB-style towers around
- * a clear central plaza (player spawn), a park district with a lake and
- * trees, parked cars for street-level cover, and a Marina-Bay-Sands-style
- * three-tower "SkyPark" landmark anchoring the skyline. Evocative dressing,
- * not a real streetscape. Spawn points (EnemySpawner) ring the outside so
- * OPFOR has to move through the blocks and cover to reach the plaza.
+ * a clear central plaza (player spawn), roads with lane markings and
+ * streetlights running through the gaps between blocks, a park district
+ * with a lake and trees, parked cars and trash bins for street-level detail,
+ * and a Marina-Bay-Sands-style three-tower "SkyPark" landmark anchoring the
+ * skyline. Evocative dressing, not a real streetscape. Spawn points
+ * (EnemySpawner) ring the outside so OPFOR has to move through the blocks
+ * and cover to reach the plaza.
  */
 export function buildLevel(scene: Scene): void {
   const hemi = new HemisphericLight("hemiLight", new Vector3(0, 1, 0), scene);
@@ -105,16 +120,19 @@ export function buildLevel(scene: Scene): void {
   sun.intensity = 0.9;
 
   const groundMat = new StandardMaterial("groundMat", scene);
-  groundMat.diffuseColor = new Color3(0.28, 0.3, 0.27);
+  groundMat.diffuseColor = new Color3(0.3, 0.32, 0.28);
   groundMat.specularColor = Color3.Black();
 
   const ground = MeshBuilder.CreateGround("ground", { width: 260, height: 260 }, scene);
   ground.material = groundMat;
   ground.checkCollisions = true;
 
-  buildStreetGrid(scene);
+  const layout = generateBuildingLayout();
+  buildRoads(scene);
+  buildStreetGrid(scene, layout);
   buildCover(scene);
-  buildParkedCars(scene);
+  buildParkedCars(scene, layout);
+  buildStreetFurniture(scene, layout);
   buildGardenDistrict(scene);
   buildMbsLandmark(scene);
 
@@ -138,29 +156,77 @@ export function buildLevel(scene: Scene): void {
   });
 }
 
+/** Dark asphalt strips (with a centre lane line) running along the gaps between building blocks. */
+function buildRoads(scene: Scene): void {
+  const asphaltMat = new StandardMaterial("asphaltMat", scene);
+  asphaltMat.diffuseColor = new Color3(0.16, 0.16, 0.17);
+  asphaltMat.specularColor = Color3.Black();
+
+  const lineMat = new StandardMaterial("roadLineMat", scene);
+  lineMat.diffuseColor = new Color3(0.85, 0.75, 0.3);
+  lineMat.specularColor = Color3.Black();
+  lineMat.disableLighting = true;
+  lineMat.emissiveColor = new Color3(0.35, 0.3, 0.1);
+
+  MID_LINES.forEach((m, i) => {
+    const roadNS = MeshBuilder.CreateGround(`roadNS_${i}`, { width: ROAD_HALF_WIDTH * 2, height: MAP_SPAN }, scene);
+    roadNS.position.set(m, 0.015, 0);
+    roadNS.material = asphaltMat;
+    roadNS.isPickable = false;
+
+    const roadEW = MeshBuilder.CreateGround(`roadEW_${i}`, { width: MAP_SPAN, height: ROAD_HALF_WIDTH * 2 }, scene);
+    roadEW.position.set(0, 0.015, m);
+    roadEW.material = asphaltMat;
+    roadEW.isPickable = false;
+
+    const dashCount = 20;
+    for (let k = 0; k < dashCount; k++) {
+      const dashNS = MeshBuilder.CreateGround(`roadLineNS_${i}_${k}`, { width: 0.25, height: 3 }, scene);
+      dashNS.position.set(m, 0.02, -MAP_SPAN / 2 + (k + 0.5) * (MAP_SPAN / dashCount));
+      dashNS.material = lineMat;
+      dashNS.isPickable = false;
+
+      const dashEW = MeshBuilder.CreateGround(`roadLineEW_${i}_${k}`, { width: 3, height: 0.25 }, scene);
+      dashEW.position.set(-MAP_SPAN / 2 + (k + 0.5) * (MAP_SPAN / dashCount), 0.02, m);
+      dashEW.material = lineMat;
+      dashEW.isPickable = false;
+    }
+  });
+}
+
 /**
  * Street grid built from `generateBuildingLayout` — shophouse blocks get a
- * roof trim band, HDB towers get horizontal balcony banding + window-accent
- * colour so the skyline actually reads as two different building types.
+ * roof trim band + procedural window facade, HDB towers get horizontal
+ * balcony banding + window-accent colour so the skyline reads as two
+ * different building types instead of uniform boxes.
  */
-function buildStreetGrid(scene: Scene): void {
+function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
+  const windowTex = createWindowTexture(scene);
+
   const shophouseMats = SHOPHOUSE_COLORS.map((color, i) => {
     const mat = new StandardMaterial(`shophouseMat_${i}`, scene);
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
+    const tex = windowTex.clone();
+    tex.uScale = 3;
+    tex.vScale = 4;
+    mat.diffuseTexture = tex;
     return mat;
   });
   const hdbMats = HDB_COLORS.map((color, i) => {
     const mat = new StandardMaterial(`hdbMat_${i}`, scene);
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
+    const tex = windowTex.clone();
+    tex.uScale = 2.5;
+    tex.vScale = 9;
+    mat.diffuseTexture = tex;
     return mat;
   });
   const hdbAccentMat = new StandardMaterial("hdbAccentMat", scene);
   hdbAccentMat.diffuseColor = HDB_ACCENT;
   hdbAccentMat.specularColor = Color3.Black();
 
-  const layout = generateBuildingLayout();
   layout.forEach(({ x, z, size, height, type }, i) => {
     const building = MeshBuilder.CreateBox(`building_${i}`, { width: size, height, depth: size }, scene);
     building.position.set(x, height / 2, z);
@@ -186,8 +252,39 @@ function buildStreetGrid(scene: Scene): void {
       trim.position.set(x, height + 0.3, z);
       trim.material = shophouseMats[(i + 1) % shophouseMats.length];
       trim.isPickable = false;
+
+      // Ground-floor awning + door hint for a bit of shophouse character.
+      const awning = MeshBuilder.CreateBox(`awning_${i}`, { width: size + 0.6, height: 0.15, depth: size + 0.6 }, scene);
+      awning.position.set(x, 2.6, z);
+      awning.material = hdbAccentMat;
+      awning.isPickable = false;
     }
   });
+}
+
+/** Procedural window-grid facade texture, shared/cloned across building materials. */
+function createWindowTexture(scene: Scene): DynamicTexture {
+  const size = 256;
+  const tex = new DynamicTexture("windowTex", { width: size, height: size }, scene, false);
+  const ctx = tex.getContext() as CanvasRenderingContext2D;
+  ctx.fillStyle = "#33322f";
+  ctx.fillRect(0, 0, size, size);
+
+  const cols = 6;
+  const rows = 8;
+  const cellW = size / cols;
+  const cellH = size / rows;
+  const rand = mulberry32(7);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const lit = rand() < 0.35;
+      ctx.fillStyle = lit ? "#d8e4df" : "#4a5560";
+      const pad = cellW * 0.16;
+      ctx.fillRect(c * cellW + pad, r * cellH + pad, cellW - pad * 2, cellH - pad * 2);
+    }
+  }
+  tex.update();
+  return tex;
 }
 
 /** Waist-high crates for close cover in the plaza and at street junctions. */
@@ -230,8 +327,8 @@ function buildCover(scene: Scene): void {
 
 const CAR_COLORS = [new Color3(0.75, 0.1, 0.1), new Color3(0.1, 0.15, 0.5), new Color3(0.85, 0.85, 0.85), new Color3(0.15, 0.15, 0.15)];
 
-/** Parked cars along the street grid edges — street-level cover + set dressing. */
-function buildParkedCars(scene: Scene): void {
+/** Parked cars along the road curbs — placed in the guaranteed-clear gaps between blocks, checked against real building footprints so none clip into walls. */
+function buildParkedCars(scene: Scene, layout: BuildingFootprint[]): void {
   const rand = mulberry32(4242);
   const wheelMat = new StandardMaterial("wheelMat", scene);
   wheelMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
@@ -245,17 +342,31 @@ function buildParkedCars(scene: Scene): void {
   });
 
   let carIndex = 0;
-  for (const line of GRID_LINES) {
-    for (const offset of [-6, 6]) {
-      if (rand() < 0.4) continue;
-      const alongOtherAxis = GRID_LINES[Math.floor(rand() * GRID_LINES.length)] + (rand() - 0.5) * 10;
-      const onXStreet = rand() < 0.5;
-      const x = onXStreet ? alongOtherAxis : line + offset;
-      const z = onXStreet ? line + offset : alongOtherAxis;
-      if (inGardenDistrict(x, z, 6)) continue;
-      if (Math.abs(x) < 20 && Math.abs(z) < 20) continue; // keep the plaza clear
+  const curbOffset = ROAD_HALF_WIDTH - 1.3;
 
-      buildCar(scene, x, z, rand() * Math.PI * 2, carMats[carIndex % carMats.length], wheelMat, carIndex);
+  for (const line of MID_LINES) {
+    // North-south road at x=line: park along either curb, cars facing along Z.
+    for (const zSpot of GRID_LINES) {
+      if (rand() < 0.45) continue;
+      const side = rand() < 0.5 ? -1 : 1;
+      const x = line + side * curbOffset;
+      const z = zSpot + (rand() - 0.5) * 14;
+      if (inGardenDistrict(x, z, 6) || (Math.abs(x) < 20 && Math.abs(z) < 20)) continue;
+      if (overlapsAnyBuilding(x, z, 2.4, layout)) continue;
+      const rotation = (rand() < 0.5 ? 0 : Math.PI) + (rand() - 0.5) * 0.12;
+      buildCar(scene, x, z, rotation, carMats[carIndex % carMats.length], wheelMat, carIndex);
+      carIndex++;
+    }
+    // East-west road at z=line: park along either curb, cars facing along X.
+    for (const xSpot of GRID_LINES) {
+      if (rand() < 0.45) continue;
+      const side = rand() < 0.5 ? -1 : 1;
+      const z = line + side * curbOffset;
+      const x = xSpot + (rand() - 0.5) * 14;
+      if (inGardenDistrict(x, z, 6) || (Math.abs(x) < 20 && Math.abs(z) < 20)) continue;
+      if (overlapsAnyBuilding(x, z, 2.4, layout)) continue;
+      const rotation = Math.PI / 2 + (rand() < 0.5 ? 0 : Math.PI) + (rand() - 0.5) * 0.12;
+      buildCar(scene, x, z, rotation, carMats[carIndex % carMats.length], wheelMat, carIndex);
       carIndex++;
     }
   }
@@ -296,6 +407,100 @@ function buildCar(
     wheel.parent = root;
     wheel.isPickable = false;
   });
+}
+
+/** Streetlights and trash bins along the roads/blocks — small set-dressing props, not collidable except the lamp pole. */
+function buildStreetFurniture(scene: Scene, layout: BuildingFootprint[]): void {
+  const poleMat = new StandardMaterial("lampPoleMat", scene);
+  poleMat.diffuseColor = new Color3(0.12, 0.12, 0.13);
+  poleMat.specularColor = Color3.Black();
+  const lampMat = new StandardMaterial("lampHeadMat", scene);
+  lampMat.diffuseColor = new Color3(0.9, 0.85, 0.6);
+  lampMat.emissiveColor = new Color3(0.5, 0.45, 0.25);
+
+  const binMat = new StandardMaterial("binMat", scene);
+  binMat.diffuseColor = new Color3(0.15, 0.35, 0.2);
+  binMat.specularColor = Color3.Black();
+  const binLidMat = new StandardMaterial("binLidMat", scene);
+  binLidMat.diffuseColor = new Color3(0.1, 0.25, 0.14);
+
+  const rand = mulberry32(808);
+  let lampIndex = 0;
+  let binIndex = 0;
+  const curbOffset = ROAD_HALF_WIDTH + 0.6;
+
+  for (const line of MID_LINES) {
+    for (const spot of GRID_LINES) {
+      if (rand() < 0.5) {
+        const x = line + curbOffset;
+        const z = spot;
+        if (!inGardenDistrict(x, z, 4) && !(Math.abs(x) < 22 && Math.abs(z) < 22) && !overlapsAnyBuilding(x, z, 1.5, layout)) {
+          buildStreetlight(scene, x, z, poleMat, lampMat, lampIndex++);
+        }
+      }
+      if (rand() < 0.35) {
+        const z = line + curbOffset;
+        const x = spot;
+        if (!inGardenDistrict(x, z, 4) && !(Math.abs(x) < 22 && Math.abs(z) < 22) && !overlapsAnyBuilding(x, z, 1.5, layout)) {
+          buildStreetlight(scene, x, z, poleMat, lampMat, lampIndex++);
+        }
+      }
+    }
+  }
+
+  for (const building of layout) {
+    if (rand() < 0.55) continue;
+    const angle = rand() * Math.PI * 2;
+    const dist = building.size / 2 + 1.3;
+    const x = building.x + Math.cos(angle) * dist;
+    const z = building.z + Math.sin(angle) * dist;
+    if (overlapsAnyBuilding(x, z, 0.6, layout)) continue;
+    buildTrashBin(scene, x, z, binMat, binLidMat, binIndex++);
+  }
+}
+
+function buildStreetlight(
+  scene: Scene,
+  x: number,
+  z: number,
+  poleMat: StandardMaterial,
+  lampMat: StandardMaterial,
+  index: number
+): void {
+  const pole = MeshBuilder.CreateCylinder(`lampPole_${index}`, { diameter: 0.18, height: 5.5 }, scene);
+  pole.position.set(x, 2.75, z);
+  pole.material = poleMat;
+  pole.checkCollisions = true;
+
+  const arm = MeshBuilder.CreateCylinder(`lampArm_${index}`, { diameter: 0.1, height: 1.1 }, scene);
+  arm.rotation.z = Math.PI / 2;
+  arm.position.set(x + 0.55, 5.3, z);
+  arm.material = poleMat;
+  arm.isPickable = false;
+
+  const head = MeshBuilder.CreateBox(`lampHead_${index}`, { width: 0.4, height: 0.22, depth: 0.4 }, scene);
+  head.position.set(x + 1.1, 5.2, z);
+  head.material = lampMat;
+  head.isPickable = false;
+}
+
+function buildTrashBin(
+  scene: Scene,
+  x: number,
+  z: number,
+  binMat: StandardMaterial,
+  lidMat: StandardMaterial,
+  index: number
+): void {
+  const body = MeshBuilder.CreateCylinder(`trashBin_${index}`, { diameter: 0.6, height: 0.9 }, scene);
+  body.position.set(x, 0.45, z);
+  body.material = binMat;
+  body.checkCollisions = true;
+
+  const lid = MeshBuilder.CreateCylinder(`trashBinLid_${index}`, { diameter: 0.65, height: 0.08 }, scene);
+  lid.position.set(x, 0.93, z);
+  lid.material = lidMat;
+  lid.isPickable = false;
 }
 
 /** Park district: grass patch, a lake (visual, ringed with a low collidable kerb), trees, and benches. */

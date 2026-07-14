@@ -16,7 +16,7 @@ import { Armoury } from "@/ui/Armoury";
 import { PauseMenu } from "@/ui/PauseMenu";
 import { GameOverScreen } from "@/ui/GameOverScreen";
 import { ControlsOverlay } from "@/ui/ControlsOverlay";
-import { ScopeOverlay } from "@/ui/ScopeOverlay";
+import { SupplyCrateManager } from "@/world/SupplyCrates";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -81,8 +81,6 @@ const waveManager = new WaveManager(game.scene, player, gameState, audio, {
   },
 });
 
-const scopeOverlay = new ScopeOverlay(uiRoot);
-
 const weaponController = new WeaponController(
   game.scene,
   player,
@@ -92,8 +90,7 @@ const weaponController = new WeaponController(
   waveManager.enemyManager,
   {
     onHit: () => hud.notifyHit(),
-  },
-  scopeOverlay
+  }
 );
 
 const loadout = new Loadout(input, gameState, weaponController);
@@ -122,6 +119,7 @@ gameOverScreen.onRestart = () => {
   waveManager.restartRun(SPAWN_POINT);
 };
 const controlsOverlay = new ControlsOverlay(uiRoot);
+const supplyCrates = new SupplyCrateManager(game.scene, player, weaponController, input, audio);
 
 applyWaveArcLighting(game.scene, waveManager.wave);
 hud.showCenterMessage("OPERATION SENTINEL SHIELD — Scout the sector before OPFOR forms up", 4000);
@@ -148,9 +146,10 @@ game.onUpdate((deltaSeconds) => {
     weaponController.update(dt);
     throwableController.update(dt);
     waveManager.update(dt);
+    supplyCrates.update(dt);
   }
 
-  hud.update(input.isPointerLocked, waveManager.enemyManager.livePositions());
+  hud.update(input.isPointerLocked, waveManager.enemyManager.livePositions(), supplyCrates.promptText);
   input.resetFrame();
 });
 

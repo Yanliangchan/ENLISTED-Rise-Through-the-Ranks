@@ -8,6 +8,7 @@ import {
   Mesh,
 } from "@babylonjs/core";
 import type { Weapon } from "@/data/weapons";
+import { VIEWMODEL_LAYER } from "@/weapons/ScopeLens";
 
 const DARK_METAL = new Color3(0.12, 0.12, 0.13);
 const TAN_POLYMER = new Color3(0.25, 0.23, 0.18);
@@ -214,10 +215,12 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
     part.material = mat;
     part.parent = root;
     part.isPickable = false;
+    part.layerMask = VIEWMODEL_LAYER;
   }
   for (const part of sightParts) {
     part.parent = root;
     part.isPickable = false;
+    part.layerMask = VIEWMODEL_LAYER;
   }
 
   const muzzle = new TransformNode(`muzzle_${weapon.id}`, scene);

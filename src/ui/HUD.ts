@@ -37,6 +37,7 @@ export class HUD {
   private flashOverlay: HTMLDivElement;
   private lockHintEl: HTMLDivElement;
   private centerMessageEl: HTMLDivElement;
+  private interactPromptEl: HTMLDivElement;
   private radarCanvas: HTMLCanvasElement;
   private radarCtx: CanvasRenderingContext2D;
 
@@ -135,6 +136,12 @@ export class HUD {
     `);
     this.lockHintEl.textContent = "Click to engage";
 
+    this.interactPromptEl = el("div", `
+      position: absolute; top: 62%; left: 50%; transform: translate(-50%, 0);
+      font-size: 15px; color: #e0c15a; text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
+      opacity: 0;
+    `);
+
     this.radarCanvas = document.createElement("canvas");
     this.radarCanvas.width = 140;
     this.radarCanvas.height = 140;
@@ -155,6 +162,7 @@ export class HUD {
     this.root.appendChild(this.flashOverlay);
     this.root.appendChild(this.centerMessageEl);
     this.root.appendChild(this.lockHintEl);
+    this.root.appendChild(this.interactPromptEl);
     this.root.appendChild(this.radarCanvas);
     container.appendChild(this.root);
   }
@@ -184,8 +192,15 @@ export class HUD {
     this.centerMessageUntil = performance.now() + durationMs;
   }
 
-  update(isPointerLocked: boolean, enemyPositions: Array<{ x: number; z: number }>): void {
+  update(
+    isPointerLocked: boolean,
+    enemyPositions: Array<{ x: number; z: number }>,
+    interactPrompt: string | null = null
+  ): void {
     const now = performance.now();
+
+    this.interactPromptEl.textContent = interactPrompt ?? "";
+    this.interactPromptEl.style.opacity = interactPrompt ? "1" : "0";
 
     this.healthBar.style.width = `${Math.max(0, (this.player.health / this.player.maxHealth) * 100)}%`;
     this.armourBar.style.width = this.player.maxArmour
@@ -210,6 +225,7 @@ export class HUD {
     const phaseLabel = this.phaseLabel();
     this.waveEl.textContent = phaseLabel;
 
+    this.crosshair.style.display = this.weaponController.isScopedIn ? "none" : "block";
     const spreadPx = 6 + this.currentSpreadDeg() * 4;
     this.applyCrosshairSpread(spreadPx);
 

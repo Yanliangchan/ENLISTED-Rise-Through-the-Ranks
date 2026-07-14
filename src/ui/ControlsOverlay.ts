@@ -8,6 +8,7 @@ const BINDINGS: Array<[string, string]> = [
   ["Right Click", "Aim down sights"],
   ["R", "Reload"],
   ["G", "Throw equipped throwable"],
+  ["F", "Collect supply crate (ammo/health)"],
   ["H", "Fire underbarrel M203 (if fitted)"],
   ["1 / 2 / 3 / 4", "Primary / Secondary / Special / Throwable"],
   ["Mouse Wheel", "Cycle equipped slots"],
