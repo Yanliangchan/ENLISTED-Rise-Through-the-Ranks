@@ -1,0 +1,126 @@
+import { UniversalCamera, Scene, Vector3, MeshBuilder, Mesh } from "@babylonjs/core";
+import type { InputManager } from "@/core/InputManager";
+
+const WALK_SPEED = 4.5; // m/s
+const SPRINT_MULT = 1.6;
+const CROUCH_MULT = 0.5;
+const JUMP_SPEED = 5.5;
+const GRAVITY = -18;
+const MOUSE_SENSITIVITY = 0.0022;
+
+const STAND_EYE_HEIGHT = 1.7;
+const CROUCH_EYE_HEIGHT = 1.0;
+const CROUCH_LERP_SPEED = 10;
+
+/**
+ * FPS player: mouse-look camera + WASD/sprint/crouch/jump movement with
+ * gravity and collision. Babylon cameras don't expose moveWithCollisions
+ * directly, so an invisible capsule mesh owns collision/movement and the
+ * camera rides on it as a child (yaw on the collider, pitch on the camera).
+ */
+export class PlayerController {
+  readonly camera: UniversalCamera;
+  private readonly collider: Mesh;
+
+  private verticalVelocity = 0;
+  private isGrounded = false;
+  private isCrouching = false;
+  private currentEyeHeight = STAND_EYE_HEIGHT;
+  health = 100;
+  armour = 0;
+
+  constructor(
+    private readonly scene: Scene,
+    private readonly input: InputManager,
+    spawnPosition: Vector3
+  ) {
+    this.collider = MeshBuilder.CreateCapsule(
+      "playerCollider",
+      { height: STAND_EYE_HEIGHT, radius: 0.4 },
+      scene
+    );
+    this.collider.position = spawnPosition.clone();
+    this.collider.isVisible = false;
+    this.collider.checkCollisions = true;
+    this.collider.ellipsoid = new Vector3(0.4, STAND_EYE_HEIGHT / 2, 0.4);
+    this.collider.ellipsoidOffset = new Vector3(0, STAND_EYE_HEIGHT / 2, 0);
+
+    this.camera = new UniversalCamera("playerCamera", Vector3.Zero(), scene);
+    this.camera.minZ = 0.05;
+    this.camera.fov = 1.1; // ~63 deg, tune later for weapon FOV settings
+    this.camera.inputs.clear(); // we drive rotation/movement ourselves
+    this.camera.parent = this.collider;
+    this.camera.position.y = this.currentEyeHeight - STAND_EYE_HEIGHT / 2;
+
+    scene.activeCamera = this.camera;
+  }
+
+  update(deltaSeconds: number): void {
+    if (deltaSeconds <= 0) return;
+    this.applyMouseLook();
+    this.applyMovement(deltaSeconds);
+  }
+
+  private applyMouseLook(): void {
+    if (!this.input.isPointerLocked) return;
+    this.collider.rotation.y += this.input.mouseDeltaX * MOUSE_SENSITIVITY;
+    this.camera.rotation.x += this.input.mouseDeltaY * MOUSE_SENSITIVITY;
+    const maxPitch = Math.PI / 2 - 0.01;
+    this.camera.rotation.x = Math.max(-maxPitch, Math.min(maxPitch, this.camera.rotation.x));
+  }
+
+  private applyMovement(dt: number): void {
+    const yaw = this.collider.rotation.y;
+    const forward = new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const right = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+
+    let moveX = 0;
+    let moveZ = 0;
+    if (this.input.isDown("KeyW")) moveZ += 1;
+    if (this.input.isDown("KeyS")) moveZ -= 1;
+    if (this.input.isDown("KeyD")) moveX += 1;
+    if (this.input.isDown("KeyA")) moveX -= 1;
+
+    const moving = moveX !== 0 || moveZ !== 0;
+    this.isCrouching = this.input.isDown("ControlLeft") || this.input.isDown("ControlRight");
+    const sprinting = this.input.isDown("ShiftLeft") && moveZ > 0 && !this.isCrouching;
+
+    let speed = WALK_SPEED;
+    if (sprinting) speed *= SPRINT_MULT;
+    if (this.isCrouching) speed *= CROUCH_MULT;
+
+    let moveVector = Vector3.Zero();
+    if (moving) {
+      const dir = forward.scale(moveZ).add(right.scale(moveX)).normalize();
+      moveVector = dir.scale(speed * dt);
+    }
+
+    // Gravity + jump
+    if (this.isGrounded && this.input.wasPressed("Space")) {
+      this.verticalVelocity = JUMP_SPEED;
+      this.isGrounded = false;
+    }
+    this.verticalVelocity += GRAVITY * dt;
+    moveVector.y = this.verticalVelocity * dt;
+
+    const beforeY = this.collider.position.y;
+    this.collider.moveWithCollisions(moveVector);
+
+    // Grounded check: collision engine zeroed vertical motion against the floor.
+    const actualDy = this.collider.position.y - beforeY;
+    if (this.verticalVelocity <= 0 && actualDy > moveVector.y - 1e-4) {
+      this.isGrounded = true;
+      this.verticalVelocity = 0;
+    } else if (this.verticalVelocity > 0) {
+      this.isGrounded = false;
+    }
+
+    // Smoothly blend eye height for crouch (camera-local offset + collider ellipsoid).
+    const targetHeight = this.isCrouching ? CROUCH_EYE_HEIGHT : STAND_EYE_HEIGHT;
+    this.currentEyeHeight +=
+      (targetHeight - this.currentEyeHeight) * Math.min(1, CROUCH_LERP_SPEED * dt);
+    this.camera.position.y = this.currentEyeHeight - STAND_EYE_HEIGHT / 2;
+    this.collider.ellipsoid.y = this.currentEyeHeight / 2;
+    this.collider.ellipsoidOffset.y = this.currentEyeHeight / 2;
+  }
+}
