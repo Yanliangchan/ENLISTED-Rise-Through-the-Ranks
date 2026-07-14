@@ -4,7 +4,7 @@ import { ECONOMY } from "@/data/gamedata";
 import type { GameState } from "@/core/GameState";
 import type { AudioManager } from "@/core/AudioManager";
 
-export type RunPhase = "combat" | "armoury" | "gameover";
+export type RunPhase = "intro" | "combat" | "armoury" | "gameover";
 
 export interface WaveManagerCallbacks {
   onWaveStart?: (wave: number, isBoss: boolean) => void;
@@ -16,17 +16,21 @@ export interface WaveManagerCallbacks {
 }
 
 const ARMOURY_DURATION_SEC = 45;
+/** Free-roam window before Wave 1 so the player can scout the map before OPFOR forms up. */
+const INTRO_DURATION_SEC = 30;
 
 /**
- * Orchestrates the wave-survival loop: spawn a wave via `EnemyManager`, wait
- * for it to clear, award the scaling `WAVES`/`ECONOMY` bonus, open the
- * between-wave armoury for a breather, then advance. Ends the run on player death.
+ * Orchestrates the wave-survival loop: a free-roam intro before Wave 1,
+ * spawn a wave via `EnemyManager`, wait for it to clear, award the scaling
+ * `WAVES`/`ECONOMY` bonus, open the between-wave armoury for a breather,
+ * then advance. Ends the run on player death.
  */
 export class WaveManager {
   readonly enemyManager: EnemyManager;
-  phase: RunPhase = "armoury";
+  phase: RunPhase = "intro";
   wave: number;
   armouryTimeRemaining = ARMOURY_DURATION_SEC;
+  introTimeRemaining = INTRO_DURATION_SEC;
 
   constructor(
     private readonly scene: import("@babylonjs/core").Scene,
@@ -43,10 +47,22 @@ export class WaveManager {
     });
   }
 
+  /** Free-roam scouting window before Wave 1 only — no shop, no enemies. */
+  beginIntro(): void {
+    this.phase = "intro";
+    this.introTimeRemaining = INTRO_DURATION_SEC;
+    this.callbacks.onPhaseChange?.(this.phase);
+  }
+
   beginArmoury(): void {
     this.phase = "armoury";
     this.armouryTimeRemaining = ARMOURY_DURATION_SEC;
     this.callbacks.onPhaseChange?.(this.phase);
+  }
+
+  /** Remaining seconds until the next wave starts, whichever pre-combat phase we're in. */
+  get timeUntilWaveStart(): number {
+    return this.phase === "intro" ? this.introTimeRemaining : this.armouryTimeRemaining;
   }
 
   startWave(): void {
@@ -65,6 +81,12 @@ export class WaveManager {
       this.phase = "gameover";
       this.callbacks.onPhaseChange?.(this.phase);
       this.callbacks.onGameOver?.(this.wave);
+      return;
+    }
+
+    if (this.phase === "intro") {
+      this.introTimeRemaining -= dt;
+      if (this.introTimeRemaining <= 0) this.startWave();
       return;
     }
 
@@ -100,6 +122,6 @@ export class WaveManager {
   }
 
   skipArmoury(): void {
-    if (this.phase === "armoury") this.startWave();
+    if (this.phase === "armoury" || this.phase === "intro") this.startWave();
   }
 }

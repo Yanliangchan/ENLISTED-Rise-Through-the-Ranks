@@ -205,10 +205,7 @@ export class HUD {
     this.throwableEl.textContent = `${throwableName} ×${this.gameState.data.loadout.throwableCount}`;
 
     this.creditsEl.textContent = `Credits: ${this.gameState.data.credits}`;
-    const phaseLabel =
-      this.waveManager.phase === "armoury"
-        ? `ARMOURY — Wave ${this.waveManager.wave} in ${Math.max(0, Math.ceil(this.waveManager.armouryTimeRemaining))}s`
-        : `WAVE ${this.waveManager.wave} — ${this.waveManager.enemyManager.totalForWaveRemaining} OPFOR remaining`;
+    const phaseLabel = this.phaseLabel();
     this.waveEl.textContent = phaseLabel;
 
     const spreadPx = 6 + this.currentSpreadDeg() * 4;
@@ -233,6 +230,17 @@ export class HUD {
     this.lockHintEl.style.display = isPointerLocked ? "none" : "block";
 
     this.renderRadar(enemyPositions);
+  }
+
+  private phaseLabel(): string {
+    const wm = this.waveManager;
+    if (wm.phase === "intro") {
+      return `SCOUT THE SECTOR — Wave 1 begins in ${Math.max(0, Math.ceil(wm.introTimeRemaining))}s`;
+    }
+    if (wm.phase === "armoury") {
+      return `ARMOURY — Wave ${wm.wave} in ${Math.max(0, Math.ceil(wm.armouryTimeRemaining))}s`;
+    }
+    return `WAVE ${wm.wave} — ${wm.enemyManager.totalForWaveRemaining} OPFOR remaining`;
   }
 
   private currentSpreadDeg(): number {
@@ -266,7 +274,7 @@ export class HUD {
   private renderRadar(enemyPositions: Array<{ x: number; z: number }>): void {
     const ctx = this.radarCtx;
     const size = this.radarCanvas.width;
-    const range = 60; // metres shown edge-to-edge
+    const range = 100; // metres shown edge-to-edge
     ctx.clearRect(0, 0, size, size);
     ctx.save();
     ctx.translate(size / 2, size / 2);

@@ -9,10 +9,34 @@ import {
   Vector3,
 } from "@babylonjs/core";
 
+/** Deterministic PRNG so the map layout is identical on every load. */
+function mulberry32(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state |= 0;
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const BUILDING_COLORS = [
+  new Color3(0.55, 0.5, 0.42),
+  new Color3(0.48, 0.44, 0.4),
+  new Color3(0.58, 0.46, 0.36),
+  new Color3(0.45, 0.47, 0.44),
+];
+
+/** Grid line positions for the street layout — the 0 line is left out to keep a clear central plaza. */
+const GRID_LINES = [-91, -65, -39, -13, 13, 39, 65, 91];
+
 /**
- * Milestone-1 blockout: a flat ground plane, a handful of collidable crates
- * for cover, and basic lighting. Stands in for the "urban strongpoint"
- * sector from the story until real level art/GLTF props replace it.
+ * Medium-size urban-estate map: a street grid of collidable "shophouse"
+ * blocks around a clear central plaza (the player's spawn), plus scattered
+ * low cover. Evocative Singapore dressing, not a real streetscape. Spawn
+ * points (EnemySpawner) ring the outside so OPFOR has to move through the
+ * blocks and cover to reach the plaza.
  */
 export function buildLevel(scene: Scene): void {
   const hemi = new HemisphericLight("hemiLight", new Vector3(0, 1, 0), scene);
@@ -25,21 +49,105 @@ export function buildLevel(scene: Scene): void {
   groundMat.diffuseColor = new Color3(0.28, 0.3, 0.27);
   groundMat.specularColor = Color3.Black();
 
-  const ground = MeshBuilder.CreateGround("ground", { width: 200, height: 200 }, scene);
+  const ground = MeshBuilder.CreateGround("ground", { width: 260, height: 260 }, scene);
   ground.material = groundMat;
   ground.checkCollisions = true;
 
+  buildStreetGrid(scene);
+  buildCover(scene);
+
+  const wallMat = new StandardMaterial("wallMat", scene);
+  wallMat.diffuseColor = new Color3(0.5, 0.5, 0.52);
+  wallMat.specularColor = Color3.Black();
+
+  const perimeter: Array<[number, number, number, number]> = [
+    // x, z, width, depth
+    [0, -120, 240, 1],
+    [0, 120, 240, 1],
+    [-120, 0, 1, 240],
+    [120, 0, 1, 240],
+  ];
+  perimeter.forEach(([x, z, width, depth], i) => {
+    const wall = MeshBuilder.CreateBox(`boundary_${i}`, { width, height: 6, depth }, scene);
+    wall.position.set(x, 3, z);
+    wall.material = wallMat;
+    wall.checkCollisions = true;
+    wall.isVisible = false; // invisible playspace boundary
+  });
+}
+
+/**
+ * Singapore-flavoured shophouse blocks on a street grid: ~1-in-5 grid cells
+ * are left empty for flanking routes/sightline breaks, sizes/heights vary
+ * via a seeded RNG so the skyline reads as a real (if blocky) estate.
+ */
+function buildStreetGrid(scene: Scene): void {
+  const rand = mulberry32(1337);
+  const mats = BUILDING_COLORS.map((color, i) => {
+    const mat = new StandardMaterial(`buildingMat_${i}`, scene);
+    mat.diffuseColor = color;
+    mat.specularColor = Color3.Black();
+    return mat;
+  });
+
+  let buildingIndex = 0;
+  for (const gx of GRID_LINES) {
+    for (const gz of GRID_LINES) {
+      if (rand() < 0.22) continue; // gap: open flanking route / sightline break
+
+      const footprint = 12 + rand() * 8; // 12-20m
+      const height = 8 + rand() * 12; // 8-20m
+      const jitterX = (rand() - 0.5) * 5;
+      const jitterZ = (rand() - 0.5) * 5;
+
+      const building = MeshBuilder.CreateBox(
+        `building_${buildingIndex}`,
+        { width: footprint, height, depth: footprint },
+        scene
+      );
+      building.position.set(gx + jitterX, height / 2, gz + jitterZ);
+      building.material = mats[buildingIndex % mats.length];
+      building.checkCollisions = true;
+      buildingIndex++;
+
+      // Roof trim band for a bit of visual read at a distance.
+      const trim = MeshBuilder.CreateBox(
+        `buildingTrim_${buildingIndex}`,
+        { width: footprint + 0.4, height: 0.6, depth: footprint + 0.4 },
+        scene
+      );
+      trim.position.set(gx + jitterX, height + 0.3, gz + jitterZ);
+      trim.material = mats[(buildingIndex + 1) % mats.length];
+      trim.isPickable = false;
+    }
+  }
+}
+
+/** Waist-high crates for close cover in the plaza and at street junctions. */
+function buildCover(scene: Scene): void {
   const crateMat = new StandardMaterial("crateMat", scene);
   crateMat.diffuseColor = new Color3(0.4, 0.35, 0.25);
   crateMat.specularColor = Color3.Black();
 
   const crateLayout: Array<[number, number, number]> = [
-    [4, 1, 4],
-    [-6, 1, 8],
-    [10, 1.5, -3],
-    [-10, 1, -8],
-    [0, 2, 15],
-    [15, 1, 15],
+    // Central plaza — near player spawn, ring of low cover.
+    [8, 1, 6],
+    [-9, 1, 5],
+    [6, 1, -9],
+    [-7, 1, -8],
+    [0, 1.3, 16],
+    [14, 1, 2],
+    [-14, 1, -3],
+    [3, 1, -17],
+    // Street junctions further out.
+    [26, 1, 13],
+    [-26, 1, -13],
+    [13, 1, -26],
+    [-13, 1, 26],
+    [39, 1.4, 0],
+    [-39, 1.4, 0],
+    [0, 1.4, 39],
+    [0, 1.4, -39],
   ];
   crateLayout.forEach(([x, halfHeight, z], i) => {
     const crate = MeshBuilder.CreateBox(
@@ -50,45 +158,6 @@ export function buildLevel(scene: Scene): void {
     crate.position.set(x, halfHeight, z);
     crate.material = crateMat;
     crate.checkCollisions = true;
-  });
-
-  const wallMat = new StandardMaterial("wallMat", scene);
-  wallMat.diffuseColor = new Color3(0.5, 0.5, 0.52);
-  wallMat.specularColor = Color3.Black();
-
-  const perimeter: Array<[number, number, number, number, number]> = [
-    // x, z, width, depth, rotationY
-    [0, -100, 200, 1, 0],
-    [0, 100, 200, 1, 0],
-    [-100, 0, 1, 200, 0],
-    [100, 0, 1, 200, 0],
-  ];
-  perimeter.forEach(([x, z, width, depth], i) => {
-    const wall = MeshBuilder.CreateBox(`boundary_${i}`, { width, height: 6, depth }, scene);
-    wall.position.set(x, 3, z);
-    wall.material = wallMat;
-    wall.checkCollisions = true;
-    wall.isVisible = false; // invisible playspace boundary for Milestone 1
-  });
-
-  // Singapore-flavoured urban-estate silhouettes: blocky "shophouse" facades
-  // ringing the strongpoint, evocative rather than a real streetscape.
-  const buildingMat = new StandardMaterial("buildingMat", scene);
-  buildingMat.diffuseColor = new Color3(0.55, 0.5, 0.42);
-  buildingMat.specularColor = Color3.Black();
-  const buildingLayout: Array<[number, number, number, number]> = [
-    [-40, -40, 8, 18],
-    [-25, -46, 8, 14],
-    [40, -35, 8, 22],
-    [46, 20, 8, 16],
-    [-45, 30, 8, 20],
-    [20, 45, 8, 12],
-  ];
-  buildingLayout.forEach(([x, z, size, height], i) => {
-    const b = MeshBuilder.CreateBox(`building_${i}`, { width: size, height, depth: size }, scene);
-    b.position.set(x, height / 2, z);
-    b.material = buildingMat;
-    b.checkCollisions = true;
   });
 }
 

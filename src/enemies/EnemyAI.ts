@@ -32,6 +32,12 @@ export interface EnemyKillInfo {
   creditsAwarded: number;
 }
 
+/** Caps how many OPFOR can actively fire on the player at once — implemented by EnemyManager. */
+export interface EngagementLimiter {
+  requestEngage(enemyId: string, wave: number): boolean;
+  releaseEngage(enemyId: string): void;
+}
+
 /**
  * One live OPFOR combatant: FSM (Idle→Patrol→Alerted→Chase→Attack→Suppressed→Dead)
  * driven by line-of-sight + gunshot-hearing checks against the player, stats
@@ -65,7 +71,10 @@ export class EnemyInstance implements Damageable {
     readonly type: EnemyType,
     spawnPosition: Vector3,
     private readonly waveHealthMult: number,
-    private readonly audio: AudioManager
+    private readonly audio: AudioManager,
+    /** Fraction of base accuracy/fire-rate actually applied — ramps up over early waves. */
+    private readonly difficultyMult: number = 1,
+    private readonly engageLimiter?: EngagementLimiter
   ) {
     this.id = `enemy_${type.id}_${enemyCounter++}`;
     this.maxHealth = Math.round(type.health * waveHealthMult);
@@ -128,6 +137,7 @@ export class EnemyInstance implements Damageable {
 
   suppress(durationSec: number): void {
     if (this.state === "dead") return;
+    this.engageLimiter?.releaseEngage(this.id);
     this.state = "suppressed";
     this.suppressedTimer = durationSec;
   }
@@ -167,6 +177,7 @@ export class EnemyInstance implements Damageable {
   private die(headshot: boolean): void {
     this.isDead = true;
     this.state = "dead";
+    this.engageLimiter?.releaseEngage(this.id);
     this.audio.enemyDeath();
     const credits = this.type.creditReward + (headshot ? ECONOMY.headshotBonus : 0);
     this.onDeath?.({ enemy: this, headshot, creditsAwarded: credits });
@@ -175,7 +186,7 @@ export class EnemyInstance implements Damageable {
     this.deathTimer = 4;
   }
 
-  update(dt: number, player: PlayerController): void {
+  update(dt: number, player: PlayerController, wave = 1): void {
     if (this.state === "dead") {
       this.deathTimer -= dt;
       if (this.deathTimer <= 0) this.dispose();
@@ -203,16 +214,16 @@ export class EnemyInstance implements Damageable {
       case "chase":
         this.moveToward(player.position, dt);
         if (canSeePlayer && distToPlayer < this.type.sightRangeM * 0.85) {
-          this.state = "attack";
+          // Approaches regardless, but only opens fire once a concurrent-attacker slot frees up.
+          if (!this.engageLimiter || this.engageLimiter.requestEngage(this.id, wave)) {
+            this.state = "attack";
+          }
         }
         break;
       case "attack":
         this.facePlayer(player);
-        if (!canSeePlayer) {
-          this.state = "chase";
-          break;
-        }
-        if (distToPlayer > this.type.sightRangeM) {
+        if (!canSeePlayer || distToPlayer > this.type.sightRangeM) {
+          this.engageLimiter?.releaseEngage(this.id);
           this.state = "chase";
           break;
         }
@@ -253,8 +264,9 @@ export class EnemyInstance implements Damageable {
 
   private tryFire(player: PlayerController): void {
     if (this.fireCooldown > 0) return;
-    this.fireCooldown = 60 / this.type.fireRateRpm;
-    const hit = Math.random() < this.type.accuracy;
+    // Early waves fire slower and less accurately — ramps to full lethality by ~wave 7.
+    this.fireCooldown = 60 / (this.type.fireRateRpm * this.difficultyMult);
+    const hit = Math.random() < this.type.accuracy * this.difficultyMult;
     this.audio.gunshot();
     if (hit) {
       player.takeDamage(this.type.damage);

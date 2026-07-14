@@ -15,6 +15,7 @@ import { HUD } from "@/ui/HUD";
 import { Armoury } from "@/ui/Armoury";
 import { PauseMenu } from "@/ui/PauseMenu";
 import { GameOverScreen } from "@/ui/GameOverScreen";
+import { ControlsOverlay } from "@/ui/ControlsOverlay";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -64,6 +65,11 @@ const waveManager = new WaveManager(game.scene, player, gameState, audio, {
     } else {
       armoury.hide();
     }
+    if (phase === "intro") {
+      controlsOverlay.show();
+    } else if (phase === "combat") {
+      controlsOverlay.hide();
+    }
     if (phase === "gameover") {
       gameOverScreen.show(waveManager.wave);
     }
@@ -107,13 +113,21 @@ gameOverScreen.onRestart = () => {
   gameState.resetRun();
   location.reload();
 };
+const controlsOverlay = new ControlsOverlay(uiRoot);
 
 applyWaveArcLighting(game.scene, waveManager.wave);
-hud.showCenterMessage("OPERATION SENTINEL SHIELD — Click to engage", 3500);
-waveManager.beginArmoury();
+hud.showCenterMessage("OPERATION SENTINEL SHIELD — Scout the sector before OPFOR forms up", 4000);
+waveManager.beginIntro();
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") pauseMenu.toggle();
+  if (e.code === "Tab") {
+    e.preventDefault();
+    controlsOverlay.toggle();
+  }
+  if (e.code === "KeyB" && (waveManager.phase === "intro" || waveManager.phase === "armoury")) {
+    armoury.visible ? armoury.hide() : armoury.show();
+  }
 });
 
 game.onUpdate((deltaSeconds) => {
