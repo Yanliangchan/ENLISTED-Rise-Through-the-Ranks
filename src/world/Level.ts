@@ -11,6 +11,7 @@ import {
   Vector3,
   Mesh,
   TransformNode,
+  VertexData,
 } from "@babylonjs/core";
 import { loadGlbContainerOrNull } from "@/core/ModelLoader";
 
@@ -214,9 +215,25 @@ export function generateBuildingLayout(): BuildingFootprint[] {
 export function buildLevel(scene: Scene): void {
   const hemi = new HemisphericLight("hemiLight", new Vector3(0, 1, 0), scene);
   hemi.intensity = 0.65;
+  // Cool sky from above, warm asphalt bounce from below — the two-tone ambient
+  // is what stops flat unlit faces reading as uniform cardboard.
+  hemi.diffuse = new Color3(0.92, 0.96, 1.0);
+  hemi.groundColor = new Color3(0.38, 0.35, 0.3);
 
   const sun = new DirectionalLight("sunLight", new Vector3(-0.5, -1, 0.3), scene);
   sun.intensity = 0.9;
+  // Warm tropical sunlight so lit faces separate from shadowed ones in colour, not just brightness.
+  sun.diffuse = new Color3(1.0, 0.95, 0.85);
+  sun.specular = new Color3(1.0, 0.97, 0.9);
+
+  // Soft cool fill from the opposite azimuth: walls facing away from the sun
+  // previously took only hemispheric light (≈half intensity on verticals) and
+  // rendered near-black; this keeps them shaped and readable without
+  // flattening the sun/shade contrast.
+  const fill = new DirectionalLight("fillLight", new Vector3(0.45, -0.35, -0.35), scene);
+  fill.intensity = 0.32;
+  fill.diffuse = new Color3(0.75, 0.82, 0.9);
+  fill.specular = Color3.Black();
 
   // Distance fog for depth/atmosphere — cheap (no extra draw calls) and hides the
   // ground/building pop-in at the far edge of the play space.
@@ -611,7 +628,9 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
     const mat = new StandardMaterial(`shophouseMat_${i}`, scene);
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
-    const tex = createWindowTexture(scene, `shophouseWindowTex_${i}`, "#33322f");
+    // Light wall base: the texture MULTIPLIES diffuseColor, so a dark base here
+    // would square-darken the facade to near-black on shadow sides.
+    const tex = createWindowTexture(scene, `shophouseWindowTex_${i}`, "#94908a");
     tex.uScale = 3;
     tex.vScale = 4;
     tex.hasAlpha = false;
@@ -622,7 +641,7 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
     const mat = new StandardMaterial(`hdbMat_${i}`, scene);
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
-    const tex = createWindowTexture(scene, `hdbWindowTex_${i}`, "#33322f");
+    const tex = createWindowTexture(scene, `hdbWindowTex_${i}`, "#9a9791"); // light base — multiplies diffuseColor (see shophouse note)
     tex.uScale = 2.5;
     tex.vScale = 9;
     tex.hasAlpha = false;
@@ -634,7 +653,7 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
     mat.diffuseColor = color;
     mat.specularColor = new Color3(0.5, 0.55, 0.58);
     mat.specularPower = 64;
-    const tex = createWindowTexture(scene, `cbdWindowTex_${i}`, "#1c2a33");
+    const tex = createWindowTexture(scene, `cbdWindowTex_${i}`, "#5f7079"); // glass-mullion grid, kept darker than HDB but no longer near-black
     tex.uScale = 4;
     tex.vScale = 12;
     tex.hasAlpha = false;
@@ -901,6 +920,58 @@ function solidMat(scene: Scene, name: string, color: Color3): StandardMaterial {
   return mat;
 }
 
+/**
+ * A flat-shaded wedge (right-triangular prism): width along X, vertical back
+ * face at -Z, and a slope running from the bottom-front edge up to the
+ * top-back edge. Origin at the bottom centre. This is the piece that
+ * de-blocks silhouettes everywhere a pure box reads wrong — car windshields
+ * and rear glass, Jersey-barrier sides, etc. Normals are hand-set per face;
+ * paired materials disable backface culling so winding never bites.
+ */
+function createWedge(name: string, w: number, h: number, d: number, scene: Scene): Mesh {
+  const x = w / 2;
+  const z = d / 2;
+  const positions = [
+    // bottom
+    -x, 0, -z,  x, 0, -z,  x, 0, z,  -x, 0, z,
+    // vertical back face
+    -x, 0, -z,  -x, h, -z,  x, h, -z,  x, 0, -z,
+    // slope (bottom-front edge → top-back edge)
+    -x, h, -z,  -x, 0, z,  x, 0, z,  x, h, -z,
+    // side triangles
+    -x, 0, -z,  -x, 0, z,  -x, h, -z,
+    x, 0, -z,  x, h, -z,  x, 0, z,
+  ];
+  const front = [
+    0, 2, 1, 0, 3, 2,
+    4, 5, 6, 4, 6, 7,
+    8, 9, 10, 8, 10, 11,
+    12, 13, 14,
+    15, 16, 17,
+  ];
+  // Emit both windings so the wedge renders correctly under any material's
+  // culling setting — a handful of extra (never-lit-wrong) triangles per prop.
+  const indices = [...front];
+  for (let i = 0; i < front.length; i += 3) indices.push(front[i], front[i + 2], front[i + 1]);
+  const slopeLen = Math.hypot(d, h);
+  const ny = d / slopeLen;
+  const nz = h / slopeLen;
+  const normals = [
+    0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0,
+    0, 0, -1,  0, 0, -1,  0, 0, -1,  0, 0, -1,
+    0, ny, nz,  0, ny, nz,  0, ny, nz,  0, ny, nz,
+    -1, 0, 0,  -1, 0, 0,  -1, 0, 0,
+    1, 0, 0,  1, 0, 0,  1, 0, 0,
+  ];
+  const mesh = new Mesh(name, scene);
+  const vd = new VertexData();
+  vd.positions = positions;
+  vd.indices = indices;
+  vd.normals = normals;
+  vd.applyToMesh(mesh);
+  return mesh;
+}
+
 function placeCover(
   scene: Scene,
   type: CoverType,
@@ -970,21 +1041,39 @@ function placeCover(
   }
 }
 
-/** Low stacked sandbag wall — two rows of squat bags, good chest-high cover. */
+/**
+ * Chest-high sandbag wall built from three staggered courses of individual
+ * squashed bags (an invisible box still handles collision, so gameplay is
+ * unchanged). Rounded, jittered bags read as filled hessian sacks instead of
+ * the old single rectangular block with a decorative top row.
+ */
 function buildSandbagWall(scene: Scene, x: number, z: number, rotY: number, mat: StandardMaterial, index: number): void {
   const wall = MeshBuilder.CreateBox(`sandbagWall_${index}`, { width: 3, height: 1.1, depth: 0.8 }, scene);
   wall.position.set(x, 0.55, z);
   wall.rotation.y = rotY;
-  wall.material = mat;
+  wall.isVisible = false;
   wall.checkCollisions = true;
 
-  for (let i = 0; i < 5; i++) {
-    const bag = MeshBuilder.CreateSphere(`sandbag_${index}_${i}`, { diameterX: 0.55, diameterY: 0.35, diameterZ: 0.4 }, scene);
-    const along = -1.15 + i * 0.58;
-    bag.position.set(x + Math.cos(rotY) * along, 1.15, z - Math.sin(rotY) * along);
-    bag.rotation.y = rotY;
-    bag.material = mat;
-    bag.isPickable = false;
+  const rand = mulberry32(8800 + index);
+  const courses: Array<{ y: number; count: number; offset: number }> = [
+    { y: 0.19, count: 6, offset: 0 },
+    { y: 0.55, count: 5, offset: 0.29 }, // half-bag stagger like real coursing
+    { y: 0.9, count: 6, offset: 0 },
+  ];
+  for (const course of courses) {
+    for (let i = 0; i < course.count; i++) {
+      const along = -1.45 + course.offset + i * (2.9 / Math.max(1, course.count - 1)) + (rand() - 0.5) * 0.06;
+      const bag = MeshBuilder.CreateSphere(
+        `sandbag_${index}_${course.y}_${i}`,
+        { diameterX: 0.62, diameterY: 0.4, diameterZ: 0.68, segments: 8 },
+        scene
+      );
+      bag.position.set(x + Math.cos(rotY) * along, course.y, z - Math.sin(rotY) * along);
+      bag.rotation.y = rotY + (rand() - 0.5) * 0.22;
+      bag.scaling.y = 0.92 + rand() * 0.16;
+      bag.material = mat;
+      bag.isPickable = false;
+    }
   }
 }
 
@@ -1010,6 +1099,18 @@ function buildConcreteBarrier(
   top.rotation.y = rotY;
   top.material = mat;
   top.checkCollisions = true;
+
+  // Sloped flanks between the wide base and narrow top — the real Jersey
+  // barrier profile instead of two stacked boxes. Parented to the top block
+  // so they inherit its rotation; visual only.
+  for (const side of [-1, 1]) {
+    const flank = createWedge(`barrierFlank_${index}_${side}`, 2.4, 0.58, 0.17, scene);
+    flank.position.set(0, -0.3, side * (0.35 / 2 + 0.17 / 2));
+    if (side === -1) flank.rotation.y = Math.PI;
+    flank.material = mat;
+    flank.parent = top;
+    flank.isPickable = false;
+  }
 
   if (kind === "roadblock" && stripeMat) {
     for (const off of [-0.8, 0, 0.8]) {
@@ -1110,7 +1211,9 @@ function buildParkedCars(scene: Scene, layout: BuildingFootprint[]): void {
   const carMats = CAR_COLORS.map((color, i) => {
     const mat = new StandardMaterial(`carMat_${i}`, scene);
     mat.diffuseColor = color;
-    mat.specularColor = new Color3(0.2, 0.2, 0.2);
+    // Tight glossy highlight so painted panels read as car paint, not matte plastic.
+    mat.specularColor = new Color3(0.42, 0.42, 0.45);
+    mat.specularPower = 56;
     return mat;
   });
   const busMat = solidMat(scene, "busMat", new Color3(0.85, 0.7, 0.15));
@@ -1177,9 +1280,11 @@ interface CarDetailMats {
   headlight: StandardMaterial;
   tail: StandardMaterial;
   bumper: StandardMaterial;
+  rim: StandardMaterial;
+  shadow: StandardMaterial;
 }
 const carDetailCache = new WeakMap<Scene, CarDetailMats>();
-/** Shared window/light/bumper materials for cars — built once per scene. */
+/** Shared window/light/bumper/rim/shadow materials for cars — built once per scene. */
 function carDetailMats(scene: Scene): CarDetailMats {
   let m = carDetailCache.get(scene);
   if (!m) {
@@ -1187,6 +1292,7 @@ function carDetailMats(scene: Scene): CarDetailMats {
     glass.diffuseColor = new Color3(0.1, 0.14, 0.18);
     glass.specularColor = new Color3(0.5, 0.55, 0.6);
     glass.specularPower = 64;
+    glass.backFaceCulling = false; // wedge windshields stay visible from any angle
     const headlight = new StandardMaterial("carHeadlightMat", scene);
     headlight.diffuseColor = new Color3(0.9, 0.9, 0.8);
     headlight.emissiveColor = new Color3(0.5, 0.5, 0.42);
@@ -1194,7 +1300,18 @@ function carDetailMats(scene: Scene): CarDetailMats {
     tail.diffuseColor = new Color3(0.5, 0.05, 0.05);
     tail.emissiveColor = new Color3(0.4, 0.03, 0.03);
     const bumper = solidMat(scene, "carBumperMat", new Color3(0.12, 0.12, 0.13));
-    m = { glass, headlight, tail, bumper };
+    const rim = new StandardMaterial("carRimMat", scene);
+    rim.diffuseColor = new Color3(0.45, 0.46, 0.48);
+    rim.specularColor = new Color3(0.5, 0.5, 0.5);
+    rim.specularPower = 48;
+    // Soft dark disc under each vehicle — a cheap contact shadow that grounds
+    // the car on the road instead of it looking pasted on.
+    const shadow = new StandardMaterial("vehShadowMat", scene);
+    shadow.diffuseColor = Color3.Black();
+    shadow.specularColor = Color3.Black();
+    shadow.alpha = 0.32;
+    shadow.disableLighting = true;
+    m = { glass, headlight, tail, bumper, rim, shadow };
     carDetailCache.set(scene, m);
   }
   return m;
@@ -1216,12 +1333,26 @@ function buildVehicle(
   const isMilitary = type === "saf5tonner" || type === "safLandRover";
   const bodyMat = type === "bus" ? busMat : isMilitary ? safMat : civMat;
 
+  const details = carDetailMats(scene);
+
+  /** Soft elliptical contact shadow under the vehicle footprint. */
+  const addBlobShadow = (parent: Mesh, groundLocalY: number, wScale: number, dScale: number): void => {
+    const shadow = MeshBuilder.CreateDisc(`veh_${index}_shadow`, { radius: 0.5, tessellation: 20 }, scene);
+    shadow.rotation.x = Math.PI / 2;
+    shadow.scaling.set(wScale, dScale, 1);
+    shadow.position.set(0, groundLocalY + 0.03, 0);
+    shadow.material = details.shadow;
+    shadow.parent = parent;
+    shadow.isPickable = false;
+  };
+
   if (type === "motorcycle") {
     const body = MeshBuilder.CreateBox(`veh_${index}_body`, { width: dims.w, height: dims.h, depth: dims.d }, scene);
     body.position.set(x, 0.35, z);
     body.rotation.y = rotationY;
     body.material = bodyMat;
     body.checkCollisions = true;
+    addBlobShadow(body, -0.33, dims.w * 1.6, dims.d * 1.15);
     const seat = MeshBuilder.CreateBox(`veh_${index}_seat`, { width: 0.3, height: 0.1, depth: 0.6 }, scene);
     seat.position.set(0, 0.28, -0.1);
     seat.material = solidMat(scene, `motoSeatMat_${index}`, new Color3(0.1, 0.1, 0.1));
@@ -1250,6 +1381,7 @@ function buildVehicle(
   root.rotation.y = rotationY;
   root.material = bodyMat;
   root.checkCollisions = true;
+  addBlobShadow(root, -(dims.h / 2 + wheelDia / 2), dims.w * 1.5, dims.d * 1.15);
 
   if (dims.cabinH > 0) {
     const cabin = MeshBuilder.CreateBox(`veh_${index}_cabin`, { width: dims.w * 0.9, height: dims.cabinH, depth: dims.cabinD }, scene);
@@ -1261,12 +1393,34 @@ function buildVehicle(
     // Window band wrapping the cabin (protrudes slightly past the body so the
     // glass actually shows), head/taillights, bumpers, and door mirrors —
     // enough detail to read as a real car up close.
-    const d = carDetailMats(scene);
+    const d = details;
     const glass = MeshBuilder.CreateBox(`veh_${index}_glass`, { width: dims.w * 0.96, height: dims.cabinH * 0.55, depth: dims.cabinD * 0.9 }, scene);
     glass.position.set(0, dims.h / 2 + dims.cabinH * 0.5, dims.d * 0.05);
     glass.material = d.glass;
     glass.parent = root;
     glass.isPickable = false;
+
+    // Raked windshield and rear glass: wedges bridging the bonnet/boot line up
+    // to the roof, so the greenhouse has real slopes instead of a cliff face.
+    const cabinFrontZ = dims.d * 0.05 + dims.cabinD / 2;
+    const cabinRearZ = dims.d * 0.05 - dims.cabinD / 2;
+    const windshieldD = Math.min(0.6, (dims.d / 2 - cabinFrontZ) * 0.85);
+    if (windshieldD > 0.15) {
+      const windshield = createWedge(`veh_${index}_ws`, dims.w * 0.86, dims.cabinH * 0.94, windshieldD, scene);
+      windshield.position.set(0, dims.h / 2, cabinFrontZ + windshieldD / 2 - 0.04);
+      windshield.material = d.glass;
+      windshield.parent = root;
+      windshield.isPickable = false;
+    }
+    const rearD = Math.min(type === "sedan" ? 0.5 : 0.32, (cabinRearZ + dims.d / 2) * 0.7);
+    if (rearD > 0.12) {
+      const rearGlass = createWedge(`veh_${index}_rw`, dims.w * 0.86, dims.cabinH * 0.9, rearD, scene);
+      rearGlass.rotation.y = Math.PI;
+      rearGlass.position.set(0, dims.h / 2, cabinRearZ - rearD / 2 + 0.04);
+      rearGlass.material = d.glass;
+      rearGlass.parent = root;
+      rearGlass.isPickable = false;
+    }
 
     for (const side of [-1, 1]) {
       const headlight = MeshBuilder.CreateBox(`veh_${index}_hl_${side}`, { width: 0.16, height: 0.12, depth: 0.05 }, scene);
@@ -1299,6 +1453,13 @@ function buildVehicle(
     cab.material = bodyMat;
     cab.parent = root;
     cab.isPickable = false;
+    // Raked windscreen panel on the cab face.
+    const cabGlass = MeshBuilder.CreateBox(`veh_${index}_cabglass`, { width: dims.w * 0.82, height: 0.5, depth: 0.05 }, scene);
+    cabGlass.position.set(0, dims.h / 2 + 0.6, dims.d / 2 - 0.16);
+    cabGlass.rotation.x = -0.22;
+    cabGlass.material = details.glass;
+    cabGlass.parent = root;
+    cabGlass.isPickable = false;
     if (type === "saf5tonner") {
       const canvas = MeshBuilder.CreateBox(`veh_${index}_canvas`, { width: dims.w * 0.92, height: 1.1, depth: dims.d * 0.55 }, scene);
       canvas.position.set(0, dims.h / 2 + 0.55, -dims.d * 0.12);
@@ -1322,12 +1483,20 @@ function buildVehicle(
     [dims.w / 2 * 0.55, -dims.d / 2 + 0.7],
   ];
   wheelPositions.forEach(([wx, wz], i) => {
-    const wheel = MeshBuilder.CreateCylinder(`veh_${index}_wheel_${i}`, { diameter: wheelDia, height: 0.3 }, scene);
+    const wheel = MeshBuilder.CreateCylinder(`veh_${index}_wheel_${i}`, { diameter: wheelDia, height: 0.3, tessellation: 18 }, scene);
     wheel.rotation.z = Math.PI / 2;
     wheel.position.set(wx, -dims.h / 2, wz);
     wheel.material = wheelMat;
     wheel.parent = root;
     wheel.isPickable = false;
+    // Alloy rim/hubcap: a slightly wider, smaller-diameter light disc through
+    // the tyre so wheels read as wheel + rim, not a plain black puck.
+    const rim = MeshBuilder.CreateCylinder(`veh_${index}_rim_${i}`, { diameter: wheelDia * 0.55, height: 0.32, tessellation: 14 }, scene);
+    rim.rotation.z = Math.PI / 2;
+    rim.position.set(wx, -dims.h / 2, wz);
+    rim.material = details.rim;
+    rim.parent = root;
+    rim.isPickable = false;
   });
 }
 
@@ -2480,5 +2649,6 @@ export function applyWaveArcLighting(scene: Scene, wave: number): void {
   scene.clearColor = new Color4(color.r, color.g, color.b, 1);
   scene.fogColor = color;
   const hemi = scene.getLightByName("hemiLight");
-  if (hemi) hemi.intensity = intensity;
+  // Scaled up so shadow-side surfaces stay readable under the ACES tone curve.
+  if (hemi) hemi.intensity = intensity * 1.25;
 }

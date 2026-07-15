@@ -9,7 +9,7 @@ import {
 } from "@babylonjs/core";
 import type { Weapon } from "@/data/weapons";
 
-const DARK_METAL = new Color3(0.12, 0.12, 0.13);
+const DARK_METAL = new Color3(0.18, 0.18, 0.2);
 const TAN_POLYMER = new Color3(0.25, 0.23, 0.18);
 const SIGHT_HOUSING = new Color3(0.08, 0.08, 0.09);
 const IRON_SIGHT_TIP = new Color3(0.85, 0.55, 0.15);
@@ -53,13 +53,24 @@ function lensMaterial(scene: Scene, name: string, color: Color3): StandardMateri
  */
 export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
   const root = new TransformNode(`viewmodel_${weapon.id}`, scene);
+  // Gunmetal: tight glossy highlight so the receiver/barrel catch light and
+  // read as machined steel rather than matte grey blocks.
   const mat = new StandardMaterial(`viewmodelMat_${weapon.id}`, scene);
   mat.diffuseColor = weapon.class === "pistol" ? TAN_POLYMER : DARK_METAL;
-  mat.specularColor = new Color3(0.15, 0.15, 0.15);
+  mat.specularColor = new Color3(0.4, 0.4, 0.44);
+  mat.specularPower = 42;
+
+  // Polymer furniture (stocks/grips/handguards): soft wide sheen, slightly
+  // warmer tone — the metal/polymer material split alone kills the mono-block look.
+  const polymerMat = new StandardMaterial(`viewmodelPolyMat_${weapon.id}`, scene);
+  polymerMat.diffuseColor = new Color3(0.24, 0.24, 0.21);
+  polymerMat.specularColor = new Color3(0.07, 0.07, 0.07);
+  polymerMat.specularPower = 8;
 
   const housingMat = new StandardMaterial(`sightHousingMat_${weapon.id}`, scene);
   housingMat.diffuseColor = SIGHT_HOUSING;
-  housingMat.specularColor = Color3.Black();
+  housingMat.specularColor = new Color3(0.12, 0.12, 0.12);
+  housingMat.specularPower = 24;
 
   const ironMat = new StandardMaterial(`ironSightMat_${weapon.id}`, scene);
   ironMat.diffuseColor = IRON_SIGHT_TIP;
@@ -78,24 +89,74 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
       // the top over the optic — distinct tapered handguard forward of that.
       const stock = MeshBuilder.CreateBox("stock", { width: 0.082, height: 0.125, depth: 0.22 }, scene);
       stock.position.set(0, 0.005, -0.2);
+      stock.material = polymerMat;
+      const buttpad = MeshBuilder.CreateBox("buttpad", { width: 0.078, height: 0.115, depth: 0.02 }, scene);
+      buttpad.position.set(0, 0.005, -0.315);
+      buttpad.material = housingMat;
       const receiver = MeshBuilder.CreateBox("receiver", { width: 0.09, height: 0.13, depth: 0.24 }, scene);
       receiver.position.set(0, 0, 0.02);
-      const handguard = MeshBuilder.CreateBox("handguard", { width: 0.07, height: 0.09, depth: 0.2 }, scene);
+      receiver.material = polymerMat;
+      // Ejection port: recessed dark plate on the right of the receiver.
+      const ejectionPort = MeshBuilder.CreateBox("ejectionPort", { width: 0.004, height: 0.045, depth: 0.09 }, scene);
+      ejectionPort.position.set(0.046, 0.015, 0.05);
+      ejectionPort.material = housingMat;
+      // Octagonal tapered handguard — rounder, hand-filling profile instead of a slab.
+      const handguard = MeshBuilder.CreateCylinder(
+        "handguard",
+        { diameterTop: 0.068, diameterBottom: 0.086, height: 0.2, tessellation: 8 },
+        scene
+      );
+      handguard.rotation.x = Math.PI / 2;
       handguard.position.set(0, -0.01, 0.24);
-      const barrel = MeshBuilder.CreateCylinder("barrel", { diameter: 0.022, height: 0.16 }, scene);
+      handguard.material = polymerMat;
+      const barrel = MeshBuilder.CreateCylinder("barrel", { diameter: 0.022, height: 0.16, tessellation: 12 }, scene);
       barrel.rotation.x = Math.PI / 2;
       barrel.position.set(0, 0.01, 0.42);
-      const mag = MeshBuilder.CreateBox("mag", { width: 0.045, height: 0.24, depth: 0.075 }, scene);
-      mag.position.set(0, -0.17, 0.07);
-      mag.rotation.x = -0.08;
+      // Slotted flash hider capping the muzzle.
+      const flashHider = MeshBuilder.CreateCylinder("flashHider", { diameter: 0.03, height: 0.05, tessellation: 10 }, scene);
+      flashHider.rotation.x = Math.PI / 2;
+      flashHider.position.set(0, 0.01, 0.49);
+      flashHider.material = housingMat;
+      // Two-segment magazine gives the STANAG's forward curve.
+      const mag = MeshBuilder.CreateBox("mag", { width: 0.045, height: 0.13, depth: 0.075 }, scene);
+      mag.position.set(0, -0.12, 0.075);
+      mag.rotation.x = -0.06;
+      mag.material = polymerMat;
+      const magLower = MeshBuilder.CreateBox("magLower", { width: 0.045, height: 0.13, depth: 0.072 }, scene);
+      magLower.position.set(0, -0.235, 0.095);
+      magLower.rotation.x = -0.24;
+      magLower.material = polymerMat;
       const grip = MeshBuilder.CreateBox("grip", { width: 0.048, height: 0.15, depth: 0.055 }, scene);
       grip.position.set(0, -0.11, 0.17);
       grip.rotation.x = 0.15;
+      grip.material = polymerMat;
+      // Finger grooves on the grip front.
+      const gripRibs: Mesh[] = [];
+      for (let g = 0; g < 3; g++) {
+        const rib = MeshBuilder.CreateBox(`gripRib_${g}`, { width: 0.05, height: 0.012, depth: 0.008 }, scene);
+        rib.position.set(0, -0.075 - g * 0.032, 0.199 - g * 0.005);
+        rib.rotation.x = 0.15;
+        rib.material = housingMat;
+        gripRibs.push(rib);
+      }
       const carryHandle = MeshBuilder.CreateBox("carryHandle", { width: 0.018, height: 0.045, depth: 0.3 }, scene);
       carryHandle.position.set(0, 0.09, -0.03);
+      carryHandle.material = polymerMat;
+      // Picatinny rail ribs along the top of the carry handle.
+      const railRibs: Mesh[] = [];
+      for (let r = 0; r < 6; r++) {
+        const rib = MeshBuilder.CreateBox(`railRib_${r}`, { width: 0.022, height: 0.006, depth: 0.014 }, scene);
+        rib.position.set(0, 0.116, -0.15 + r * 0.048);
+        rib.material = housingMat;
+        railRibs.push(rib);
+      }
       const trigger = MeshBuilder.CreateBox("trigger", { width: 0.012, height: 0.03, depth: 0.01 }, scene);
       trigger.position.set(0, -0.05, 0.12);
-      parts.push(stock, receiver, handguard, barrel, mag, grip, carryHandle, trigger);
+      trigger.material = housingMat;
+      parts.push(
+        stock, buttpad, receiver, ejectionPort, handguard, barrel, flashHider,
+        mag, magLower, grip, ...gripRibs, carryHandle, ...railRibs, trigger
+      );
 
       // Compact integral scope (matches the SAR 21's real 1.5x integral optic): short
       // tube + objective/ocular lenses, sitting on the carry handle. Kept small — ADS
@@ -143,7 +204,21 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
       const trigger = MeshBuilder.CreateBox("trigger", { width: 0.008, height: 0.025, depth: 0.008 }, scene);
       trigger.position.set(0, -0.05, -0.02);
       trigger.material = ironMat;
-      parts.push(slide, frame, dustRail, grip, beavertail, guard, trigger);
+      // Rear slide serrations (both sides) + exposed muzzle at the slide nose.
+      const serrations: Mesh[] = [];
+      for (const side of [-1, 1]) {
+        for (let s = 0; s < 3; s++) {
+          const cut = MeshBuilder.CreateBox(`serration_${side}_${s}`, { width: 0.003, height: 0.06, depth: 0.008 }, scene);
+          cut.position.set(side * 0.022, 0.03, -0.06 - s * 0.016);
+          cut.material = housingMat;
+          serrations.push(cut);
+        }
+      }
+      const muzzleTip = MeshBuilder.CreateCylinder("pistolMuzzle", { diameter: 0.016, height: 0.012, tessellation: 10 }, scene);
+      muzzleTip.rotation.x = Math.PI / 2;
+      muzzleTip.position.set(0, 0.035, 0.138);
+      muzzleTip.material = housingMat;
+      parts.push(slide, frame, dustRail, grip, beavertail, guard, trigger, ...serrations, muzzleTip);
 
       // Simple front-post + rear-notch iron sights (kept small — see rifle note above).
       sightOffset = new Vector3(0, 0.082, -0.06);
@@ -160,11 +235,24 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
     case "sniper": {
       const body = MeshBuilder.CreateBox("body", { width: 0.075, height: 0.11, depth: 0.62 }, scene);
       body.position.set(0, 0, 0.02);
-      const barrel = MeshBuilder.CreateCylinder("barrel", { diameter: 0.024, height: 0.5 }, scene);
+      // Rail ribs along the receiver top.
+      const dmrRibs: Mesh[] = [];
+      for (let r = 0; r < 5; r++) {
+        const rib = MeshBuilder.CreateBox(`dmrRib_${r}`, { width: 0.03, height: 0.006, depth: 0.016 }, scene);
+        rib.position.set(0, 0.058, -0.12 + r * 0.055);
+        rib.material = housingMat;
+        dmrRibs.push(rib);
+      }
+      // Tapered profile barrel — thick at the chamber, thin at the muzzle.
+      const barrel = MeshBuilder.CreateCylinder(
+        "barrel",
+        { diameterTop: 0.019, diameterBottom: 0.027, height: 0.5, tessellation: 12 },
+        scene
+      );
       barrel.rotation.x = Math.PI / 2;
       barrel.position.set(0, 0.01, 0.56);
       // Muzzle brake / flash hider at the end of the barrel.
-      const brake = MeshBuilder.CreateCylinder("brake", { diameter: 0.036, height: 0.06 }, scene);
+      const brake = MeshBuilder.CreateCylinder("brake", { diameter: 0.036, height: 0.06, tessellation: 10 }, scene);
       brake.rotation.x = Math.PI / 2;
       brake.position.set(0, 0.01, 0.82);
       brake.material = housingMat;
@@ -172,14 +260,17 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
       const grip = MeshBuilder.CreateBox("grip", { width: 0.05, height: 0.15, depth: 0.06 }, scene);
       grip.position.set(0, -0.11, -0.1);
       grip.rotation.x = 0.2;
+      grip.material = polymerMat;
       const stock = MeshBuilder.CreateBox("stock", { width: 0.06, height: 0.1, depth: 0.24 }, scene);
       stock.position.set(0, -0.02, -0.32);
+      stock.material = polymerMat;
       const cheek = MeshBuilder.CreateBox("cheek", { width: 0.05, height: 0.04, depth: 0.18 }, scene);
       cheek.position.set(0, 0.05, -0.3);
       cheek.material = housingMat;
       const mag = MeshBuilder.CreateBox("mag", { width: 0.05, height: 0.18, depth: 0.07 }, scene);
       mag.position.set(0, -0.14, 0.06);
-      parts.push(body, barrel, brake, grip, stock, cheek, mag);
+      mag.material = polymerMat;
+      parts.push(body, ...dmrRibs, barrel, brake, grip, stock, cheek, mag);
       if (weapon.class === "sniper") {
         // Bolt handle sticking out the right of the receiver.
         const bolt = MeshBuilder.CreateCylinder("bolt", { diameter: 0.012, height: 0.09 }, scene);
@@ -216,11 +307,19 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
     case "lmg": {
       const body = MeshBuilder.CreateBox("body", { width: 0.1, height: 0.15, depth: 0.55 }, scene);
       body.position.set(0, 0, 0.02);
-      // Ribbed heavy barrel with a slotted flash hider.
-      const barrel = MeshBuilder.CreateCylinder("barrel", { diameter: 0.032, height: 0.44 }, scene);
+      // Ribbed heavy barrel with a slotted flash hider + heat-shield rings.
+      const barrel = MeshBuilder.CreateCylinder("barrel", { diameter: 0.032, height: 0.44, tessellation: 12 }, scene);
       barrel.rotation.x = Math.PI / 2;
       barrel.position.set(0, 0.02, 0.44);
-      const flashHider = MeshBuilder.CreateCylinder("flashHider", { diameter: 0.048, height: 0.07 }, scene);
+      const heatRings: Mesh[] = [];
+      for (let hr = 0; hr < 3; hr++) {
+        const ring = MeshBuilder.CreateTorus(`heatRing_${hr}`, { diameter: 0.042, thickness: 0.006, tessellation: 12 }, scene);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.set(0, 0.02, 0.3 + hr * 0.1);
+        ring.material = housingMat;
+        heatRings.push(ring);
+      }
+      const flashHider = MeshBuilder.CreateCylinder("flashHider", { diameter: 0.048, height: 0.07, tessellation: 10 }, scene);
       flashHider.rotation.x = Math.PI / 2;
       flashHider.position.set(0, 0.02, 0.68);
       flashHider.material = housingMat;
@@ -249,7 +348,9 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
       const bipodR = bipodL.clone("bipodR");
       bipodR.position.x = 0.05;
       bipodR.rotation.z = -Math.PI / 10;
-      parts.push(body, barrel, flashHider, feedCover, mgCarryHandle, beltBox, belt, stock, grip, bipodL, bipodR);
+      stock.material = polymerMat;
+      grip.material = polymerMat;
+      parts.push(body, barrel, ...heatRings, flashHider, feedCover, mgCarryHandle, beltBox, belt, stock, grip, bipodL, bipodR);
 
       // Carry-handle rear sight + front post — belt-fed guns keep it basic, optics are
       // attachment-only (kept small — see rifle note above).
@@ -266,9 +367,18 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
     case "launcher": {
       // MATADOR: a 90mm launch tube with flared end caps, a firing grip
       // under the tube, and a shoulder rest at the rear.
-      const tube = MeshBuilder.CreateCylinder("tube", { diameter: 0.13, height: 1.0 }, scene);
+      const tube = MeshBuilder.CreateCylinder("tube", { diameter: 0.13, height: 1.0, tessellation: 20 }, scene);
       tube.rotation.x = Math.PI / 2;
       tube.position.set(0, 0, 0.2);
+      // Reinforcement rib rings along the fibreglass tube.
+      const tubeRibs: Mesh[] = [];
+      for (const rz of [-0.1, 0.2, 0.5]) {
+        const ring = MeshBuilder.CreateTorus(`tubeRib_${rz}`, { diameter: 0.135, thickness: 0.008, tessellation: 18 }, scene);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.set(0, 0, rz);
+        ring.material = housingMat;
+        tubeRibs.push(ring);
+      }
       const frontCap = MeshBuilder.CreateCylinder("frontCap", { diameter: 0.16, height: 0.05 }, scene);
       frontCap.rotation.x = Math.PI / 2;
       frontCap.position.set(0, 0, 0.68);
@@ -284,7 +394,7 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
       const shoulderRest = MeshBuilder.CreateBox("shoulderRest", { width: 0.14, height: 0.09, depth: 0.04 }, scene);
       shoulderRest.position.set(0, -0.08, -0.15);
       shoulderRest.material = housingMat;
-      parts.push(tube, frontCap, rearCap, grip, shoulderRest);
+      parts.push(tube, ...tubeRibs, frontCap, rearCap, grip, shoulderRest);
 
       // Reflex-style optic on the launcher's carry rail (kept small — see rifle note above).
       sightOffset = new Vector3(0, 0.12, 0.2);

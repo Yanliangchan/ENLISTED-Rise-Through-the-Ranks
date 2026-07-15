@@ -1,4 +1,5 @@
 import { GameEngine } from "@/core/Engine";
+import { attachCinematicPipeline } from "@/core/Postprocess";
 import { InputManager } from "@/core/InputManager";
 import { GameState } from "@/core/GameState";
 import { Settings } from "@/core/Settings";
@@ -46,6 +47,7 @@ const audio = new AudioManager();
 audio.setVolume(settings.data.volume);
 
 const player = new PlayerController(game.scene, input, SPAWN_POINT, audio);
+attachCinematicPipeline(game.scene, player.camera);
 player.sensitivityMult = settings.data.sensitivity;
 applyGearToPlayer(gameState, player);
 player.health = player.maxHealth;
@@ -211,3 +213,16 @@ game.onUpdate((deltaSeconds) => {
 });
 
 game.start();
+
+// Opt-in debug hook (`?debug` in the URL) for headless visual checks and
+// manual poking — never active for normal players.
+if (new URLSearchParams(location.search).has("debug")) {
+  (window as unknown as Record<string, unknown>).__debug = {
+    teleport: (x: number, y: number, z: number, yaw = 0, pitch = 0) => {
+      player.position.set(x, y, z);
+      (player as unknown as { collider: { rotation: { y: number } } }).collider.rotation.y = yaw;
+      player.camera.rotation.x = pitch;
+    },
+    player,
+  };
+}
