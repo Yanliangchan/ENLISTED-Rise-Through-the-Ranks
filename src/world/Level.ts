@@ -10,6 +10,7 @@ import {
   Color4,
   Vector3,
   Mesh,
+  TransformNode,
 } from "@babylonjs/core";
 import { loadGlbContainerOrNull } from "@/core/ModelLoader";
 
@@ -219,6 +220,7 @@ export function buildLevel(scene: Scene): void {
   buildCover(scene, layout);
   buildParkedCars(scene, layout);
   buildStreetFurniture(scene, layout);
+  buildUrbanClutter(scene, layout);
   buildContainerYard(scene);
   buildGardenDistrict(scene);
   buildMbsLandmark(scene);
@@ -1140,6 +1142,34 @@ const VEHICLE_DIMS: Record<VehicleType, { w: number; h: number; d: number; cabin
 };
 
 /** Generalised vehicle builder — body + optional cabin + wheels, dimensions and colour driven by `type`. */
+interface CarDetailMats {
+  glass: StandardMaterial;
+  headlight: StandardMaterial;
+  tail: StandardMaterial;
+  bumper: StandardMaterial;
+}
+const carDetailCache = new WeakMap<Scene, CarDetailMats>();
+/** Shared window/light/bumper materials for cars — built once per scene. */
+function carDetailMats(scene: Scene): CarDetailMats {
+  let m = carDetailCache.get(scene);
+  if (!m) {
+    const glass = new StandardMaterial("carGlassMat", scene);
+    glass.diffuseColor = new Color3(0.1, 0.14, 0.18);
+    glass.specularColor = new Color3(0.5, 0.55, 0.6);
+    glass.specularPower = 64;
+    const headlight = new StandardMaterial("carHeadlightMat", scene);
+    headlight.diffuseColor = new Color3(0.9, 0.9, 0.8);
+    headlight.emissiveColor = new Color3(0.5, 0.5, 0.42);
+    const tail = new StandardMaterial("carTailMat", scene);
+    tail.diffuseColor = new Color3(0.5, 0.05, 0.05);
+    tail.emissiveColor = new Color3(0.4, 0.03, 0.03);
+    const bumper = solidMat(scene, "carBumperMat", new Color3(0.12, 0.12, 0.13));
+    m = { glass, headlight, tail, bumper };
+    carDetailCache.set(scene, m);
+  }
+  return m;
+}
+
 function buildVehicle(
   scene: Scene,
   type: VehicleType,
@@ -1194,6 +1224,41 @@ function buildVehicle(
     cabin.material = bodyMat;
     cabin.parent = root;
     cabin.isPickable = false;
+
+    // Window band wrapping the cabin (protrudes slightly past the body so the
+    // glass actually shows), head/taillights, bumpers, and door mirrors —
+    // enough detail to read as a real car up close.
+    const d = carDetailMats(scene);
+    const glass = MeshBuilder.CreateBox(`veh_${index}_glass`, { width: dims.w * 0.96, height: dims.cabinH * 0.55, depth: dims.cabinD * 0.9 }, scene);
+    glass.position.set(0, dims.h / 2 + dims.cabinH * 0.5, dims.d * 0.05);
+    glass.material = d.glass;
+    glass.parent = root;
+    glass.isPickable = false;
+
+    for (const side of [-1, 1]) {
+      const headlight = MeshBuilder.CreateBox(`veh_${index}_hl_${side}`, { width: 0.16, height: 0.12, depth: 0.05 }, scene);
+      headlight.position.set(side * dims.w * 0.3, -0.02, dims.d / 2 - 0.02);
+      headlight.material = d.headlight;
+      headlight.parent = root;
+      headlight.isPickable = false;
+      const tail = MeshBuilder.CreateBox(`veh_${index}_tl_${side}`, { width: 0.16, height: 0.1, depth: 0.05 }, scene);
+      tail.position.set(side * dims.w * 0.3, -0.02, -dims.d / 2 + 0.02);
+      tail.material = d.tail;
+      tail.parent = root;
+      tail.isPickable = false;
+      const mirror = MeshBuilder.CreateBox(`veh_${index}_mir_${side}`, { width: 0.1, height: 0.06, depth: 0.06 }, scene);
+      mirror.position.set(side * (dims.w / 2 + 0.05), dims.h / 2, dims.d * 0.28);
+      mirror.material = bodyMat;
+      mirror.parent = root;
+      mirror.isPickable = false;
+    }
+    for (const end of [-1, 1]) {
+      const bumper = MeshBuilder.CreateBox(`veh_${index}_bmp_${end}`, { width: dims.w * 0.98, height: 0.14, depth: 0.12 }, scene);
+      bumper.position.set(0, -dims.h / 2 + 0.05, end * (dims.d / 2 - 0.02));
+      bumper.material = d.bumper;
+      bumper.parent = root;
+      bumper.isPickable = false;
+    }
   } else if (type === "lorry" || type === "saf5tonner") {
     // Separate cab + open cargo bed with a canvas tilt for the 5-tonner.
     const cab = MeshBuilder.CreateBox(`veh_${index}_cab`, { width: dims.w * 0.95, height: 0.9, depth: 1.4 }, scene);
@@ -1345,6 +1410,95 @@ function buildBusStop(scene: Scene, x: number, z: number, rotY: number, shelterM
   bench.rotation.y = rotY;
   bench.material = benchMat;
   bench.checkCollisions = true;
+}
+
+/**
+ * Small street-level clutter scattered around building frontages to make the
+ * city feel lived-in: concrete planters, bollards, fire hydrants, potted
+ * plants, and wall-mounted AC units. Bounded (a couple of tries per building)
+ * and kept off the carriageway / out of buildings for performance and sanity.
+ */
+function buildUrbanClutter(scene: Scene, layout: BuildingFootprint[]): void {
+  const rand = mulberry32(1717);
+  const planterMat = solidMat(scene, "planterMat", new Color3(0.42, 0.38, 0.32));
+  const plantMat = solidMat(scene, "clutterPlantMat", new Color3(0.2, 0.4, 0.19));
+  const bollardMat = solidMat(scene, "bollardMat", new Color3(0.22, 0.22, 0.24));
+  const hydrantMat = solidMat(scene, "hydrantMat", new Color3(0.7, 0.16, 0.12));
+  const potMat = solidMat(scene, "potMat", new Color3(0.5, 0.32, 0.22));
+  const acMat = solidMat(scene, "acUnitMat", new Color3(0.62, 0.62, 0.64));
+  let idx = 0;
+
+  for (const b of layout) {
+    // A wall-mounted AC unit or two on taller residential/commercial blocks.
+    if ((b.type === "hdb" || b.type === "shophouse") && rand() < 0.7) {
+      const acCount = 1 + Math.floor(rand() * 3);
+      for (let a = 0; a < acCount; a++) {
+        const side = rand() < 0.5 ? 1 : -1;
+        const along = (rand() - 0.5) * b.size * 0.7;
+        const onX = rand() < 0.5;
+        const ac = MeshBuilder.CreateBox(`acUnit_${idx}_${a}`, { width: 0.7, height: 0.5, depth: 0.35 }, scene);
+        const wy = 3 + rand() * Math.max(2, b.height - 5);
+        if (onX) ac.position.set(b.x + side * (b.size / 2 + 0.18), wy, b.z + along);
+        else ac.position.set(b.x + along, wy, b.z + side * (b.size / 2 + 0.18));
+        ac.material = acMat;
+        ac.isPickable = false;
+      }
+    }
+
+    for (let t = 0; t < 2; t++) {
+      const angle = rand() * Math.PI * 2;
+      const dist = b.size / 2 + 1.1 + rand() * 1.4;
+      const x = b.x + Math.cos(angle) * dist;
+      const z = b.z + Math.sin(angle) * dist;
+      if (inGardenDistrict(x, z, 4)) continue;
+      if (Math.abs(x) < 20 && Math.abs(z) < 20) continue;
+      if (overlapsAnyBuilding(x, z, 0.5, layout)) continue;
+      if (distanceToNearestRoad(x, z) < 0.6) continue;
+
+      const r = rand();
+      if (r < 0.32) {
+        // Concrete planter with greenery.
+        const planter = MeshBuilder.CreateBox(`planter_${idx}`, { width: 1.0, height: 0.5, depth: 1.0 }, scene);
+        planter.position.set(x, 0.25, z);
+        planter.material = planterMat;
+        planter.checkCollisions = true;
+        const green = MeshBuilder.CreateBox(`planterGreen_${idx}`, { width: 0.86, height: 0.3, depth: 0.86 }, scene);
+        green.position.set(x, 0.6, z);
+        green.material = plantMat;
+        green.isPickable = false;
+      } else if (r < 0.55) {
+        // Row of three bollards.
+        for (let k = -1; k <= 1; k++) {
+          const bollard = MeshBuilder.CreateCylinder(`bollard_${idx}_${k}`, { diameter: 0.16, height: 0.9 }, scene);
+          bollard.position.set(x + k * 0.7, 0.45, z);
+          bollard.material = bollardMat;
+          bollard.checkCollisions = true;
+        }
+      } else if (r < 0.72) {
+        // Fire hydrant.
+        const body = MeshBuilder.CreateCylinder(`hydrant_${idx}`, { diameter: 0.24, height: 0.6 }, scene);
+        body.position.set(x, 0.3, z);
+        body.material = hydrantMat;
+        body.checkCollisions = true;
+        const cap = MeshBuilder.CreateSphere(`hydrantCap_${idx}`, { diameter: 0.26 }, scene);
+        cap.position.set(x, 0.62, z);
+        cap.material = hydrantMat;
+        cap.isPickable = false;
+      } else {
+        // Potted plant.
+        const pot = MeshBuilder.CreateCylinder(`pot_${idx}`, { diameterTop: 0.42, diameterBottom: 0.3, height: 0.42 }, scene);
+        pot.position.set(x, 0.21, z);
+        pot.material = potMat;
+        pot.checkCollisions = true;
+        const bush = MeshBuilder.CreateSphere(`potBush_${idx}`, { diameter: 0.6, segments: 6 }, scene);
+        bush.position.set(x, 0.62, z);
+        bush.scaling.y = 0.8;
+        bush.material = plantMat;
+        bush.isPickable = false;
+      }
+      idx++;
+    }
+  }
 }
 
 /** A small stacked-container yard for the industrial estate — cheap coloured boxes, cover-friendly gaps between rows. */
@@ -1564,8 +1718,14 @@ function buildCamp(scene: Scene): void {
   clearing.material = dirtMat;
   clearing.isPickable = false;
 
-  buildTent(scene, CAMP_POSITION.x - 4, CAMP_POSITION.z + 2, 0.3, "camp_tent_0");
-  buildTent(scene, CAMP_POSITION.x - 2, CAMP_POSITION.z - 4, -0.6, "camp_tent_1");
+  // The spawn tent — the player deploys standing inside it (open front faces
+  // the exit). Larger than the others so there's room to stand and re-gear.
+  buildRidgeTent(scene, CAMP_POSITION.x, CAMP_POSITION.z, Math.PI / 2, 4.4, 3.6, 2.2, "camp_spawn_tent");
+  // Two smaller store tents flanking it.
+  buildRidgeTent(scene, CAMP_POSITION.x - 4.5, CAMP_POSITION.z + 3, 0.3, 3.2, 2.6, 1.8, "camp_tent_0");
+  buildRidgeTent(scene, CAMP_POSITION.x - 3, CAMP_POSITION.z - 4.5, -0.6, 3.2, 2.6, 1.8, "camp_tent_1");
+
+  buildCampFence(scene);
 
   const poleMat = new StandardMaterial("campFlagpoleMat", scene);
   poleMat.diffuseColor = new Color3(0.15, 0.15, 0.16);
@@ -1597,74 +1757,139 @@ function buildCamp(scene: Scene): void {
     crate.checkCollisions = true;
   });
 
-  buildCampExits(scene);
+  // A couple of sandbag stacks just outside the gate for cover as you leave.
+  buildSandbagWall(scene, CAMP_POSITION.x + 12, CAMP_POSITION.z - 3, 0.2, solidMat(scene, "campGateSandbagA", new Color3(0.55, 0.48, 0.32)), 700);
+  buildSandbagWall(scene, CAMP_POSITION.x + 12, CAMP_POSITION.z + 3, 0.2, solidMat(scene, "campGateSandbagB", new Color3(0.55, 0.48, 0.32)), 701);
 }
 
 /**
- * Three staggered exit chicanes around the camp clearing's edge — a pair of
- * offset low walls plus a hedge at each, so nobody standing at the treeline
- * outside has a clean sightline straight into the camp. Purely visual/cover
- * dressing; the actual no-combat guarantee comes from the AI exclusion zone
- * (SafeZone.ts) which keeps OPFOR out to begin with.
+ * A tall chain-link perimeter fence around the camp — too high to jump over
+ * (2.6 m vs the player's ~0.9 m jump) and collidable, so the spawn compound
+ * is properly enclosed for safety, with a single gate gap on the city-facing
+ * (east) side to leave through.
  */
-function buildCampExits(scene: Scene): void {
-  const wallMat = solidMat(scene, "campExitWallMat", new Color3(0.42, 0.4, 0.36));
-  const hedgeMat = solidMat(scene, "campExitHedgeMat", new Color3(0.19, 0.32, 0.17));
+function buildCampFence(scene: Scene): void {
+  const postMat = solidMat(scene, "campFencePostMat", new Color3(0.24, 0.25, 0.23));
+  const meshMat = new StandardMaterial("campFenceMeshMat", scene);
+  meshMat.diffuseColor = new Color3(0.5, 0.52, 0.5);
+  meshMat.specularColor = Color3.Black();
+  meshMat.alpha = 0.4; // see-through chain-link
+  meshMat.backFaceCulling = false;
 
-  // Three exits toward the city (NE), the rest of the garden/canal (N), and
-  // the checkpoint/road (E) — the directions a player would actually walk.
-  const exitAngles = [Math.PI / 4, Math.PI / 2, 0];
-  const gateRadius = CAMP_CLEARING_RADIUS + 1.5;
+  const cx = CAMP_POSITION.x;
+  const cz = CAMP_POSITION.z;
+  const half = 11;
+  const H = 2.6;
+  const gateHalf = 2.2;
 
-  exitAngles.forEach((angle, i) => {
-    const gx = CAMP_POSITION.x + Math.cos(angle) * gateRadius;
-    const gz = CAMP_POSITION.z + Math.sin(angle) * gateRadius;
-    const perp = angle + Math.PI / 2;
+  let seg = 0;
+  const segment = (x1: number, z1: number, x2: number, z2: number): void => {
+    const mx = (x1 + x2) / 2;
+    const mz = (z1 + z2) / 2;
+    const dx = x2 - x1;
+    const dz = z2 - z1;
+    const len = Math.hypot(dx, dz);
+    const panel = MeshBuilder.CreateBox(`campFence_${seg}`, { width: 0.04, height: H, depth: len }, scene);
+    panel.position.set(mx, H / 2, mz);
+    panel.rotation.y = Math.atan2(dx, dz);
+    panel.material = meshMat;
+    panel.checkCollisions = true;
+    for (const [px, pz] of [[x1, z1], [x2, z2]] as const) {
+      const post = MeshBuilder.CreateBox(`campFencePost_${seg}_${px}_${pz}`, { width: 0.12, height: H + 0.2, depth: 0.12 }, scene);
+      post.position.set(px, (H + 0.2) / 2, pz);
+      post.material = postMat;
+      post.checkCollisions = true;
+    }
+    seg++;
+  };
 
-    // Two walls staggered left/right of the exit line, offset inward and
-    // outward, so a straight-through sightline never lines up.
-    buildLowWall(
-      scene,
-      gx + Math.cos(perp) * 2.4,
-      gz + Math.sin(perp) * 2.4,
-      angle,
-      wallMat,
-      i * 2,
-      "campExitWall"
-    );
-    buildLowWall(
-      scene,
-      gx - Math.cos(perp) * 2.4 + Math.cos(angle) * 3,
-      gz - Math.sin(perp) * 2.4 + Math.sin(angle) * 3,
-      angle,
-      wallMat,
-      i * 2 + 1,
-      "campExitWall"
-    );
-    buildHedge(scene, gx + Math.cos(angle) * 4, gz + Math.sin(angle) * 4, angle + Math.PI / 2, hedgeMat, 800 + i);
-  });
+  // North, south, west edges are solid; the east edge (facing the city) has a
+  // centred gate gap the player walks out through.
+  segment(cx - half, cz + half, cx + half, cz + half);
+  segment(cx - half, cz - half, cx + half, cz - half);
+  segment(cx - half, cz - half, cx - half, cz + half);
+  segment(cx + half, cz - half, cx + half, cz - gateHalf);
+  segment(cx + half, cz + gateHalf, cx + half, cz + half);
 }
 
-/** Simple two-panel canvas tent: a triangular-prism roof over a low box body. */
-function buildTent(scene: Scene, x: number, z: number, rotY: number, name: string): void {
-  const canvasMat = new StandardMaterial(`${name}Mat`, scene);
-  canvasMat.diffuseColor = new Color3(0.28, 0.32, 0.22); // olive canvas
-  canvasMat.specularColor = Color3.Black();
+const tentCanvasMat = new WeakMap<Scene, StandardMaterial>();
+function getTentMats(scene: Scene): { canvas: StandardMaterial; floor: StandardMaterial } {
+  let canvas = tentCanvasMat.get(scene);
+  if (!canvas) {
+    canvas = new StandardMaterial("tentCanvasMat", scene);
+    canvas.diffuseColor = new Color3(0.28, 0.32, 0.22); // olive canvas
+    canvas.specularColor = Color3.Black();
+    canvas.backFaceCulling = false; // visible from inside too
+    tentCanvasMat.set(scene, canvas);
+  }
+  const floor = new StandardMaterial("tentFloorMat", scene);
+  floor.diffuseColor = new Color3(0.2, 0.18, 0.14);
+  floor.specularColor = Color3.Black();
+  return { canvas, floor };
+}
 
-  const roof = MeshBuilder.CreateCylinder(`${name}_roof`, { diameter: 2.6, height: 3.4, tessellation: 3 }, scene);
-  roof.rotation.z = Math.PI / 2;
-  roof.rotation.y = rotY;
-  roof.position.set(x, 1.1, z);
-  roof.material = canvasMat;
-  roof.checkCollisions = true;
+/**
+ * A-frame ridge tent that actually sits on the ground (base at y = 0) — two
+ * sloped canvas panels meeting at a ridge, a triangular back wall, and a
+ * groundsheet floor, all parented to a node so the whole thing yaws cleanly.
+ * The old version was a bare triangular-prism cylinder floating at y = 1.1.
+ * `open` leaves the front unwalled so the player can walk in (spawn tent).
+ */
+function buildRidgeTent(
+  scene: Scene,
+  x: number,
+  z: number,
+  rotY: number,
+  length: number,
+  width: number,
+  height: number,
+  name: string
+): void {
+  const { canvas, floor: floorMat } = getTentMats(scene);
+  const hw = width / 2;
+  const theta = Math.atan2(height, hw); // slope angle from horizontal
+  const slope = Math.hypot(hw, height);
 
-  const floorMat = new StandardMaterial(`${name}FloorMat`, scene);
-  floorMat.diffuseColor = new Color3(0.22, 0.2, 0.15);
-  const floor = MeshBuilder.CreateBox(`${name}_floor`, { width: 3.4, height: 0.1, depth: 2.6 }, scene);
-  floor.rotation.y = rotY;
-  floor.position.set(x, 0.05, z);
+  const root = new TransformNode(`${name}_root`, scene);
+  root.position.set(x, 0, z);
+  root.rotation.y = rotY;
+
+  // Groundsheet.
+  const floor = MeshBuilder.CreateBox(`${name}_floor`, { width: length, height: 0.06, depth: width }, scene);
+  floor.position.set(0, 0.03, 0);
   floor.material = floorMat;
+  floor.parent = root;
   floor.isPickable = false;
+
+  // Two sloped roof panels meeting at the ridge.
+  const left = MeshBuilder.CreateBox(`${name}_roofL`, { width: length, height: 0.06, depth: slope }, scene);
+  left.position.set(0, height / 2, -hw / 2);
+  left.rotation.x = -theta;
+  left.material = canvas;
+  left.parent = root;
+  left.checkCollisions = true;
+
+  const right = MeshBuilder.CreateBox(`${name}_roofR`, { width: length, height: 0.06, depth: slope }, scene);
+  right.position.set(0, height / 2, hw / 2);
+  right.rotation.x = theta;
+  right.material = canvas;
+  right.parent = root;
+  right.checkCollisions = true;
+
+  // Triangular-ish back wall (a thin box, clipped visually by the roof line).
+  const back = MeshBuilder.CreateBox(`${name}_back`, { width: 0.06, height, depth: width }, scene);
+  back.position.set(-length / 2 + 0.03, height / 2, 0);
+  back.material = canvas;
+  back.parent = root;
+  back.checkCollisions = true;
+
+  // Ridge pole.
+  const ridge = MeshBuilder.CreateCylinder(`${name}_ridge`, { diameter: 0.06, height: length }, scene);
+  ridge.rotation.z = Math.PI / 2;
+  ridge.position.set(0, height, 0);
+  ridge.material = floorMat;
+  ridge.parent = root;
+  ridge.isPickable = false;
 }
 
 function buildBenches(scene: Scene, centerX: number, centerZ: number): void {

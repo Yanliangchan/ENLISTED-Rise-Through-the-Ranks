@@ -27,13 +27,15 @@ export class ScopeOverlay {
     reticle.style.cssText = `
       position: absolute; top: 50%; left: 50%; width: 1px; height: 1px;
     `;
-    // Clean crosshair: four short thin bars with a gap at centre so the
-    // target point itself is never obscured. No dot, no clutter.
+    // Clean green crosshair: four short thin bars with a gap at centre so the
+    // target point itself is never obscured. Green so it stands out against the
+    // darkened scope vignette.
+    const bar = "background:#39ff6a; box-shadow:0 0 3px rgba(57,255,106,0.9);";
     reticle.innerHTML = `
-      <div style="position:absolute; left:-1px; top:-90px; width:2px; height:66px; background:rgba(15,15,15,0.88);"></div>
-      <div style="position:absolute; left:-1px; top:24px; width:2px; height:66px; background:rgba(15,15,15,0.88);"></div>
-      <div style="position:absolute; top:-1px; left:-90px; height:2px; width:66px; background:rgba(15,15,15,0.88);"></div>
-      <div style="position:absolute; top:-1px; left:24px; height:2px; width:66px; background:rgba(15,15,15,0.88);"></div>
+      <div style="position:absolute; left:-1px; top:-90px; width:2px; height:66px; ${bar}"></div>
+      <div style="position:absolute; left:-1px; top:24px; width:2px; height:66px; ${bar}"></div>
+      <div style="position:absolute; top:-1px; left:-90px; height:2px; width:66px; ${bar}"></div>
+      <div style="position:absolute; top:-1px; left:24px; height:2px; width:66px; ${bar}"></div>
     `;
 
     this.root.appendChild(this.circle);

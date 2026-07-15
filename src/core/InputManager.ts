@@ -21,7 +21,11 @@ export class InputManager {
     canvas.addEventListener("click", this.requestPointerLock);
     document.addEventListener("pointerlockchange", this.onPointerLockChange);
     canvas.addEventListener("mousedown", this.onMouseDown);
-    canvas.addEventListener("mouseup", this.onMouseUp);
+    // mouseup on the window, not just the canvas: while a menu/overlay is up
+    // the pointer is unlocked and the release can land on the overlay, which
+    // would otherwise leave a button stuck "down" (auto-firing / auto-ADS on
+    // the next spawn). A global listener always clears it.
+    window.addEventListener("mouseup", this.onMouseUp);
     document.addEventListener("mousemove", this.onMouseMove);
     canvas.addEventListener("wheel", this.onWheel, { passive: true });
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -37,6 +41,12 @@ export class InputManager {
 
   private onPointerLockChange = () => {
     this.isPointerLocked = document.pointerLockElement === this.canvas;
+    // Leaving pointer lock (opening a menu, dying, deploying) always releases
+    // the mouse buttons, so the next wave never starts mid-fire or pre-scoped.
+    if (!this.isPointerLocked) {
+      this.leftMouseDown = false;
+      this.rightMouseDown = false;
+    }
   };
 
   private onKeyDown = (e: KeyboardEvent) => {
@@ -85,6 +95,7 @@ export class InputManager {
   dispose(): void {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
+    window.removeEventListener("mouseup", this.onMouseUp);
     document.removeEventListener("pointerlockchange", this.onPointerLockChange);
     document.removeEventListener("mousemove", this.onMouseMove);
   }

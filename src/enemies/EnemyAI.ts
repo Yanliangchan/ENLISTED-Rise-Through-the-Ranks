@@ -7,6 +7,7 @@ import {
   Color3,
   Vector3,
   Mesh,
+  TransformNode,
   Ray,
 } from "@babylonjs/core";
 import { ENEMIES, ECONOMY, type EnemyType } from "@/data/gamedata";
@@ -144,6 +145,7 @@ export class EnemyInstance implements Damageable {
   private bodyMesh: Mesh;
   private headMesh: Mesh;
   private limbMeshes: Mesh[] = [];
+  private visualRoot!: TransformNode;
   private bodyMat: StandardMaterial;
 
   health: number;
@@ -176,117 +178,128 @@ export class EnemyInstance implements Damageable {
     this.health = this.maxHealth;
     this.patrolTarget = spawnPosition.clone();
 
-    this.root = MeshBuilder.CreateCapsule(`${this.id}_collider`, { height: 1.85, radius: 0.32 }, scene);
+    this.root = MeshBuilder.CreateCapsule(`${this.id}_collider`, { height: 1.7, radius: 0.3 }, scene);
     this.root.position = spawnPosition.clone();
     this.root.isVisible = false;
     this.root.isPickable = false;
     this.root.checkCollisions = true;
-    this.root.ellipsoid = new Vector3(0.32, 0.92, 0.32);
-    this.root.ellipsoidOffset = new Vector3(0, 0.92, 0);
+    this.root.ellipsoid = new Vector3(0.3, 0.85, 0.3);
+    this.root.ellipsoidOffset = new Vector3(0, 0.85, 0);
+
+    // All visual + hit meshes ride on this node, which is scaled down as one
+    // unit so the whole soldier reads a touch smaller (previously stood taller
+    // than the player). Hit meshes scale with it too, so picking stays aligned;
+    // collision uses the collider's own ellipsoid above, unaffected.
+    this.visualRoot = new TransformNode(`${this.id}_visual`, scene);
+    this.visualRoot.parent = this.root;
+    this.visualRoot.scaling.setAll(0.9);
+    const vr = this.visualRoot;
 
     const assets = getOpforAssets(scene);
 
     // Per-enemy camo uniform material — kept per-instance (not shared) only
-    // because it flashes red on hit; the texture underneath is shared.
+    // because it flashes red on hit; the texture underneath is shared. The
+    // base colour is a definite olive so the soldier reads dark-green even if
+    // the camo texture is washed out by bright light/fog (never pale/white).
     this.bodyMat = new StandardMaterial(`${this.id}_mat`, scene);
-    this.bodyMat.diffuseColor = new Color3(0.62, 0.62, 0.6); // let the camo texture carry the colour
+    this.bodyMat.diffuseColor = new Color3(0.34, 0.36, 0.26);
     this.bodyMat.diffuseTexture = assets.camoTex;
     this.bodyMat.specularColor = Color3.Black();
 
     // Torso — the main hittable mass. Sized a little generously versus the
     // pure silhouette so shots that clip the edge of a moving target still
     // register, rather than punishing near-misses that should have counted.
-    this.bodyMesh = MeshBuilder.CreateBox(`${this.id}_body`, { width: 0.6, height: 1.05, depth: 0.4 }, scene);
+    this.bodyMesh = MeshBuilder.CreateBox(`${this.id}_body`, { width: 0.56, height: 1.02, depth: 0.38 }, scene);
     this.bodyMesh.position.y = 0.95;
     this.bodyMesh.material = this.bodyMat;
-    this.bodyMesh.parent = this.root;
+    this.bodyMesh.parent = vr;
     this.bodyMesh.checkCollisions = false;
     this.bodyMesh.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
 
     // Plate carrier / chest rig over the torso, with a row of magazine pouches.
-    const vest = MeshBuilder.CreateBox(`${this.id}_vest`, { width: 0.58, height: 0.62, depth: 0.14 }, scene);
-    vest.position.set(0, 1.06, 0.2);
+    const vest = MeshBuilder.CreateBox(`${this.id}_vest`, { width: 0.54, height: 0.6, depth: 0.14 }, scene);
+    vest.position.set(0, 1.04, 0.19);
     vest.material = assets.webbingMat;
-    vest.parent = this.root;
+    vest.parent = vr;
     vest.isPickable = false;
-    for (const px of [-0.17, 0, 0.17]) {
-      const pouch = MeshBuilder.CreateBox(`${this.id}_pouch`, { width: 0.13, height: 0.18, depth: 0.1 }, scene);
-      pouch.position.set(px, 0.9, 0.29);
+    for (const px of [-0.16, 0, 0.16]) {
+      const pouch = MeshBuilder.CreateBox(`${this.id}_pouch`, { width: 0.12, height: 0.17, depth: 0.1 }, scene);
+      pouch.position.set(px, 0.88, 0.27);
       pouch.material = assets.webbingMat;
-      pouch.parent = this.root;
+      pouch.parent = vr;
       pouch.isPickable = false;
     }
 
     // Neck + head. Head is the headshot hitbox; the helmet/skin are visual only.
-    const neck = MeshBuilder.CreateCylinder(`${this.id}_neck`, { diameter: 0.16, height: 0.12 }, scene);
-    neck.position.y = 1.52;
+    const neck = MeshBuilder.CreateCylinder(`${this.id}_neck`, { diameter: 0.15, height: 0.12 }, scene);
+    neck.position.y = 1.5;
     neck.material = assets.skinMat;
-    neck.parent = this.root;
+    neck.parent = vr;
     neck.isPickable = false;
 
-    this.headMesh = MeshBuilder.CreateBox(`${this.id}_head`, { width: 0.3, height: 0.34, depth: 0.3 }, scene);
-    this.headMesh.position.y = 1.7;
+    this.headMesh = MeshBuilder.CreateBox(`${this.id}_head`, { width: 0.28, height: 0.32, depth: 0.28 }, scene);
+    this.headMesh.position.y = 1.66;
     this.headMesh.material = assets.skinMat;
-    this.headMesh.parent = this.root;
+    this.headMesh.parent = vr;
     this.headMesh.metadata = { damageable: this, isHeadshotMesh: true } satisfies HitMeshMetadata;
 
     // Combat helmet: shell dome + a short brim, visual only.
-    const helmet = MeshBuilder.CreateSphere(`${this.id}_helmet`, { diameter: 0.36, slice: 0.62 }, scene);
-    helmet.position.y = 1.82;
+    const helmet = MeshBuilder.CreateSphere(`${this.id}_helmet`, { diameter: 0.34, slice: 0.62 }, scene);
+    helmet.position.y = 1.77;
     helmet.material = assets.helmetMat;
-    helmet.parent = this.root;
+    helmet.parent = vr;
     helmet.isPickable = false;
-    const brim = MeshBuilder.CreateCylinder(`${this.id}_brim`, { diameter: 0.4, height: 0.03 }, scene);
-    brim.position.y = 1.79;
+    const brim = MeshBuilder.CreateCylinder(`${this.id}_brim`, { diameter: 0.38, height: 0.03 }, scene);
+    brim.position.y = 1.74;
     brim.material = assets.helmetMat;
-    brim.parent = this.root;
+    brim.parent = vr;
     brim.isPickable = false;
 
-    const shoulders = MeshBuilder.CreateBox(`${this.id}_shoulders`, { width: 0.72, height: 0.16, depth: 0.42 }, scene);
-    shoulders.position.y = 1.44;
+    const shoulders = MeshBuilder.CreateBox(`${this.id}_shoulders`, { width: 0.68, height: 0.16, depth: 0.4 }, scene);
+    shoulders.position.y = 1.4;
     shoulders.material = this.bodyMat;
-    shoulders.parent = this.root;
+    shoulders.parent = vr;
     shoulders.isPickable = false;
 
     // Arms and legs — hittable (normal damage, no headshot multiplier) so a
     // limb hit reliably registers instead of silently whiffing through gaps
     // in the old torso-only hitbox; also fills out the soldier silhouette.
     const armSpecs: Array<[number, number, number]> = [
-      [-0.4, 1.08, 0.02],
-      [0.4, 1.08, 0.02],
+      [-0.37, 1.05, 0.02],
+      [0.37, 1.05, 0.02],
     ];
     for (const [x, y, z] of armSpecs) {
-      const arm = MeshBuilder.CreateBox(`${this.id}_arm_${x}`, { width: 0.18, height: 0.72, depth: 0.22 }, scene);
+      const arm = MeshBuilder.CreateBox(`${this.id}_arm_${x}`, { width: 0.16, height: 0.68, depth: 0.2 }, scene);
       arm.position.set(x, y, z);
       arm.material = this.bodyMat;
-      arm.parent = this.root;
+      arm.parent = vr;
       arm.checkCollisions = false;
       arm.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
       this.limbMeshes.push(arm);
       // Glove at the end of each arm.
-      const hand = MeshBuilder.CreateBox(`${this.id}_hand_${x}`, { width: 0.14, height: 0.16, depth: 0.16 }, scene);
-      hand.position.set(x, y - 0.42, z + 0.06);
+      const hand = MeshBuilder.CreateBox(`${this.id}_hand_${x}`, { width: 0.13, height: 0.15, depth: 0.15 }, scene);
+      hand.position.set(x, y - 0.4, z + 0.06);
       hand.material = assets.webbingMat;
-      hand.parent = this.root;
+      hand.parent = vr;
       hand.isPickable = false;
     }
     const legSpecs: Array<[number, number, number]> = [
-      [-0.16, 0.44, 0],
-      [0.16, 0.44, 0],
+      [-0.15, 0.42, 0],
+      [0.15, 0.42, 0],
     ];
     for (const [x, y, z] of legSpecs) {
-      const leg = MeshBuilder.CreateBox(`${this.id}_leg_${x}`, { width: 0.22, height: 0.8, depth: 0.26 }, scene);
+      const leg = MeshBuilder.CreateBox(`${this.id}_leg_${x}`, { width: 0.2, height: 0.78, depth: 0.24 }, scene);
       leg.position.set(x, y, z);
       leg.material = this.bodyMat;
-      leg.parent = this.root;
+      leg.parent = vr;
       leg.checkCollisions = false;
       leg.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
       this.limbMeshes.push(leg);
       // Combat boot.
-      const boot = MeshBuilder.CreateBox(`${this.id}_boot_${x}`, { width: 0.24, height: 0.14, depth: 0.36 }, scene);
+      const boot = MeshBuilder.CreateBox(`${this.id}_boot_${x}`, { width: 0.22, height: 0.14, depth: 0.34 }, scene);
       boot.position.set(x, 0.07, z + 0.06);
       boot.material = assets.bootMat;
-      boot.parent = this.root;
+      boot.parent = vr;
       boot.isPickable = false;
     }
 
@@ -296,35 +309,36 @@ export class EnemyInstance implements Damageable {
   /**
    * A slung AK-pattern rifle held across the chest — visually distinguishes
    * OPFOR from the SAF player's SAR 21 bullpup. Non-hittable dressing;
-   * parented to root so it rides with the soldier and faces where they aim.
+   * parented to the (scaled) visual root so it rides with the soldier.
    */
   private buildHeldRifle(assets: OpforAssets): void {
-    const forward = 0.34; // out in front of the chest
-    const y = 1.0;
+    const vr = this.visualRoot;
+    const forward = 0.32; // out in front of the chest
+    const y = 0.98;
     const receiver = MeshBuilder.CreateBox(`${this.id}_gun_body`, { width: 0.05, height: 0.09, depth: 0.5 }, this.scene);
     receiver.position.set(0.1, y, forward);
     receiver.material = assets.gunMetalMat;
-    receiver.parent = this.root;
+    receiver.parent = vr;
     receiver.isPickable = false;
 
     const barrel = MeshBuilder.CreateCylinder(`${this.id}_gun_barrel`, { diameter: 0.02, height: 0.28 }, this.scene);
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0.1, y + 0.02, forward + 0.36);
     barrel.material = assets.gunMetalMat;
-    barrel.parent = this.root;
+    barrel.parent = vr;
     barrel.isPickable = false;
 
     const mag = MeshBuilder.CreateBox(`${this.id}_gun_mag`, { width: 0.035, height: 0.16, depth: 0.09 }, this.scene);
     mag.position.set(0.1, y - 0.11, forward + 0.02);
     mag.rotation.x = 0.35; // AK banana-mag forward curve
     mag.material = assets.gunMetalMat;
-    mag.parent = this.root;
+    mag.parent = vr;
     mag.isPickable = false;
 
     const stock = MeshBuilder.CreateBox(`${this.id}_gun_stock`, { width: 0.04, height: 0.07, depth: 0.24 }, this.scene);
     stock.position.set(0.1, y, forward - 0.36);
     stock.material = assets.gunFurnitureMat;
-    stock.parent = this.root;
+    stock.parent = vr;
     stock.isPickable = false;
   }
 

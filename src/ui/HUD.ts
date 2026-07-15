@@ -77,8 +77,8 @@ export class HUD {
     const style = document.createElement("style");
     style.textContent = `
       .ch-line {
-        position: absolute; background: #39ff6a;
-        box-shadow: 0 0 3px rgba(57,255,106,0.9), 0 0 1px 0.5px rgba(0,0,0,0.9);
+        position: absolute; background: #ffffff;
+        box-shadow: 0 0 2px rgba(0,0,0,0.95), 0 0 1px 0.5px rgba(0,0,0,0.9);
       }
       .ch-top, .ch-bottom { left: 50%; width: 1.5px; height: 5px; margin-left: -0.75px; }
       .ch-left, .ch-right { top: 50%; height: 1.5px; width: 5px; margin-top: -0.75px; }
@@ -86,8 +86,8 @@ export class HUD {
       .ch-left { left: 0; } .ch-right { right: 0; }
       .ch-dot {
         position: absolute; top: 50%; left: 50%; width: 1.5px; height: 1.5px;
-        margin: -0.75px; border-radius: 50%; background: #39ff6a;
-        box-shadow: 0 0 3px rgba(57,255,106,0.9), 0 0 1px 0.5px rgba(0,0,0,0.9);
+        margin: -0.75px; border-radius: 50%; background: #ffffff;
+        box-shadow: 0 0 2px rgba(0,0,0,0.95), 0 0 1px 0.5px rgba(0,0,0,0.9);
       }
     `;
     this.root.appendChild(style);
