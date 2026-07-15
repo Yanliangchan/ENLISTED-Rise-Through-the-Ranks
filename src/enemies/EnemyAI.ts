@@ -2,6 +2,8 @@ import {
   Scene,
   MeshBuilder,
   StandardMaterial,
+  DynamicTexture,
+  Texture,
   Color3,
   Vector3,
   Mesh,
@@ -23,9 +25,99 @@ export type EnemyState =
   | "suppressed"
   | "dead";
 
-const OPFOR_DARK = new Color3(0.14, 0.16, 0.13);
-const OPFOR_ACCENT = new Color3(0.22, 0.08, 0.08);
 let enemyCounter = 0;
+
+/**
+ * OPFOR are the *invaders*, not the SAF — so they wear a distinct woodland
+ * DPM-style camo and darker webbing to read clearly as "the enemy" against
+ * the player's SAF kit. The camo texture + all the non-hittable equipment
+ * materials are procedural and identical across every combatant, so they're
+ * built once per scene and shared by all enemies rather than re-created per
+ * spawn (that's what keeps ~20 concurrent soldiers cheap). The per-enemy
+ * body material stays separate because it flashes red on hit.
+ */
+interface OpforAssets {
+  camoTex: DynamicTexture;
+  helmetMat: StandardMaterial;
+  webbingMat: StandardMaterial;
+  bootMat: StandardMaterial;
+  skinMat: StandardMaterial;
+  gunMetalMat: StandardMaterial;
+  gunFurnitureMat: StandardMaterial;
+}
+const opforAssetCache = new WeakMap<Scene, OpforAssets>();
+
+function getOpforAssets(scene: Scene): OpforAssets {
+  const cached = opforAssetCache.get(scene);
+  if (cached) return cached;
+
+  const camoTex = createCamoTexture(scene);
+
+  const helmetMat = new StandardMaterial("opforHelmetMat", scene);
+  helmetMat.diffuseColor = new Color3(0.16, 0.18, 0.13);
+  helmetMat.specularColor = Color3.Black();
+
+  const webbingMat = new StandardMaterial("opforWebbingMat", scene);
+  webbingMat.diffuseColor = new Color3(0.09, 0.1, 0.08);
+  webbingMat.specularColor = Color3.Black();
+
+  const bootMat = new StandardMaterial("opforBootMat", scene);
+  bootMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
+  bootMat.specularColor = new Color3(0.1, 0.1, 0.1);
+
+  const skinMat = new StandardMaterial("opforSkinMat", scene);
+  skinMat.diffuseColor = new Color3(0.5, 0.38, 0.3);
+  skinMat.specularColor = Color3.Black();
+
+  const gunMetalMat = new StandardMaterial("opforGunMetalMat", scene);
+  gunMetalMat.diffuseColor = new Color3(0.09, 0.09, 0.1);
+  gunMetalMat.specularColor = new Color3(0.2, 0.2, 0.2);
+
+  const gunFurnitureMat = new StandardMaterial("opforGunFurnitureMat", scene);
+  gunFurnitureMat.diffuseColor = new Color3(0.28, 0.15, 0.07); // wood-ish AK furniture
+  gunFurnitureMat.specularColor = Color3.Black();
+
+  const assets: OpforAssets = { camoTex, helmetMat, webbingMat, bootMat, skinMat, gunMetalMat, gunFurnitureMat };
+  opforAssetCache.set(scene, assets);
+  return assets;
+}
+
+/** Procedural blocky woodland camo (olive / khaki / brown / black) for the OPFOR uniform. */
+function createCamoTexture(scene: Scene): DynamicTexture {
+  const size = 64;
+  const tex = new DynamicTexture("opforCamoTex", { width: size, height: size }, scene, false);
+  const ctx = tex.getContext() as CanvasRenderingContext2D;
+  const palette = ["#3a4029", "#4c5233", "#5f5a3a", "#2b2f1f", "#1c2013"];
+  ctx.fillStyle = palette[0];
+  ctx.fillRect(0, 0, size, size);
+  const rand = mulberry32(20777);
+  // Overlapping soft blobs of each palette colour for a DPM-like mottle.
+  for (let i = 0; i < 90; i++) {
+    ctx.fillStyle = palette[Math.floor(rand() * palette.length)];
+    const bx = rand() * size;
+    const by = rand() * size;
+    const bw = 5 + rand() * 12;
+    const bh = 5 + rand() * 12;
+    ctx.fillRect(bx, by, bw, bh);
+  }
+  tex.update();
+  tex.wrapU = Texture.WRAP_ADDRESSMODE;
+  tex.wrapV = Texture.WRAP_ADDRESSMODE;
+  tex.hasAlpha = false;
+  return tex;
+}
+
+/** Small deterministic PRNG (shared shape with Level.ts) for the camo pattern. */
+function mulberry32(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state |= 0;
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 export interface EnemyKillInfo {
   enemy: EnemyInstance;
@@ -92,85 +184,148 @@ export class EnemyInstance implements Damageable {
     this.root.ellipsoid = new Vector3(0.32, 0.92, 0.32);
     this.root.ellipsoidOffset = new Vector3(0, 0.92, 0);
 
+    const assets = getOpforAssets(scene);
+
+    // Per-enemy camo uniform material — kept per-instance (not shared) only
+    // because it flashes red on hit; the texture underneath is shared.
     this.bodyMat = new StandardMaterial(`${this.id}_mat`, scene);
-    this.bodyMat.diffuseColor = OPFOR_DARK;
+    this.bodyMat.diffuseColor = new Color3(0.62, 0.62, 0.6); // let the camo texture carry the colour
+    this.bodyMat.diffuseTexture = assets.camoTex;
     this.bodyMat.specularColor = Color3.Black();
-
-    const accentMat = new StandardMaterial(`${this.id}_accent`, scene);
-    accentMat.diffuseColor = OPFOR_ACCENT;
-    accentMat.specularColor = Color3.Black();
-
-    const webbingMat = new StandardMaterial(`${this.id}_webbing`, scene);
-    webbingMat.diffuseColor = new Color3(0.08, 0.09, 0.07);
-    webbingMat.specularColor = Color3.Black();
 
     // Torso — the main hittable mass. Sized a little generously versus the
     // pure silhouette so shots that clip the edge of a moving target still
     // register, rather than punishing near-misses that should have counted.
-    this.bodyMesh = MeshBuilder.CreateBox(`${this.id}_body`, { width: 0.62, height: 1.05, depth: 0.42 }, scene);
+    this.bodyMesh = MeshBuilder.CreateBox(`${this.id}_body`, { width: 0.6, height: 1.05, depth: 0.4 }, scene);
     this.bodyMesh.position.y = 0.95;
     this.bodyMesh.material = this.bodyMat;
     this.bodyMesh.parent = this.root;
     this.bodyMesh.checkCollisions = false;
     this.bodyMesh.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
 
-    // Chest rig / webbing — visual only, reads as load-bearing equipment.
-    const rig = MeshBuilder.CreateBox(`${this.id}_rig`, { width: 0.5, height: 0.5, depth: 0.06 }, scene);
-    rig.position.set(0, 1.05, 0.24);
-    rig.material = webbingMat;
-    rig.parent = this.root;
-    rig.isPickable = false;
+    // Plate carrier / chest rig over the torso, with a row of magazine pouches.
+    const vest = MeshBuilder.CreateBox(`${this.id}_vest`, { width: 0.58, height: 0.62, depth: 0.14 }, scene);
+    vest.position.set(0, 1.06, 0.2);
+    vest.material = assets.webbingMat;
+    vest.parent = this.root;
+    vest.isPickable = false;
+    for (const px of [-0.17, 0, 0.17]) {
+      const pouch = MeshBuilder.CreateBox(`${this.id}_pouch`, { width: 0.13, height: 0.18, depth: 0.1 }, scene);
+      pouch.position.set(px, 0.9, 0.29);
+      pouch.material = assets.webbingMat;
+      pouch.parent = this.root;
+      pouch.isPickable = false;
+    }
 
-    this.headMesh = MeshBuilder.CreateBox(`${this.id}_head`, { width: 0.32, height: 0.34, depth: 0.32 }, scene);
+    // Neck + head. Head is the headshot hitbox; the helmet/skin are visual only.
+    const neck = MeshBuilder.CreateCylinder(`${this.id}_neck`, { diameter: 0.16, height: 0.12 }, scene);
+    neck.position.y = 1.52;
+    neck.material = assets.skinMat;
+    neck.parent = this.root;
+    neck.isPickable = false;
+
+    this.headMesh = MeshBuilder.CreateBox(`${this.id}_head`, { width: 0.3, height: 0.34, depth: 0.3 }, scene);
     this.headMesh.position.y = 1.7;
-    this.headMesh.material = accentMat;
+    this.headMesh.material = assets.skinMat;
     this.headMesh.parent = this.root;
     this.headMesh.metadata = { damageable: this, isHeadshotMesh: true } satisfies HitMeshMetadata;
 
-    // Helmet — a shallow dome over the head hitbox, visual only, breaks up the
-    // head's boxy silhouette a bit without changing what the shot detects.
-    const helmet = MeshBuilder.CreateSphere(`${this.id}_helmet`, { diameter: 0.4, slice: 0.55 }, scene);
-    helmet.position.y = 1.85;
-    helmet.material = webbingMat;
+    // Combat helmet: shell dome + a short brim, visual only.
+    const helmet = MeshBuilder.CreateSphere(`${this.id}_helmet`, { diameter: 0.36, slice: 0.62 }, scene);
+    helmet.position.y = 1.82;
+    helmet.material = assets.helmetMat;
     helmet.parent = this.root;
     helmet.isPickable = false;
+    const brim = MeshBuilder.CreateCylinder(`${this.id}_brim`, { diameter: 0.4, height: 0.03 }, scene);
+    brim.position.y = 1.79;
+    brim.material = assets.helmetMat;
+    brim.parent = this.root;
+    brim.isPickable = false;
 
-    const shoulders = MeshBuilder.CreateBox(`${this.id}_shoulders`, { width: 0.72, height: 0.18, depth: 0.44 }, scene);
-    shoulders.position.y = 1.45;
-    shoulders.material = accentMat;
+    const shoulders = MeshBuilder.CreateBox(`${this.id}_shoulders`, { width: 0.72, height: 0.16, depth: 0.42 }, scene);
+    shoulders.position.y = 1.44;
+    shoulders.material = this.bodyMat;
     shoulders.parent = this.root;
     shoulders.isPickable = false;
 
     // Arms and legs — hittable (normal damage, no headshot multiplier) so a
     // limb hit reliably registers instead of silently whiffing through gaps
     // in the old torso-only hitbox; also fills out the soldier silhouette.
-    const limbMat = this.bodyMat;
     const armSpecs: Array<[number, number, number]> = [
-      [-0.42, 1.08, 0],
-      [0.42, 1.08, 0],
+      [-0.4, 1.08, 0.02],
+      [0.4, 1.08, 0.02],
     ];
     for (const [x, y, z] of armSpecs) {
-      const arm = MeshBuilder.CreateBox(`${this.id}_arm_${x}`, { width: 0.2, height: 0.72, depth: 0.24 }, scene);
+      const arm = MeshBuilder.CreateBox(`${this.id}_arm_${x}`, { width: 0.18, height: 0.72, depth: 0.22 }, scene);
       arm.position.set(x, y, z);
-      arm.material = limbMat;
+      arm.material = this.bodyMat;
       arm.parent = this.root;
       arm.checkCollisions = false;
       arm.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
       this.limbMeshes.push(arm);
+      // Glove at the end of each arm.
+      const hand = MeshBuilder.CreateBox(`${this.id}_hand_${x}`, { width: 0.14, height: 0.16, depth: 0.16 }, scene);
+      hand.position.set(x, y - 0.42, z + 0.06);
+      hand.material = assets.webbingMat;
+      hand.parent = this.root;
+      hand.isPickable = false;
     }
     const legSpecs: Array<[number, number, number]> = [
-      [-0.17, 0.42, 0],
-      [0.17, 0.42, 0],
+      [-0.16, 0.44, 0],
+      [0.16, 0.44, 0],
     ];
     for (const [x, y, z] of legSpecs) {
-      const leg = MeshBuilder.CreateBox(`${this.id}_leg_${x}`, { width: 0.24, height: 0.82, depth: 0.28 }, scene);
+      const leg = MeshBuilder.CreateBox(`${this.id}_leg_${x}`, { width: 0.22, height: 0.8, depth: 0.26 }, scene);
       leg.position.set(x, y, z);
-      leg.material = limbMat;
+      leg.material = this.bodyMat;
       leg.parent = this.root;
       leg.checkCollisions = false;
       leg.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
       this.limbMeshes.push(leg);
+      // Combat boot.
+      const boot = MeshBuilder.CreateBox(`${this.id}_boot_${x}`, { width: 0.24, height: 0.14, depth: 0.36 }, scene);
+      boot.position.set(x, 0.07, z + 0.06);
+      boot.material = assets.bootMat;
+      boot.parent = this.root;
+      boot.isPickable = false;
     }
+
+    this.buildHeldRifle(assets);
+  }
+
+  /**
+   * A slung AK-pattern rifle held across the chest — visually distinguishes
+   * OPFOR from the SAF player's SAR 21 bullpup. Non-hittable dressing;
+   * parented to root so it rides with the soldier and faces where they aim.
+   */
+  private buildHeldRifle(assets: OpforAssets): void {
+    const forward = 0.34; // out in front of the chest
+    const y = 1.0;
+    const receiver = MeshBuilder.CreateBox(`${this.id}_gun_body`, { width: 0.05, height: 0.09, depth: 0.5 }, this.scene);
+    receiver.position.set(0.1, y, forward);
+    receiver.material = assets.gunMetalMat;
+    receiver.parent = this.root;
+    receiver.isPickable = false;
+
+    const barrel = MeshBuilder.CreateCylinder(`${this.id}_gun_barrel`, { diameter: 0.02, height: 0.28 }, this.scene);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0.1, y + 0.02, forward + 0.36);
+    barrel.material = assets.gunMetalMat;
+    barrel.parent = this.root;
+    barrel.isPickable = false;
+
+    const mag = MeshBuilder.CreateBox(`${this.id}_gun_mag`, { width: 0.035, height: 0.16, depth: 0.09 }, this.scene);
+    mag.position.set(0.1, y - 0.11, forward + 0.02);
+    mag.rotation.x = 0.35; // AK banana-mag forward curve
+    mag.material = assets.gunMetalMat;
+    mag.parent = this.root;
+    mag.isPickable = false;
+
+    const stock = MeshBuilder.CreateBox(`${this.id}_gun_stock`, { width: 0.04, height: 0.07, depth: 0.24 }, this.scene);
+    stock.position.set(0.1, y, forward - 0.36);
+    stock.material = assets.gunFurnitureMat;
+    stock.parent = this.root;
+    stock.isPickable = false;
   }
 
   private eyePosition(): Vector3 {
