@@ -9,7 +9,9 @@ import {
   Color3,
   Color4,
   Vector3,
+  Mesh,
 } from "@babylonjs/core";
+import { loadGlbContainerOrNull } from "@/core/ModelLoader";
 
 /** Deterministic PRNG so the map layout is identical on every load. */
 function mulberry32(seed: number): () => number {
@@ -211,6 +213,9 @@ export function buildLevel(scene: Scene): void {
   buildRoads(scene);
   buildIntersectionDressing(scene, layout);
   buildStreetGrid(scene, layout);
+  // Optional: swap procedural buildings for real .glb models where present.
+  // Fire-and-forget — a no-op with no assets, so buildLevel stays synchronous.
+  void upgradeBuildingsWithModels(scene, layout);
   buildCover(scene, layout);
   buildParkedCars(scene, layout);
   buildStreetFurniture(scene, layout);
@@ -618,6 +623,11 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
     const building = MeshBuilder.CreateBox(`building_${i}`, { width: size, height, depth: size }, scene);
     building.position.set(x, height / 2, z);
     building.checkCollisions = true;
+    // Tagged so an optional .glb model can locate this building and its
+    // decorative bits later (see upgradeBuildingsWithModels). Metadata has no
+    // `damageable`, so hitscan/collision logic ignores it as before.
+    building.metadata = { footprintIndex: i };
+    const decorations: Mesh[] = [];
 
     if (type === "hdb") {
       building.material = hdbMats[i % hdbMats.length];
@@ -627,17 +637,20 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
         band.position.set(x, (height / (bands + 1)) * b, z);
         band.material = hdbAccentMat;
         band.isPickable = false;
+        decorations.push(band);
       }
       const roof = MeshBuilder.CreateBox(`buildingTrim_${i}`, { width: size + 0.2, height: 0.4, depth: size + 0.2 }, scene);
       roof.position.set(x, height + 0.2, z);
       roof.material = hdbMats[(i + 1) % hdbMats.length];
       roof.isPickable = false;
+      decorations.push(roof);
     } else if (type === "cbd") {
       building.material = cbdMats[i % cbdMats.length];
       const cap = MeshBuilder.CreateBox(`buildingTrim_${i}`, { width: size * 0.7, height: 1.2, depth: size * 0.7 }, scene);
       cap.position.set(x, height + 0.6, z);
       cap.material = poleGrayMat(scene, `cbdCapMat_${i}`);
       cap.isPickable = false;
+      decorations.push(cap);
     } else if (type === "industrial") {
       building.material = industrialMats[i % industrialMats.length];
       // A row of shallow roof vents for a bit of warehouse silhouette detail.
@@ -645,20 +658,71 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
       vent.position.set(x, height + 0.4, z);
       vent.material = industrialMats[(i + 1) % industrialMats.length];
       vent.isPickable = false;
+      decorations.push(vent);
     } else {
       building.material = shophouseMats[i % shophouseMats.length];
       const trim = MeshBuilder.CreateBox(`buildingTrim_${i}`, { width: size + 0.4, height: 0.6, depth: size + 0.4 }, scene);
       trim.position.set(x, height + 0.3, z);
       trim.material = shophouseMats[(i + 1) % shophouseMats.length];
       trim.isPickable = false;
+      decorations.push(trim);
 
       // Ground-floor awning / sheltered walkway hint for a bit of shophouse character.
       const awning = MeshBuilder.CreateBox(`awning_${i}`, { width: size + 0.6, height: 0.15, depth: size + 0.6 }, scene);
       awning.position.set(x, 2.6, z);
       awning.material = hdbAccentMat;
       awning.isPickable = false;
+      decorations.push(awning);
     }
+    for (const d of decorations) d.metadata = { decorativeFor: i };
   });
+}
+
+/**
+ * Optional post-pass: if a real `.glb` exists for a building type at
+ * `public/models/buildings/<type>.glb` (e.g. a CC0 Singapore HDB or CBD
+ * tower), load it once and instantiate a copy over every building of that
+ * type, scaled to its footprint. The procedural box is kept as an invisible
+ * collider (so movement/bullet-blocking is unchanged and cheap), and its
+ * decorative bands/trim are removed. Fire-and-forget and fully optional: with
+ * no model present (the default), every building stays procedural.
+ *
+ * The bundled `buildings/hdb.glb` is a PLACEHOLDER slab that only exists to
+ * prove this pipeline renders external assets — replace it with a real
+ * CC0 model (see public/models/README.md).
+ */
+async function upgradeBuildingsWithModels(scene: Scene, layout: BuildingFootprint[]): Promise<void> {
+  const types: BuildingType[] = ["hdb", "cbd", "industrial", "shophouse"];
+  for (const type of types) {
+    const container = await loadGlbContainerOrNull(scene, `models/buildings/${type}.glb`);
+    if (!container) continue; // no model for this type — keep procedural
+
+    layout.forEach((b, i) => {
+      if (b.type !== type) return;
+      const box = scene.getMeshByName(`building_${i}`);
+      if (!box) return;
+
+      const instanced = container.instantiateModelsToScene((n) => `${type}_${i}_${n}`, false);
+      const root = instanced.rootNodes[0];
+      if (root && "position" in root) {
+        // Model authored to a 1x1x1 base-origin footprint → scale to this block.
+        (root as unknown as { position: Vector3; scaling: Vector3 }).position = new Vector3(b.x, 0, b.z);
+        (root as unknown as { position: Vector3; scaling: Vector3 }).scaling = new Vector3(b.size, b.height, b.size);
+      }
+      // Loaded meshes are visual-only; the (now invisible) box keeps collision
+      // + bullet-blocking, so gameplay is identical to the procedural version.
+      for (const m of instanced.rootNodes.flatMap((n) => n.getChildMeshes())) {
+        m.isPickable = false;
+        m.checkCollisions = false;
+      }
+      box.isVisible = false;
+
+      // Remove the procedural decorative bits this model replaces.
+      for (const mesh of scene.meshes.slice()) {
+        if ((mesh.metadata as { decorativeFor?: number } | null)?.decorativeFor === i) mesh.dispose();
+      }
+    });
+  }
 }
 
 const poleGrayCache = new Map<string, StandardMaterial>();

@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@babylonjs/core": "^7.35.2",
+    "@babylonjs/loaders": "^7.54.3",
     "@babylonjs/materials": "^7.35.2"
   },
   "devDependencies": {
+    "@babylonjs/serializers": "^7.54.3",
     "typescript": "^5.5.4",
     "vite": "^5.4.10"
   }
