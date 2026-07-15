@@ -60,11 +60,22 @@ export interface EnemyManagerCallbacks {
  * count/health scaling and `ENEMIES` for per-type stats. A boss wave every
  * `WAVES.bossEvery` skews the mix toward Heavies.
  */
+/** A contact for the tactical map: confirmed = seen right now, suspected = last-known position. */
+export interface EnemyIntel {
+  x: number;
+  z: number;
+  status: "confirmed" | "suspected";
+}
+
+const INTEL_CONFIRM_RANGE = 60; // metres — within this the contact is "confirmed"
+const INTEL_SUSPECT_TTL = 9000; // ms a last-known contact lingers as "suspected"
+
 export class EnemyManager {
   private enemies: EnemyInstance[] = [];
   private pendingSpawns: Array<{ type: string; delay: number; position: Vector3 }> = [];
   private spawnClock = 0;
   private engagedIds = new Set<string>();
+  private intelMap = new Map<string, { x: number; z: number; lastConfirmed: number }>();
 
   constructor(
     private readonly scene: Scene,
@@ -80,6 +91,36 @@ export class EnemyManager {
     return this.enemies
       .filter((e) => !e.isDead)
       .map((e) => ({ x: e.root.position.x, z: e.root.position.z }));
+  }
+
+  /**
+   * Tactical-map intel: enemies within confirm range report a live "confirmed"
+   * contact (and refresh their last-known position); enemies that have moved
+   * out of range still show as a "suspected" contact at their last-known spot
+   * until the intel goes stale. Enemies never yet seen don't appear.
+   */
+  intel(playerPos: Vector3): EnemyIntel[] {
+    const now = performance.now();
+    const out: EnemyIntel[] = [];
+    const liveIds = new Set<string>();
+    for (const e of this.enemies) {
+      if (e.isDead) continue;
+      liveIds.add(e.id);
+      const dist = Math.hypot(e.root.position.x - playerPos.x, e.root.position.z - playerPos.z);
+      if (dist < INTEL_CONFIRM_RANGE) {
+        this.intelMap.set(e.id, { x: e.root.position.x, z: e.root.position.z, lastConfirmed: now });
+        out.push({ x: e.root.position.x, z: e.root.position.z, status: "confirmed" });
+      } else {
+        const rec = this.intelMap.get(e.id);
+        if (rec && now - rec.lastConfirmed < INTEL_SUSPECT_TTL) {
+          out.push({ x: rec.x, z: rec.z, status: "suspected" });
+        }
+      }
+    }
+    for (const id of [...this.intelMap.keys()]) {
+      if (!liveIds.has(id)) this.intelMap.delete(id);
+    }
+    return out;
   }
 
   get totalForWaveRemaining(): number {

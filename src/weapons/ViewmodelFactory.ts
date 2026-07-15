@@ -21,6 +21,8 @@ export interface Viewmodel {
   sightOffset: Vector3;
   /** Bulky body/barrel/mag meshes — WeaponController hides these on ADS so the sight isn't a giant looming block. */
   bodyMeshes: Mesh[];
+  /** Iron-sight / optic-housing meshes — hidden on ADS for red-dot/holo optics so the housing doesn't occlude the reticle. */
+  sightMeshes: Mesh[];
 }
 
 /** Muzzle tip offset (local, metres forward/up) per weapon class. */
@@ -328,5 +330,5 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
   muzzle.parent = root;
   muzzle.position = MUZZLE_OFFSET[weapon.class].clone();
 
-  return { root, muzzle, sightOffset, bodyMeshes: parts };
+  return { root, muzzle, sightOffset, bodyMeshes: parts, sightMeshes: sightParts };
 }

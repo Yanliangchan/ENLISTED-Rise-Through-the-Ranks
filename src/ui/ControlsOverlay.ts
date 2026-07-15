@@ -13,6 +13,7 @@ const BINDINGS: Array<[string, string]> = [
   ["1 / 2 / 3 / 4", "Primary / Secondary / Special / Throwable"],
   ["Mouse Wheel", "Cycle equipped slots"],
   ["B", "Open armoury (between waves)"],
+  ["M", "Tactical map"],
   ["Tab", "Toggle this controls list"],
   ["Escape", "Pause / settings"],
 ];

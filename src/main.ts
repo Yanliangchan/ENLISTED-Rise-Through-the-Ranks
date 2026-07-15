@@ -18,6 +18,7 @@ import { ControlsOverlay } from "@/ui/ControlsOverlay";
 import { SupplyCrateManager } from "@/world/SupplyCrates";
 import { LandingPage } from "@/ui/LandingPage";
 import { ScopeOverlay } from "@/ui/ScopeOverlay";
+import { TacticalMap } from "@/ui/TacticalMap";
 import { SafeZoneManager } from "@/world/SafeZone";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
@@ -148,11 +149,17 @@ landingPage.onDeploy = () => {
   resupplyOnSpawn();
 };
 
+const tacticalMap = new TacticalMap(uiRoot, buildingLayout);
+
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") pauseMenu.toggle();
   if (e.code === "Tab") {
     e.preventDefault();
     controlsOverlay.toggle();
+  }
+  if (e.code === "KeyM" && !landingPage.visible && waveManager.phase !== "gameover") {
+    tacticalMap.toggle();
+    if (tacticalMap.visible) document.exitPointerLock();
   }
   if (e.code === "KeyB" && (waveManager.phase === "intro" || waveManager.phase === "armoury")) {
     armoury.visible ? armoury.hide() : armoury.show();
@@ -161,7 +168,8 @@ window.addEventListener("keydown", (e) => {
 
 game.onUpdate((deltaSeconds) => {
   const dt = Math.min(deltaSeconds, 0.05);
-  const paused = pauseMenu.visible || armoury.visible || gameOverScreen.visible || landingPage.visible;
+  const paused =
+    pauseMenu.visible || armoury.visible || gameOverScreen.visible || landingPage.visible || tacticalMap.visible;
 
   if (!paused) {
     player.update(dt);
@@ -172,6 +180,8 @@ game.onUpdate((deltaSeconds) => {
     waveManager.update(dt);
     supplyCrates.update(dt);
   }
+
+  if (tacticalMap.visible) tacticalMap.update(player, waveManager.enemyManager.intel(player.position));
 
   hud.update(input.isPointerLocked, waveManager.enemyManager.livePositions(), supplyCrates.promptText);
   input.resetFrame();

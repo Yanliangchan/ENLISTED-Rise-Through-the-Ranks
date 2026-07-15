@@ -159,6 +159,11 @@ export class EnemyInstance implements Damageable {
   private fireCooldown = 0;
   private suppressedTimer = 0;
   private deathTimer = 0;
+  // Anti-stuck: when movement is repeatedly blocked (a container lane wall, a
+  // building corner), sidestep along an escape vector for a moment.
+  private stuckTimer = 0;
+  private escapeDir: Vector3 | null = null;
+  private escapeTimer = 0;
 
   onDeath?: (info: EnemyKillInfo) => void;
   onDamagePlayer?: (damage: number, sourcePosition: Vector3) => void;
@@ -486,26 +491,74 @@ export class EnemyInstance implements Damageable {
 
   private wander(dt: number): void {
     const toTarget = this.patrolTarget.subtract(this.root.position);
-    if (toTarget.length() < 0.5) {
-      const angle = Math.random() * Math.PI * 2;
-      this.patrolTarget = this.root.position.add(new Vector3(Math.cos(angle) * 4, 0, Math.sin(angle) * 4));
+    if (toTarget.length() < 1.2) {
+      this.patrolTarget = this.pickPatrolTarget();
     } else {
-      this.moveToward(this.patrolTarget, dt, 0.4);
+      // Patrol at a steady walk (not a crawl) so OPFOR visibly move and advance
+      // rather than milling on the spot.
+      this.moveToward(this.patrolTarget, dt, this.type.moveSpeed * 0.62);
     }
   }
 
+  /**
+   * Patrol waypoints bias toward the central plaza with a wide lateral spread,
+   * so idle OPFOR flow inward and fan out across the map instead of clustering
+   * at the spawn edge. Near the centre they roam locally.
+   */
+  private pickPatrolTarget(): Vector3 {
+    const pos = this.root.position;
+    const toCentre = new Vector3(-pos.x, 0, -pos.z);
+    const d = toCentre.length();
+    if (d < 10) {
+      const a = Math.random() * Math.PI * 2;
+      return pos.add(new Vector3(Math.cos(a) * (8 + Math.random() * 10), 0, Math.sin(a) * (8 + Math.random() * 10)));
+    }
+    toCentre.normalize();
+    const perp = new Vector3(-toCentre.z, 0, toCentre.x);
+    const advance = 12 + Math.random() * 14;
+    const lateral = (Math.random() - 0.5) * 20;
+    return pos.add(toCentre.scale(advance)).add(perp.scale(lateral));
+  }
+
   private moveToward(target: Vector3, dt: number, speedOverride?: number): void {
-    const dir = new Vector3(target.x - this.root.position.x, 0, target.z - this.root.position.z);
-    const dist = dir.length();
-    if (dist < 0.05) return;
-    dir.normalize();
-    // Curve around the camp's exclusion zone instead of walking straight at
-    // its edge and stalling there — this is what lets OPFOR reroute around
-    // the army base rather than clustering just outside it.
-    const steered = steerAroundExclusionZone(this.root.position, dir);
     const speed = speedOverride ?? this.type.moveSpeed;
-    this.root.moveWithCollisions(steered.scale(speed * dt));
-    this.root.rotation.y = Math.atan2(steered.x, steered.z);
+    const pos = this.root.position;
+
+    let dir: Vector3;
+    if (this.escapeTimer > 0 && this.escapeDir) {
+      // Mid-sidestep: keep moving along the escape vector to clear the snag.
+      this.escapeTimer -= dt;
+      dir = this.escapeDir;
+    } else {
+      dir = new Vector3(target.x - pos.x, 0, target.z - pos.z);
+      if (dir.length() < 0.05) return;
+      dir.normalize();
+      // Curve around the camp's exclusion zone instead of walking straight at
+      // its edge and stalling there — this is what lets OPFOR reroute around
+      // the army base rather than clustering just outside it.
+      dir = steerAroundExclusionZone(pos, dir);
+    }
+
+    const before = pos.clone();
+    this.root.moveWithCollisions(dir.scale(speed * dt));
+    this.root.rotation.y = Math.atan2(dir.x, dir.z);
+
+    // Stuck detection: if we tried to move but barely did, count it; once it
+    // persists, sidestep perpendicular for a beat to get around the obstacle.
+    if (this.escapeTimer <= 0) {
+      const moved = Vector3.Distance(this.root.position, before);
+      if (moved < speed * dt * 0.35) {
+        this.stuckTimer += dt;
+        if (this.stuckTimer > 0.45) {
+          const side = Math.random() < 0.5 ? 1 : -1;
+          this.escapeDir = new Vector3(-dir.z * side, 0, dir.x * side).normalize();
+          this.escapeTimer = 0.7;
+          this.stuckTimer = 0;
+        }
+      } else {
+        this.stuckTimer = Math.max(0, this.stuckTimer - dt * 1.5);
+      }
+    }
   }
 
   /** Walks straight away from the camp centre until clear of the exclusion zone — the fallback for the rare case an enemy ends up inside it. */

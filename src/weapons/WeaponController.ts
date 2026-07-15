@@ -177,6 +177,9 @@ export class WeaponController {
     this.adsBlend += (target - this.adsBlend) * Math.min(1, rate * dt);
 
     const isScope = this.effective.zoom >= SCOPE_ZOOM_THRESHOLD;
+    // Red-dot / holo optics: a little magnification but not a full scope. They
+    // get a screen-space red-dot reticle and hide the occluding sight housing.
+    const isReflex = !isScope && this.effective.zoom >= 1.05;
 
     // A plain FOV narrow for every optic, scoped or not — a normal perspective
     // view stays undistorted (no lens-disc/fisheye artefacts) and gives a fast,
@@ -200,7 +203,7 @@ export class WeaponController {
     const swayX = Math.sin(this.swayTime * 1.3) * swayScale;
     const swayY = Math.cos(this.swayTime * 0.9) * swayScale * 0.6;
 
-    this.scopeOverlay?.update(isScope, this.adsBlend);
+    this.scopeOverlay?.update(isScope ? "scope" : isReflex ? "reddot" : "none", this.adsBlend);
 
     if (this.activeViewmodel) {
       const hip = new Vector3(0.18, -0.16, 0.35);
@@ -219,6 +222,11 @@ export class WeaponController {
         // zoom, the full gun body would otherwise loom into frame as a giant dark block.
         const showBody = this.adsBlend < 0.6;
         for (const mesh of this.activeViewmodel.bodyMeshes) mesh.setEnabled(showBody);
+        // For red-dot/holo optics, also hide the sight housing once mostly aimed
+        // in — the screen-space red dot replaces it, so the optic can no longer
+        // block the target. Iron sights (no optic) keep their sight visible.
+        const showSight = !(isReflex && this.adsBlend >= 0.55);
+        for (const mesh of this.activeViewmodel.sightMeshes) mesh.setEnabled(showSight);
       }
     }
   }

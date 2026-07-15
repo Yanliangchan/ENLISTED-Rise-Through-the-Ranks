@@ -32,7 +32,13 @@ const SHOPHOUSE_COLORS = [
   new Color3(0.6, 0.42, 0.32),
   new Color3(0.5, 0.4, 0.3),
 ];
-const HDB_COLORS = [new Color3(0.72, 0.72, 0.7), new Color3(0.66, 0.68, 0.7), new Color3(0.75, 0.74, 0.68)];
+const HDB_COLORS = [
+  new Color3(0.72, 0.72, 0.7),
+  new Color3(0.66, 0.68, 0.7),
+  new Color3(0.75, 0.74, 0.68),
+  new Color3(0.88, 0.89, 0.87), // clean white HDB block
+  new Color3(0.85, 0.86, 0.84),
+];
 const HDB_ACCENT = new Color3(0.35, 0.5, 0.62);
 const CBD_GLASS_COLORS = [new Color3(0.3, 0.42, 0.5), new Color3(0.35, 0.45, 0.42), new Color3(0.28, 0.38, 0.48)];
 const INDUSTRIAL_COLORS = [new Color3(0.5, 0.42, 0.32), new Color3(0.42, 0.44, 0.46), new Color3(0.46, 0.38, 0.3)];
@@ -71,6 +77,24 @@ const GARDEN_BOUNDS = { minX: -90, maxX: -18, minZ: -90, maxZ: -18 };
 const CBD_BOUNDS = { minX: 11, maxX: 90, minZ: 11, maxZ: 90 };
 /** South-east quadrant, outer blocks — industrial/logistics estate. */
 const INDUSTRIAL_BOUNDS = { minX: 33, maxX: 90, minZ: -90, maxZ: -33 };
+/** Footprint reserved for the Marina-Bay-Sands landmark — kept clear of street-grid buildings so its towers/deck don't intersect anything. */
+const MBS_BOUNDS = { minX: 10, maxX: 62, minZ: 76, maxZ: 100 };
+function inMbsZone(x: number, z: number, margin: number): boolean {
+  return x > MBS_BOUNDS.minX - margin && x < MBS_BOUNDS.maxX + margin && z > MBS_BOUNDS.minZ - margin && z < MBS_BOUNDS.maxZ + margin;
+}
+/** Footprint reserved for the cargo terminal — kept clear so containers/lanes aren't blocked by grid buildings. */
+const CARGO_BOUNDS = { minX: 42, maxX: 82, minZ: -90, maxZ: -48 };
+function inCargoZone(x: number, z: number, margin: number): boolean {
+  return x > CARGO_BOUNDS.minX - margin && x < CARGO_BOUNDS.maxX + margin && z > CARGO_BOUNDS.minZ - margin && z < CARGO_BOUNDS.maxZ + margin;
+}
+/** Footprint reserved for the multi-storey car park (NW, in the HDB district). */
+const CARPARK_POS = new Vector3(-48, 0, 46);
+const CARPARK_BOUNDS = { minX: -60, maxX: -36, minZ: 34, maxZ: 58 };
+function inCarparkZone(x: number, z: number, margin: number): boolean {
+  return (
+    x > CARPARK_BOUNDS.minX - margin && x < CARPARK_BOUNDS.maxX + margin && z > CARPARK_BOUNDS.minZ - margin && z < CARPARK_BOUNDS.maxZ + margin
+  );
+}
 
 /** Concealed forest clearing in the map's SW corner — the player's tented deployment point. */
 export const CAMP_POSITION = new Vector3(-82, 2, -82);
@@ -139,6 +163,9 @@ export function generateBuildingLayout(): BuildingFootprint[] {
   for (const gx of GRID_LINES) {
     for (const gz of GRID_LINES) {
       if (inGardenDistrict(gx, gz, 10)) continue; // reserved for the park
+      if (inMbsZone(gx, gz, 4)) continue; // reserved for the MBS landmark (no intersecting blocks)
+      if (inCargoZone(gx, gz, 3)) continue; // reserved for the cargo terminal
+      if (inCarparkZone(gx, gz, 2)) continue; // reserved for the multi-storey car park
 
       const inCbd = gx >= CBD_BOUNDS.minX && gz >= CBD_BOUNDS.minZ;
       const inIndustrial = gx >= INDUSTRIAL_BOUNDS.minX && gz <= INDUSTRIAL_BOUNDS.maxZ;
@@ -221,7 +248,9 @@ export function buildLevel(scene: Scene): void {
   buildParkedCars(scene, layout);
   buildStreetFurniture(scene, layout);
   buildUrbanClutter(scene, layout);
+  buildRoadsideTrees(scene, layout);
   buildContainerYard(scene);
+  buildCarPark(scene);
   buildGardenDistrict(scene);
   buildMbsLandmark(scene);
   buildMrtViaduct(scene);
@@ -1212,8 +1241,11 @@ function buildVehicle(
     return;
   }
 
+  // Position the body so the wheels sit exactly on the ground (no float / no sink):
+  // wheels hang at local -dims.h/2, so root height = body half + wheel radius.
+  const wheelDia = type === "bus" || type === "lorry" || type === "saf5tonner" ? 0.85 : 0.55;
   const root = MeshBuilder.CreateBox(`veh_${index}_body`, { width: dims.w, height: dims.h, depth: dims.d }, scene);
-  root.position.set(x, dims.h / 2 + 0.15, z);
+  root.position.set(x, dims.h / 2 + wheelDia / 2, z);
   root.rotation.y = rotationY;
   root.material = bodyMat;
   root.checkCollisions = true;
@@ -1288,7 +1320,6 @@ function buildVehicle(
     [-dims.w / 2 * 0.55, -dims.d / 2 + 0.7],
     [dims.w / 2 * 0.55, -dims.d / 2 + 0.7],
   ];
-  const wheelDia = type === "bus" || type === "lorry" || type === "saf5tonner" ? 0.85 : 0.55;
   wheelPositions.forEach(([wx, wz], i) => {
     const wheel = MeshBuilder.CreateCylinder(`veh_${index}_wheel_${i}`, { diameter: wheelDia, height: 0.3 }, scene);
     wheel.rotation.z = Math.PI / 2;
@@ -1501,45 +1532,199 @@ function buildUrbanClutter(scene: Scene, layout: BuildingFootprint[]): void {
   }
 }
 
-/** A small stacked-container yard for the industrial estate — cheap coloured boxes, cover-friendly gaps between rows. */
+/**
+ * Fully explorable cargo terminal for the industrial estate: parallel rows of
+ * shipping containers all aligned the same way, laid out with wide clear lanes
+ * (~4.5 m) between rows that stay open at both ends — no dead ends, no random
+ * rotations, so both the player and AI can move freely between the lanes.
+ * Rows carry occasional stacks and gaps for cover. A couple of gantry-style
+ * frames and light poles dress the yard.
+ */
 function buildContainerYard(scene: Scene): void {
   const colors = [
     new Color3(0.65, 0.15, 0.1),
     new Color3(0.1, 0.35, 0.55),
     new Color3(0.15, 0.45, 0.2),
     new Color3(0.65, 0.55, 0.1),
+    new Color3(0.5, 0.5, 0.52),
   ];
   const mats = colors.map((c, i) => solidMat(scene, `containerMat_${i}`, c));
-
-  const yardX = 74;
-  const yardZ = -74;
   const rand = mulberry32(606);
+
+  // Terminal footprint (kept inside the industrial SE quadrant). Containers run
+  // with their long axis along X; rows are spaced along Z with walkable lanes.
+  const originX = 46;
+  const originZ = -86;
+  const rows = 6;
+  const rowPitch = 6.5; // 2.4 container depth + ~4.1 lane
+  const containerLen = 6;
+  const containerW = 2.4;
+  const perRow = 5;
   let index = 0;
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 4; col++) {
-      if (rand() < 0.15) continue;
-      const stacked = rand() < 0.4;
-      const x = yardX - row * 4.5;
-      const z = yardZ + col * 3;
-      const container = MeshBuilder.CreateBox(`container_${index}`, { width: 2.4, height: 2.4, depth: 6 }, scene);
-      container.position.set(x, 1.2, z);
-      container.rotation.y = rand() < 0.5 ? 0 : Math.PI / 2;
-      container.material = mats[index % mats.length];
-      container.checkCollisions = true;
+
+  for (let row = 0; row < rows; row++) {
+    const z = originZ + row * rowPitch;
+    for (let c = 0; c < perRow; c++) {
+      if (rand() < 0.22) continue; // gap in the row — a through-route / cover break
+      const x = originX + c * (containerLen + 0.4);
+      const base = MeshBuilder.CreateBox(`container_${index}`, { width: containerLen, height: containerW, depth: containerW }, scene);
+      base.position.set(x, containerW / 2, z);
+      base.material = mats[(row + c) % mats.length];
+      base.checkCollisions = true;
       index++;
-      if (stacked) {
-        const top = MeshBuilder.CreateBox(`container_${index}`, { width: 2.4, height: 2.4, depth: 6 }, scene);
-        top.position.set(x, 3.6, z);
-        top.rotation.y = container.rotation.y;
-        top.material = mats[(index + 1) % mats.length];
+      if (rand() < 0.35) {
+        const top = MeshBuilder.CreateBox(`container_${index}`, { width: containerLen, height: containerW, depth: containerW }, scene);
+        top.position.set(x, containerW * 1.5, z);
+        top.material = mats[(row + c + 2) % mats.length];
         top.checkCollisions = true;
         index++;
       }
     }
   }
+
+  // A gantry frame straddling the yard + a couple of tall floodlight poles.
+  const steelMat = solidMat(scene, "yardSteelMat", new Color3(0.55, 0.45, 0.2));
+  const gantryZ = originZ + rows * rowPitch + 3;
+  for (const px of [originX - 2, originX + perRow * (containerLen + 0.4)]) {
+    const leg = MeshBuilder.CreateBox(`yardGantryLeg_${px}`, { width: 0.5, height: 8, depth: 0.5 }, scene);
+    leg.position.set(px, 4, gantryZ);
+    leg.material = steelMat;
+    leg.checkCollisions = true;
+  }
+  const beam = MeshBuilder.CreateBox("yardGantryBeam", { width: perRow * (containerLen + 0.4) + 2, height: 0.6, depth: 0.6 }, scene);
+  beam.position.set(originX + (perRow * (containerLen + 0.4)) / 2 - 1, 8, gantryZ);
+  beam.material = steelMat;
+  beam.isPickable = false;
+
+  const poleMat = solidMat(scene, "yardFloodPoleMat", new Color3(0.2, 0.2, 0.22));
+  const lampMat = new StandardMaterial("yardFloodLampMat", scene);
+  lampMat.diffuseColor = new Color3(0.9, 0.88, 0.7);
+  lampMat.emissiveColor = new Color3(0.5, 0.48, 0.3);
+  for (const [lx, lz] of [[originX - 3, originZ - 3], [originX + perRow * 6.4, originZ - 3]] as const) {
+    const pole = MeshBuilder.CreateCylinder(`yardFlood_${lx}_${lz}`, { diameter: 0.3, height: 9 }, scene);
+    pole.position.set(lx, 4.5, lz);
+    pole.material = poleMat;
+    pole.checkCollisions = true;
+    const head = MeshBuilder.CreateBox(`yardFloodHead_${lx}_${lz}`, { width: 1.2, height: 0.3, depth: 0.4 }, scene);
+    head.position.set(lx, 9, lz);
+    head.material = lampMat;
+    head.isPickable = false;
+  }
 }
 
-/** Park/forest district: grass patch, a lake, a canal, dense trees, bushes, flowers, benches, and the camp clearing. */
+/**
+ * An open-deck multi-storey car park (HDB-estate style): a stack of concrete
+ * floor slabs on columns with low perimeter barriers, open sides, a stair/lift
+ * core, and a few cars parked on the decks. Sits in its own reserved footprint.
+ */
+function buildCarPark(scene: Scene): void {
+  const cx = CARPARK_POS.x;
+  const cz = CARPARK_POS.z;
+  const W = 20; // along X
+  const D = 16; // along Z
+  const levels = 4;
+  const levelH = 2.8;
+  const concreteMat = solidMat(scene, "carparkConcreteMat", new Color3(0.62, 0.62, 0.58));
+  const columnMat = solidMat(scene, "carparkColumnMat", new Color3(0.55, 0.55, 0.52));
+  const barrierMat = solidMat(scene, "carparkBarrierMat", new Color3(0.5, 0.5, 0.48));
+  const coreMat = solidMat(scene, "carparkCoreMat", new Color3(0.58, 0.57, 0.5));
+  const carMats = CAR_COLORS.map((c, i) => solidMat(scene, `carparkCarMat_${i}`, c));
+  const wheelMat = solidMat(scene, "carparkWheelMat", new Color3(0.05, 0.05, 0.05));
+
+  // Ground slab + one slab per level.
+  for (let lv = 0; lv <= levels; lv++) {
+    const slab = MeshBuilder.CreateBox(`carparkSlab_${lv}`, { width: W, height: 0.25, depth: D }, scene);
+    slab.position.set(cx, lv * levelH, cz);
+    slab.material = concreteMat;
+    slab.checkCollisions = true;
+  }
+  // Columns at a grid.
+  const colXs = [-W / 2 + 1, -W / 6, W / 6, W / 2 - 1];
+  const colZs = [-D / 2 + 1, 0, D / 2 - 1];
+  for (const gx of colXs) {
+    for (const gz of colZs) {
+      const col = MeshBuilder.CreateBox(`carparkCol_${gx}_${gz}`, { width: 0.5, height: levels * levelH, depth: 0.5 }, scene);
+      col.position.set(cx + gx, (levels * levelH) / 2, cz + gz);
+      col.material = columnMat;
+      col.checkCollisions = true;
+    }
+  }
+  // Low perimeter barrier walls on each deck (front + back + sides, waist high).
+  for (let lv = 1; lv <= levels; lv++) {
+    const y = lv * levelH + 0.5;
+    for (const side of [-1, 1]) {
+      const front = MeshBuilder.CreateBox(`carparkBarF_${lv}_${side}`, { width: W, height: 0.9, depth: 0.2 }, scene);
+      front.position.set(cx, y, cz + (side * D) / 2);
+      front.material = barrierMat;
+      front.checkCollisions = true;
+      const sideW = MeshBuilder.CreateBox(`carparkBarS_${lv}_${side}`, { width: 0.2, height: 0.9, depth: D }, scene);
+      sideW.position.set(cx + (side * W) / 2, y, cz);
+      sideW.material = barrierMat;
+      sideW.checkCollisions = true;
+    }
+  }
+  // Stair/lift core on the west end.
+  const core = MeshBuilder.CreateBox("carparkCore", { width: 3, height: levels * levelH + 1, depth: 4 }, scene);
+  core.position.set(cx - W / 2 - 1, (levels * levelH + 1) / 2, cz);
+  core.material = coreMat;
+  core.checkCollisions = true;
+
+  // A handful of parked cars on a couple of decks (bodies only — decor).
+  const rand = mulberry32(321);
+  for (let lv = 0; lv < levels; lv++) {
+    if (rand() < 0.3) continue;
+    for (let k = 0; k < 3; k++) {
+      const px = cx - W / 2 + 4 + k * 5 + (rand() - 0.5) * 1.5;
+      const body = MeshBuilder.CreateBox(`carparkCar_${lv}_${k}`, { width: 1.8, height: 0.6, depth: 4 }, scene);
+      body.position.set(px, lv * levelH + 0.55, cz + (rand() < 0.5 ? -3 : 3));
+      body.material = carMats[(lv + k) % carMats.length];
+      body.isPickable = false;
+      const cabin = MeshBuilder.CreateBox(`carparkCarCab_${lv}_${k}`, { width: 1.6, height: 0.5, depth: 2 }, scene);
+      cabin.position.set(px, lv * levelH + 1.05, cz + (body.position.z - cz));
+      cabin.material = body.material;
+      cabin.isPickable = false;
+      for (const [wx, wz] of [[-0.8, 1.3], [0.8, 1.3], [-0.8, -1.3], [0.8, -1.3]] as const) {
+        const wheel = MeshBuilder.CreateCylinder(`carparkWheel_${lv}_${k}_${wx}_${wz}`, { diameter: 0.5, height: 0.25 }, scene);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(px + wx, lv * levelH + 0.4, body.position.z + wz);
+        wheel.material = wheelMat;
+        wheel.isPickable = false;
+      }
+    }
+  }
+}
+
+/** Roadside trees along the sidewalks for tropical greenery, kept off the carriageway and clear of the reserved districts. */
+function buildRoadsideTrees(scene: Scene, layout: BuildingFootprint[]): void {
+  const rand = mulberry32(555);
+  const trunkMat = solidMat(scene, "roadTreeTrunkMat", new Color3(0.32, 0.22, 0.14));
+  const canopyMat = solidMat(scene, "roadTreeCanopyMat", new Color3(0.2, 0.42, 0.18));
+  let i = 0;
+  for (const line of MID_LINES) {
+    const curb = roadHalfWidth(roadKind(line)) + 2.4;
+    for (const spot of GRID_LINES) {
+      for (const [x, z] of [[line + curb, spot], [spot, line + curb]] as const) {
+        if (rand() < 0.55) continue;
+        if (inGardenDistrict(x, z, 4) || inCargoZone(x, z, 2) || inMbsZone(x, z, 2) || inCarparkZone(x, z, 2)) continue;
+        if (Math.abs(x) < 20 && Math.abs(z) < 20) continue;
+        if (overlapsAnyBuilding(x, z, 1.2, layout)) continue;
+        if (distanceToNearestRoad(x, z) < 0.8) continue;
+        const trunk = MeshBuilder.CreateCylinder(`roadTree_${i}_trunk`, { diameter: 0.3, height: 2.4 }, scene);
+        trunk.position.set(x, 1.2, z);
+        trunk.material = trunkMat;
+        trunk.checkCollisions = true;
+        const canopy = MeshBuilder.CreateSphere(`roadTree_${i}_canopy`, { diameter: 2.6 + rand() * 1.2, segments: 6 }, scene);
+        canopy.position.set(x, 3.1, z);
+        canopy.scaling.y = 0.85;
+        canopy.material = canopyMat;
+        canopy.isPickable = false;
+        i++;
+      }
+    }
+  }
+}
+
+/** Park/forest district: grass patch, a lake, a canal, dense trees, bushes, flowers, benches, a playground, and the camp clearing. */
 function buildGardenDistrict(scene: Scene): void {
   const grassMat = new StandardMaterial("grassMat", scene);
   grassMat.diffuseColor = new Color3(0.24, 0.38, 0.2);
@@ -1560,7 +1745,75 @@ function buildGardenDistrict(scene: Scene): void {
   buildTrees(scene, centerX, centerZ, width, depth);
   buildBushesAndFlowers(scene, centerX, centerZ, width, depth);
   buildBenches(scene, centerX, centerZ);
+  buildPlayground(scene, centerX - 12, centerZ + 14);
   buildCamp(scene);
+}
+
+/** A neighbourhood playground: rubberised mat, a slide, a swing set, a see-saw, and a climbing frame. */
+function buildPlayground(scene: Scene, cx: number, cz: number): void {
+  const matMat = solidMat(scene, "playgroundMatMat", new Color3(0.5, 0.28, 0.24)); // rubberised safety mat
+  const frameMat = solidMat(scene, "playgroundFrameMat", new Color3(0.85, 0.55, 0.15));
+  const blueMat = solidMat(scene, "playgroundBlueMat", new Color3(0.2, 0.45, 0.7));
+  const seatMat = solidMat(scene, "playgroundSeatMat", new Color3(0.15, 0.15, 0.16));
+
+  const mat = MeshBuilder.CreateGround("playgroundMat", { width: 14, height: 12 }, scene);
+  mat.position.set(cx, 0.04, cz);
+  mat.material = matMat;
+  mat.isPickable = false;
+
+  // Slide: a raised platform, a ladder, and a sloped chute.
+  const platform = MeshBuilder.CreateBox("pgSlidePlatform", { width: 1.4, height: 0.15, depth: 1.4 }, scene);
+  platform.position.set(cx - 4, 1.5, cz - 3);
+  platform.material = blueMat;
+  platform.checkCollisions = true;
+  for (const px of [-0.6, 0.6]) {
+    const leg = MeshBuilder.CreateCylinder(`pgSlideLeg_${px}`, { diameter: 0.1, height: 1.5 }, scene);
+    leg.position.set(cx - 4 + px, 0.75, cz - 3);
+    leg.material = frameMat;
+    leg.isPickable = false;
+  }
+  const chute = MeshBuilder.CreateBox("pgChute", { width: 0.8, height: 0.08, depth: 2.6 }, scene);
+  chute.position.set(cx - 4, 0.9, cz - 1.6);
+  chute.rotation.x = 0.5;
+  chute.material = frameMat;
+  chute.checkCollisions = true;
+
+  // Swing set: A-frame uprights + a top bar + two seats.
+  for (const sx of [-1.4, 1.4]) {
+    const upA = MeshBuilder.CreateCylinder(`pgSwingA_${sx}`, { diameter: 0.1, height: 2.4 }, scene);
+    upA.position.set(cx + 3 + sx, 1.2, cz + 2 - 0.5);
+    upA.rotation.x = 0.2;
+    upA.material = frameMat;
+    upA.checkCollisions = true;
+    const upB = MeshBuilder.CreateCylinder(`pgSwingB_${sx}`, { diameter: 0.1, height: 2.4 }, scene);
+    upB.position.set(cx + 3 + sx, 1.2, cz + 2 + 0.5);
+    upB.rotation.x = -0.2;
+    upB.material = frameMat;
+    upB.isPickable = false;
+  }
+  const topBar = MeshBuilder.CreateCylinder("pgSwingTop", { diameter: 0.1, height: 3 }, scene);
+  topBar.rotation.z = Math.PI / 2;
+  topBar.position.set(cx + 3, 2.3, cz + 2);
+  topBar.material = frameMat;
+  topBar.isPickable = false;
+  for (const sx of [-0.7, 0.7]) {
+    const seat = MeshBuilder.CreateBox(`pgSwingSeat_${sx}`, { width: 0.5, height: 0.06, depth: 0.25 }, scene);
+    seat.position.set(cx + 3 + sx, 0.6, cz + 2);
+    seat.material = seatMat;
+    seat.isPickable = false;
+  }
+
+  // Climbing frame: a small cube of bars.
+  for (const [bx, bz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+    const post = MeshBuilder.CreateCylinder(`pgClimbPost_${bx}_${bz}`, { diameter: 0.08, height: 1.6 }, scene);
+    post.position.set(cx + bx, 0.8, cz + 4 + bz);
+    post.material = blueMat;
+    post.checkCollisions = true;
+  }
+  const climbTop = MeshBuilder.CreateBox("pgClimbTop", { width: 2, height: 0.08, depth: 2 }, scene);
+  climbTop.position.set(cx, 1.6, cz + 4);
+  climbTop.material = blueMat;
+  climbTop.isPickable = false;
 }
 
 function buildLake(scene: Scene, x: number, z: number, diameter: number): void {
@@ -1713,24 +1966,25 @@ function buildCamp(scene: Scene): void {
   const dirtMat = new StandardMaterial("campDirtMat", scene);
   dirtMat.diffuseColor = new Color3(0.32, 0.28, 0.2);
   dirtMat.specularColor = Color3.Black();
-  const clearing = MeshBuilder.CreateGround("campClearing", { width: CAMP_CLEARING_RADIUS * 2, height: CAMP_CLEARING_RADIUS * 2 }, scene);
+  const clearing = MeshBuilder.CreateGround("campClearing", { width: 24, height: 24 }, scene);
   clearing.position.set(CAMP_POSITION.x, 0.03, CAMP_POSITION.z);
   clearing.material = dirtMat;
   clearing.isPickable = false;
 
-  // The spawn tent — the player deploys standing inside it (open front faces
-  // the exit). Larger than the others so there's room to stand and re-gear.
-  buildRidgeTent(scene, CAMP_POSITION.x, CAMP_POSITION.z, Math.PI / 2, 4.4, 3.6, 2.2, "camp_spawn_tent");
-  // Two smaller store tents flanking it.
-  buildRidgeTent(scene, CAMP_POSITION.x - 4.5, CAMP_POSITION.z + 3, 0.3, 3.2, 2.6, 1.8, "camp_tent_0");
-  buildRidgeTent(scene, CAMP_POSITION.x - 3, CAMP_POSITION.z - 4.5, -0.6, 3.2, 2.6, 1.8, "camp_tent_1");
+  // One large command tent, centred just behind the spawn so the player
+  // deploys standing inside it (open front faces the east gate). Sized big
+  // enough that the camera stays well clear of every wall/roof panel.
+  const tentCx = CAMP_POSITION.x - 1.5;
+  const tentCz = CAMP_POSITION.z;
+  buildCommandTent(scene, tentCx, tentCz);
+  buildOpsArea(scene, tentCx, tentCz);
 
   buildCampFence(scene);
 
   const poleMat = new StandardMaterial("campFlagpoleMat", scene);
   poleMat.diffuseColor = new Color3(0.15, 0.15, 0.16);
   const pole = MeshBuilder.CreateCylinder("campFlagpole", { diameter: 0.14, height: 5 }, scene);
-  pole.position.set(CAMP_POSITION.x + 3, 2.5, CAMP_POSITION.z);
+  pole.position.set(CAMP_POSITION.x + 7, 2.5, CAMP_POSITION.z - 6);
   pole.material = poleMat;
   pole.checkCollisions = true;
 
@@ -1738,17 +1992,18 @@ function buildCamp(scene: Scene): void {
   flagMat.diffuseColor = new Color3(0.85, 0.1, 0.1);
   flagMat.backFaceCulling = false;
   const flag = MeshBuilder.CreatePlane("campFlag", { width: 1.1, height: 0.7 }, scene);
-  flag.position.set(CAMP_POSITION.x + 3.55, 4.5, CAMP_POSITION.z);
+  flag.position.set(CAMP_POSITION.x + 7.55, 4.5, CAMP_POSITION.z - 6);
   flag.rotation.y = Math.PI / 2;
   flag.material = flagMat;
   flag.isPickable = false;
 
+  // Supply crates + a parked SAF Land Rover to the side of the tent.
   const crateMat = new StandardMaterial("campCrateMat", scene);
   crateMat.diffuseColor = new Color3(0.38, 0.33, 0.22);
   crateMat.specularColor = Color3.Black();
   const cratePositions: Array<[number, number]> = [
-    [CAMP_POSITION.x + 2, CAMP_POSITION.z + 3.5],
-    [CAMP_POSITION.x + 2.8, CAMP_POSITION.z + 4.3],
+    [CAMP_POSITION.x + 6, CAMP_POSITION.z + 6],
+    [CAMP_POSITION.x + 6.9, CAMP_POSITION.z + 6.8],
   ];
   cratePositions.forEach(([x, z], i) => {
     const crate = MeshBuilder.CreateBox(`campCrate_${i}`, { width: 1.2, height: 1, depth: 1.2 }, scene);
@@ -1757,9 +2012,172 @@ function buildCamp(scene: Scene): void {
     crate.checkCollisions = true;
   });
 
+  const opsWheel = solidMat(scene, "opsVehWheel", new Color3(0.05, 0.05, 0.05));
+  const opsSaf = solidMat(scene, "opsVehSaf", new Color3(0.28, 0.32, 0.2));
+  buildVehicle(scene, "safLandRover", CAMP_POSITION.x + 6.5, CAMP_POSITION.z + 2, -Math.PI / 2, opsSaf, opsSaf, opsSaf, opsWheel, 950);
+
   // A couple of sandbag stacks just outside the gate for cover as you leave.
   buildSandbagWall(scene, CAMP_POSITION.x + 12, CAMP_POSITION.z - 3, 0.2, solidMat(scene, "campGateSandbagA", new Color3(0.55, 0.48, 0.32)), 700);
   buildSandbagWall(scene, CAMP_POSITION.x + 12, CAMP_POSITION.z + 3, 0.2, solidMat(scene, "campGateSandbagB", new Color3(0.55, 0.48, 0.32)), 701);
+}
+
+/**
+ * One large command marquee that the player spawns inside. Back + side walls,
+ * a peaked canvas roof, open front (toward the gate), a ground sheet, and
+ * front support poles. Deliberately roomy so the camera never gets close
+ * enough to a wall/roof panel to clip through it.
+ */
+function buildCommandTent(scene: Scene, cx: number, cz: number): void {
+  const { canvas, floor } = getTentMats(scene);
+  const L = 11;
+  const W = 7;
+  const wallH = 2.8;
+  const ridgeH = 3.8;
+
+  const root = new TransformNode("cmdTent_root", scene);
+  root.position.set(cx, 0, cz);
+
+  const fl = MeshBuilder.CreateBox("cmdTent_floor", { width: L, height: 0.06, depth: W }, scene);
+  fl.position.set(0, 0.03, 0);
+  fl.material = floor;
+  fl.parent = root;
+  fl.isPickable = false;
+
+  const back = MeshBuilder.CreateBox("cmdTent_back", { width: 0.1, height: wallH, depth: W }, scene);
+  back.position.set(-L / 2, wallH / 2, 0);
+  back.material = canvas;
+  back.parent = root;
+  back.checkCollisions = true;
+
+  for (const side of [-1, 1]) {
+    const wall = MeshBuilder.CreateBox(`cmdTent_side_${side}`, { width: L, height: wallH, depth: 0.1 }, scene);
+    wall.position.set(0, wallH / 2, (side * W) / 2);
+    wall.material = canvas;
+    wall.parent = root;
+    wall.checkCollisions = true;
+    const frontPole = MeshBuilder.CreateCylinder(`cmdTent_frontpole_${side}`, { diameter: 0.12, height: wallH }, scene);
+    frontPole.position.set(L / 2 - 0.1, wallH / 2, (side * (W - 0.4)) / 2);
+    frontPole.material = floor;
+    frontPole.parent = root;
+    frontPole.checkCollisions = true;
+  }
+
+  // Peaked roof: two sloped panels from the eaves (wallH) up to a ridge.
+  const hw = W / 2;
+  const rise = ridgeH - wallH;
+  const slope = Math.hypot(hw, rise);
+  const theta = Math.atan2(rise, hw);
+  const roofY = (wallH + ridgeH) / 2;
+  const left = MeshBuilder.CreateBox("cmdTent_roofL", { width: L, height: 0.06, depth: slope }, scene);
+  left.position.set(0, roofY, -hw / 2);
+  left.rotation.x = -theta;
+  left.material = canvas;
+  left.parent = root;
+  left.checkCollisions = true;
+  const right = MeshBuilder.CreateBox("cmdTent_roofR", { width: L, height: 0.06, depth: slope }, scene);
+  right.position.set(0, roofY, hw / 2);
+  right.rotation.x = theta;
+  right.material = canvas;
+  right.parent = root;
+  right.checkCollisions = true;
+  const ridge = MeshBuilder.CreateCylinder("cmdTent_ridge", { diameter: 0.08, height: L }, scene);
+  ridge.rotation.z = Math.PI / 2;
+  ridge.position.set(0, ridgeH, 0);
+  ridge.material = floor;
+  ridge.parent = root;
+  ridge.isPickable = false;
+}
+
+/** Operations planning area inside the command tent: map tables, a briefing board, a comms set, and equipment crates. */
+function buildOpsArea(scene: Scene, cx: number, cz: number): void {
+  const metalMat = solidMat(scene, "opsMetalMat", new Color3(0.28, 0.3, 0.3));
+  const woodMat = solidMat(scene, "opsWoodMat", new Color3(0.35, 0.28, 0.18));
+  const crateMat = solidMat(scene, "opsCrateMat", new Color3(0.4, 0.35, 0.24));
+  const mapMat = new StandardMaterial("opsMapMat", scene);
+  mapMat.diffuseTexture = createOpsMapTexture(scene);
+  mapMat.specularColor = Color3.Black();
+  mapMat.backFaceCulling = false;
+
+  // Planning table with a map laid on top (toward the back of the tent).
+  const table = MeshBuilder.CreateBox("opsTable", { width: 2.6, height: 0.9, depth: 1.4 }, scene);
+  table.position.set(cx - 3.2, 0.45, cz);
+  table.material = metalMat;
+  table.checkCollisions = true;
+  const mapTop = MeshBuilder.CreateBox("opsMapTop", { width: 2.3, height: 0.05, depth: 1.15 }, scene);
+  mapTop.position.set(cx - 3.2, 0.93, cz);
+  mapTop.material = mapMat;
+  mapTop.isPickable = false;
+
+  // Briefing board stood against the back wall.
+  const board = MeshBuilder.CreateBox("opsBoard", { width: 0.08, height: 1.4, depth: 2.2 }, scene);
+  board.position.set(cx - 4.9, 1.4, cz);
+  board.material = mapMat;
+  board.checkCollisions = true;
+
+  // Folding chairs beside the table.
+  for (const dz of [-0.95, 0.95]) {
+    const chair = MeshBuilder.CreateBox(`opsChair_${dz}`, { width: 0.45, height: 0.5, depth: 0.45 }, scene);
+    chair.position.set(cx - 3.2, 0.25, cz + dz);
+    chair.material = woodMat;
+    chair.checkCollisions = true;
+  }
+
+  // Comms set: a boxy radio on a crate + a whip antenna.
+  const radioCrate = MeshBuilder.CreateBox("opsRadioCrate", { width: 0.8, height: 0.7, depth: 0.8 }, scene);
+  radioCrate.position.set(cx - 3.4, 0.35, cz - 2.2);
+  radioCrate.material = crateMat;
+  radioCrate.checkCollisions = true;
+  const radio = MeshBuilder.CreateBox("opsRadio", { width: 0.6, height: 0.3, depth: 0.5 }, scene);
+  radio.position.set(cx - 3.4, 0.85, cz - 2.2);
+  radio.material = metalMat;
+  radio.isPickable = false;
+  const antenna = MeshBuilder.CreateCylinder("opsAntenna", { diameter: 0.03, height: 2.4 }, scene);
+  antenna.position.set(cx - 3.4, 2.0, cz - 2.2);
+  antenna.material = metalMat;
+  antenna.isPickable = false;
+
+  // Stacked equipment crates.
+  const crateSpots: Array<[number, number, number]> = [
+    [cx - 4.4, 0.4, cz + 2.2],
+    [cx - 3.5, 0.4, cz + 2.4],
+    [cx - 4.4, 1.2, cz + 2.2],
+  ];
+  crateSpots.forEach(([x, y, z], i) => {
+    const c = MeshBuilder.CreateBox(`opsEquipCrate_${i}`, { width: 0.8, height: 0.8, depth: 0.8 }, scene);
+    c.position.set(x, y, z);
+    c.material = crateMat;
+    c.checkCollisions = true;
+  });
+}
+
+/** A simple top-down "map" texture (grid + coastline + a marked route) for the ops boards. */
+function createOpsMapTexture(scene: Scene): DynamicTexture {
+  const size = 256;
+  const tex = new DynamicTexture("opsMapTex", { width: size, height: size }, scene, false);
+  const ctx = tex.getContext() as CanvasRenderingContext2D;
+  ctx.fillStyle = "#d8d2b8"; // paper
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = "#9fb98a"; // land mass
+  ctx.beginPath();
+  ctx.moveTo(30, 210); ctx.lineTo(90, 120); ctx.lineTo(170, 90); ctx.lineTo(230, 150); ctx.lineTo(220, 230); ctx.lineTo(60, 235);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "rgba(70,90,120,0.4)";
+  ctx.lineWidth = 1;
+  for (let g = 0; g <= size; g += 24) {
+    ctx.beginPath(); ctx.moveTo(g, 0); ctx.lineTo(g, size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, g); ctx.lineTo(size, g); ctx.stroke();
+  }
+  ctx.strokeStyle = "#c0392b"; // marked route
+  ctx.lineWidth = 3;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath(); ctx.moveTo(70, 180); ctx.lineTo(120, 140); ctx.lineTo(180, 150); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#1f5c33";
+  ctx.font = "bold 18px sans-serif";
+  ctx.fillText("SECTOR 7", 20, 30);
+  tex.update();
+  return tex;
 }
 
 /**
