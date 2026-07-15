@@ -34,10 +34,31 @@ const HDB_ACCENT = new Color3(0.35, 0.5, 0.62);
 const CBD_GLASS_COLORS = [new Color3(0.3, 0.42, 0.5), new Color3(0.35, 0.45, 0.42), new Color3(0.28, 0.38, 0.48)];
 const INDUSTRIAL_COLORS = [new Color3(0.5, 0.42, 0.32), new Color3(0.42, 0.44, 0.46), new Color3(0.46, 0.38, 0.3)];
 
-/** Grid line positions — buildings are centred on these (the street grid's "blocks"). Tighter spacing (22m) than before for a denser city. */
-const GRID_LINES = [-77, -55, -33, -11, 11, 33, 55, 77];
-/** Midpoints between grid lines — always clear of building footprints, so roads/props live here. */
-const MID_LINES = [-66, -44, -22, 0, 22, 44, 66];
+/**
+ * Grid line positions — buildings are centred on these (the street grid's
+ * "blocks"). Each line is nudged off its nominal evenly-spaced position by a
+ * bounded, seeded random offset instead of sitting on a perfectly regular
+ * lattice, so block widths and road lengths vary and the map reads as a
+ * grown city rather than graph paper — while every other system (radar,
+ * spawn clearance, cover/vehicle placement...) still just iterates the
+ * array, unaware the spacing is irregular.
+ */
+function buildIrregularGridLines(): number[] {
+  const rand = mulberry32(4004);
+  const nominalSpacing = 22;
+  const count = 8;
+  const start = -((count - 1) * nominalSpacing) / 2;
+  const lines: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const nominal = start + i * nominalSpacing;
+    const jitter = (rand() - 0.5) * 6; // +-3m — comfortably under half the nominal spacing
+    lines.push(Math.round((nominal + jitter) * 10) / 10);
+  }
+  return lines;
+}
+const GRID_LINES = buildIrregularGridLines();
+/** Midpoints between (irregular) grid lines — always clear of building footprints, so roads/props live here; road spacing now varies naturally with block size instead of being perfectly uniform. */
+const MID_LINES = GRID_LINES.slice(0, -1).map((v, i) => Math.round(((v + GRID_LINES[i + 1]) / 2) * 10) / 10);
 const MAP_SPAN = 200;
 const BOUNDARY_HALF = 100;
 
@@ -268,6 +289,31 @@ function createSidewalkTexture(scene: Scene, name: string): DynamicTexture {
   return createPavementTexture(scene, name, "#8a8a80");
 }
 
+/**
+ * A sidewalk runs alongside every road, but must stop short at each cross
+ * street instead of paving straight across its asphalt — otherwise the
+ * light sidewalk texture bleeds over every intersection as an ugly patch
+ * (this was the "sidewalks not properly rendered" bug). Since the grid is
+ * square, the same set of cross-street gaps applies to both axes: this
+ * computes the clear run lengths along one axis once and reuses it for all
+ * NS and EW sidewalks.
+ */
+function sidewalkSegments(): Array<{ start: number; end: number }> {
+  const half = MAP_SPAN / 2;
+  const crossings = [...MID_LINES].sort((a, b) => a - b);
+  const segments: Array<{ start: number; end: number }> = [];
+  let cursor = -half;
+  for (const p of crossings) {
+    const hw = roadHalfWidth(roadKind(p));
+    const gapStart = p - hw - 0.15;
+    const gapEnd = p + hw + 0.15;
+    if (gapStart > cursor + 0.3) segments.push({ start: cursor, end: gapStart });
+    cursor = Math.max(cursor, gapEnd);
+  }
+  if (half - cursor > 0.3) segments.push({ start: cursor, end: half });
+  return segments;
+}
+
 /** Roads laid out per the avenue/street/service hierarchy, with sidewalks either side. */
 function buildRoads(scene: Scene): void {
   const roadMats: Record<RoadKind, StandardMaterial> = {
@@ -291,6 +337,9 @@ function buildRoads(scene: Scene): void {
   sidewalkTex.uScale = 40;
   sidewalkTex.vScale = 4;
 
+  const segments = sidewalkSegments();
+  const sideW = 1.4;
+
   MID_LINES.forEach((m, i) => {
     const kind = roadKind(m);
     const hw = roadHalfWidth(kind);
@@ -307,17 +356,76 @@ function buildRoads(scene: Scene): void {
     roadEW.material = mat;
     roadEW.isPickable = false;
 
-    const sideW = 1.4;
+    // Segmented rather than one continuous strip, so each sidewalk stops at
+    // the edge of every cross street instead of paving straight over it.
     for (const side of [-1, 1]) {
-      const sideNS = MeshBuilder.CreateGround(`sidewalkNS_${i}_${side}`, { width: sideW, height: MAP_SPAN }, scene);
-      sideNS.position.set(m + side * (hw + sideW / 2 + 0.1), 0.017, 0);
-      sideNS.material = sidewalkMat;
-      sideNS.isPickable = false;
+      const offset = m + side * (hw + sideW / 2 + 0.1);
+      segments.forEach((seg, segIdx) => {
+        const len = seg.end - seg.start;
+        const mid = (seg.start + seg.end) / 2;
 
-      const sideEW = MeshBuilder.CreateGround(`sidewalkEW_${i}_${side}`, { width: MAP_SPAN, height: sideW }, scene);
-      sideEW.position.set(0, 0.017, m + side * (hw + sideW / 2 + 0.1));
-      sideEW.material = sidewalkMat;
-      sideEW.isPickable = false;
+        const sideNS = MeshBuilder.CreateGround(`sidewalkNS_${i}_${side}_${segIdx}`, { width: sideW, height: len }, scene);
+        sideNS.position.set(offset, 0.017, mid);
+        sideNS.material = sidewalkMat;
+        sideNS.isPickable = false;
+
+        const sideEW = MeshBuilder.CreateGround(`sidewalkEW_${i}_${side}_${segIdx}`, { width: len, height: sideW }, scene);
+        sideEW.position.set(mid, 0.017, offset);
+        sideEW.material = sidewalkMat;
+        sideEW.isPickable = false;
+      });
+    }
+  });
+
+  buildBoulevards(scene);
+}
+
+/**
+ * A couple of diagonal boulevards cut across the orthogonal grid — real
+ * cities are rarely pure right angles throughout, and a diagonal shortcut
+ * gives players an extra route/flanking line that isn't grid-aligned.
+ * Finite point-to-point strips (not full-map length), routed clear of the
+ * garden/camp quadrant so they don't cut through the safe zone or forest.
+ */
+function buildBoulevards(scene: Scene): void {
+  const mat = matFromTexture(scene, "boulevardMat", createRoadTexture(scene, "roadTexBoulevard", "street"));
+  (mat.diffuseTexture as Texture).vScale = 14;
+  const sidewalkMat = new StandardMaterial("boulevardSidewalkMat", scene);
+  sidewalkMat.diffuseColor = new Color3(0.62, 0.6, 0.55);
+  sidewalkMat.specularColor = Color3.Black();
+  const sidewalkTex = createSidewalkTexture(scene, "boulevardSidewalkTex");
+  sidewalkTex.uScale = 24;
+  sidewalkTex.vScale = 3;
+  sidewalkMat.diffuseTexture = sidewalkTex;
+
+  const boulevards: Array<[number, number, number, number]> = [
+    // x1,z1 -> x2,z2 — NE quadrant (through the CBD) and a second cutting the industrial estate.
+    [4, 30, 82, 78],
+    [30, -30, 82, -82],
+  ];
+
+  const hw = 4;
+  boulevards.forEach(([x1, z1, x2, z2], i) => {
+    const dx = x2 - x1;
+    const dz = z2 - z1;
+    const length = Math.hypot(dx, dz);
+    const angle = Math.atan2(dx, dz);
+    const midX = (x1 + x2) / 2;
+    const midZ = (z1 + z2) / 2;
+
+    const road = MeshBuilder.CreateGround(`boulevard_${i}`, { width: hw * 2, height: length }, scene);
+    road.position.set(midX, 0.016, midZ);
+    road.rotation.y = angle;
+    road.material = mat;
+    road.isPickable = false;
+
+    for (const side of [-1, 1]) {
+      const perp = angle + Math.PI / 2;
+      const sw = MeshBuilder.CreateGround(`boulevardSidewalk_${i}_${side}`, { width: 1.3, height: length }, scene);
+      sw.position.set(midX + Math.sin(perp) * (hw + 0.75), 0.018, midZ + Math.cos(perp) * (hw + 0.75));
+      sw.rotation.y = angle;
+      sw.material = sidewalkMat;
+      sw.isPickable = false;
     }
   });
 }
