@@ -69,22 +69,37 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
 
   switch (weapon.class) {
     case "rifle": {
-      // Bullpup: stock/receiver behind the trigger, short barrel forward.
-      const body = MeshBuilder.CreateBox("body", { width: 0.09, height: 0.14, depth: 0.55 }, scene);
-      body.position.set(0, 0, -0.05);
-      const barrel = MeshBuilder.CreateCylinder("barrel", { diameter: 0.03, height: 0.28 }, scene);
+      // Bullpup silhouette matching the SAR 21's real layout: the receiver and
+      // stock sit behind the trigger group (not a separate buttstock sticking
+      // out back), the magazine and pistol grip are roughly centred under the
+      // action rather than at the very rear, and a carry-handle rail bridges
+      // the top over the optic — distinct tapered handguard forward of that.
+      const stock = MeshBuilder.CreateBox("stock", { width: 0.082, height: 0.125, depth: 0.22 }, scene);
+      stock.position.set(0, 0.005, -0.2);
+      const receiver = MeshBuilder.CreateBox("receiver", { width: 0.09, height: 0.13, depth: 0.24 }, scene);
+      receiver.position.set(0, 0, 0.02);
+      const handguard = MeshBuilder.CreateBox("handguard", { width: 0.07, height: 0.09, depth: 0.2 }, scene);
+      handguard.position.set(0, -0.01, 0.24);
+      const barrel = MeshBuilder.CreateCylinder("barrel", { diameter: 0.022, height: 0.16 }, scene);
       barrel.rotation.x = Math.PI / 2;
-      barrel.position.set(0, 0.01, 0.35);
-      const mag = MeshBuilder.CreateBox("mag", { width: 0.05, height: 0.22, depth: 0.08 }, scene);
-      mag.position.set(0, -0.16, -0.05);
-      const grip = MeshBuilder.CreateBox("grip", { width: 0.05, height: 0.16, depth: 0.06 }, scene);
-      grip.position.set(0, -0.12, 0.08);
-      parts.push(body, barrel, mag, grip);
+      barrel.position.set(0, 0.01, 0.42);
+      const mag = MeshBuilder.CreateBox("mag", { width: 0.045, height: 0.24, depth: 0.075 }, scene);
+      mag.position.set(0, -0.17, 0.07);
+      mag.rotation.x = -0.08;
+      const grip = MeshBuilder.CreateBox("grip", { width: 0.048, height: 0.15, depth: 0.055 }, scene);
+      grip.position.set(0, -0.11, 0.17);
+      grip.rotation.x = 0.15;
+      const carryHandle = MeshBuilder.CreateBox("carryHandle", { width: 0.018, height: 0.045, depth: 0.3 }, scene);
+      carryHandle.position.set(0, 0.09, -0.03);
+      const trigger = MeshBuilder.CreateBox("trigger", { width: 0.012, height: 0.03, depth: 0.01 }, scene);
+      trigger.position.set(0, -0.05, 0.12);
+      parts.push(stock, receiver, handguard, barrel, mag, grip, carryHandle, trigger);
 
       // Compact integral scope (matches the SAR 21's real 1.5x integral optic): short
-      // tube + objective/ocular lenses. Kept small — ADS brings the sight right up to
-      // the camera, so full-size gun-scale geometry here would loom into frame as a block.
-      sightOffset = new Vector3(0, 0.11, -0.02);
+      // tube + objective/ocular lenses, sitting on the carry handle. Kept small — ADS
+      // brings the sight right up to the camera, so full-size gun-scale geometry here
+      // would loom into frame as a block.
+      sightOffset = new Vector3(0, 0.12, -0.03);
       const scopeTube = MeshBuilder.CreateCylinder("sightScopeTube", { diameter: 0.013, height: 0.045 }, scene);
       scopeTube.rotation.x = Math.PI / 2;
       scopeTube.position.copyFrom(sightOffset);

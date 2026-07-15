@@ -93,6 +93,7 @@ const weaponController = new WeaponController(
   waveManager.enemyManager,
   {
     onHit: () => hud.notifyHit(),
+    onFire: () => hud.notifyShotFired(),
   },
   scopeOverlay
 );

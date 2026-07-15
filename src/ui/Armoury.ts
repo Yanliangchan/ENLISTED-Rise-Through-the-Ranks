@@ -264,8 +264,10 @@ export class Armoury {
         const row = document.createElement("div");
         row.style.cssText = "display:flex; align-items:center; gap:10px; padding:6px; border:1px solid #23291f;";
         const label = document.createElement("div");
-        label.style.cssText = "flex:1;";
-        label.textContent = `${attachment.name} [${attachment.slot}]${locked ? " — locked (needs P-Rail)" : ""}`;
+        label.style.cssText = "flex:1; min-width:0; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
+        const labelText = `${attachment.name} [${attachment.slot}]${locked ? " — locked (needs P-Rail)" : ""}`;
+        label.title = labelText;
+        label.textContent = labelText;
         row.appendChild(label);
 
         if (!owned) {
@@ -338,7 +340,7 @@ export class Armoury {
       if (t.price === 0) continue;
       const owned = this.gameState.ownsThrowable(t.id);
       list.appendChild(
-        this.shopRow(`${t.name} — ${t.realNotes.slice(0, 60)}…`, t.price, owned, () => {
+        this.shopRow(`${t.name} — ${t.realNotes.slice(0, 42)}…`, t.price, owned, () => {
           if (this.gameState.buyThrowable(t.id)) {
             this.audio.purchase();
             this.refresh();
@@ -353,7 +355,8 @@ export class Armoury {
     const row = document.createElement("div");
     row.style.cssText = "display:flex; align-items:center; gap:10px; padding:8px; border:1px solid #23291f;";
     const labelEl = document.createElement("div");
-    labelEl.style.cssText = "flex:1; font-size:13px;";
+    labelEl.style.cssText = "flex:1; min-width:0; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
+    labelEl.title = label;
     labelEl.textContent = label;
     row.appendChild(labelEl);
 

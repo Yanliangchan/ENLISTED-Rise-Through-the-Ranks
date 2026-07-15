@@ -80,6 +80,11 @@ export class WeaponController {
     return this.effective.zoom >= SCOPE_ZOOM_THRESHOLD && this.adsBlend > 0.5;
   }
 
+  /** Current bullet-spread cone in degrees, factoring in movement/airborne/stance — what the crosshair should actually reflect. */
+  get currentSpreadDegrees(): number {
+    return (this.computeSpreadRadians() * 180) / Math.PI;
+  }
+
   /** Supply-crate ammo pickup: tops up every weapon whose ammo state has already been touched this run. */
   resupplyAmmo(amount: number): void {
     for (const state of this.ammoByWeapon.values()) {
@@ -347,12 +352,30 @@ export class WeaponController {
   }
 
   private computeSpreadRadians(): number {
-    // ADS gets a further accuracy multiplier on top of the weapon's own tight ADS
-    // stat — aiming down sights should feel reliably precise, not just "less wide".
-    const base = this.isAiming ? this.effective.spreadAds * 0.5 : this.effective.spreadHip;
-    const moveExtra = this.player.isMoving && !this.bipodDeployed ? this.weapon.spread.movePenalty : 0;
+    const stationary = !this.player.isMoving && this.player.grounded;
+    let base: number;
+    if (this.isAiming) {
+      // ADS: near-zero when fully stationary — precision aiming should feel
+      // reliable, not just "tighter than hip". Still tight but non-zero while
+      // moving, so strafing while aimed in doesn't feel laser-perfect.
+      base = stationary ? this.effective.spreadAds * 0.05 : this.effective.spreadAds * 0.22;
+    } else {
+      // Hip-fire: one flat, predictable baseline rather than the old stack of
+      // multipliers — worse than ADS, but consistent shot-to-shot instead of
+      // swinging wildly with every movement-state combination.
+      base = this.effective.spreadHip * 0.85;
+    }
+
+    // Movement/airborne penalties bite much less while aiming — ADS stays usably
+    // accurate on the move, it just isn't perfect the way standing still is.
+    const moveExtra =
+      this.player.isMoving && !this.bipodDeployed
+        ? this.weapon.spread.movePenalty * (this.isAiming ? 0.3 : 0.8)
+        : 0;
     // Leaving the ground (jumping/falling) throws aim off hard, same as most shooters.
-    const airborneExtra = this.player.grounded ? 0 : this.weapon.spread.movePenalty * 1.8 + 1.2;
+    const airborneExtra = this.player.grounded
+      ? 0
+      : this.weapon.spread.movePenalty * (this.isAiming ? 1.1 : 1.8) + (this.isAiming ? 0.5 : 1.2);
     // Crouching or standing fully still tightens the group; bipod (handled below) supersedes this.
     const crouchMult = this.player.crouching && !this.bipodDeployed ? 0.55 : 1;
     const bipodMult = this.bipodDeployed ? 0.25 : 1;

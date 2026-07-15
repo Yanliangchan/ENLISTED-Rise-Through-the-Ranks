@@ -51,6 +51,7 @@ export class EnemyInstance implements Damageable {
   readonly root: Mesh;
   private bodyMesh: Mesh;
   private headMesh: Mesh;
+  private limbMeshes: Mesh[] = [];
   private bodyMat: StandardMaterial;
 
   health: number;
@@ -99,24 +100,77 @@ export class EnemyInstance implements Damageable {
     accentMat.diffuseColor = OPFOR_ACCENT;
     accentMat.specularColor = Color3.Black();
 
-    this.bodyMesh = MeshBuilder.CreateBox(`${this.id}_body`, { width: 0.55, height: 1.15, depth: 0.35 }, scene);
+    const webbingMat = new StandardMaterial(`${this.id}_webbing`, scene);
+    webbingMat.diffuseColor = new Color3(0.08, 0.09, 0.07);
+    webbingMat.specularColor = Color3.Black();
+
+    // Torso — the main hittable mass. Sized a little generously versus the
+    // pure silhouette so shots that clip the edge of a moving target still
+    // register, rather than punishing near-misses that should have counted.
+    this.bodyMesh = MeshBuilder.CreateBox(`${this.id}_body`, { width: 0.62, height: 1.05, depth: 0.42 }, scene);
     this.bodyMesh.position.y = 0.95;
     this.bodyMesh.material = this.bodyMat;
     this.bodyMesh.parent = this.root;
     this.bodyMesh.checkCollisions = false;
     this.bodyMesh.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
 
-    this.headMesh = MeshBuilder.CreateBox(`${this.id}_head`, { width: 0.32, height: 0.36, depth: 0.32 }, scene);
-    this.headMesh.position.y = 1.72;
+    // Chest rig / webbing — visual only, reads as load-bearing equipment.
+    const rig = MeshBuilder.CreateBox(`${this.id}_rig`, { width: 0.5, height: 0.5, depth: 0.06 }, scene);
+    rig.position.set(0, 1.05, 0.24);
+    rig.material = webbingMat;
+    rig.parent = this.root;
+    rig.isPickable = false;
+
+    this.headMesh = MeshBuilder.CreateBox(`${this.id}_head`, { width: 0.32, height: 0.34, depth: 0.32 }, scene);
+    this.headMesh.position.y = 1.7;
     this.headMesh.material = accentMat;
     this.headMesh.parent = this.root;
     this.headMesh.metadata = { damageable: this, isHeadshotMesh: true } satisfies HitMeshMetadata;
 
-    const shoulders = MeshBuilder.CreateBox(`${this.id}_shoulders`, { width: 0.68, height: 0.18, depth: 0.4 }, scene);
+    // Helmet — a shallow dome over the head hitbox, visual only, breaks up the
+    // head's boxy silhouette a bit without changing what the shot detects.
+    const helmet = MeshBuilder.CreateSphere(`${this.id}_helmet`, { diameter: 0.4, slice: 0.55 }, scene);
+    helmet.position.y = 1.85;
+    helmet.material = webbingMat;
+    helmet.parent = this.root;
+    helmet.isPickable = false;
+
+    const shoulders = MeshBuilder.CreateBox(`${this.id}_shoulders`, { width: 0.72, height: 0.18, depth: 0.44 }, scene);
     shoulders.position.y = 1.45;
     shoulders.material = accentMat;
     shoulders.parent = this.root;
     shoulders.isPickable = false;
+
+    // Arms and legs — hittable (normal damage, no headshot multiplier) so a
+    // limb hit reliably registers instead of silently whiffing through gaps
+    // in the old torso-only hitbox; also fills out the soldier silhouette.
+    const limbMat = this.bodyMat;
+    const armSpecs: Array<[number, number, number]> = [
+      [-0.42, 1.08, 0],
+      [0.42, 1.08, 0],
+    ];
+    for (const [x, y, z] of armSpecs) {
+      const arm = MeshBuilder.CreateBox(`${this.id}_arm_${x}`, { width: 0.2, height: 0.72, depth: 0.24 }, scene);
+      arm.position.set(x, y, z);
+      arm.material = limbMat;
+      arm.parent = this.root;
+      arm.checkCollisions = false;
+      arm.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
+      this.limbMeshes.push(arm);
+    }
+    const legSpecs: Array<[number, number, number]> = [
+      [-0.17, 0.42, 0],
+      [0.17, 0.42, 0],
+    ];
+    for (const [x, y, z] of legSpecs) {
+      const leg = MeshBuilder.CreateBox(`${this.id}_leg_${x}`, { width: 0.24, height: 0.82, depth: 0.28 }, scene);
+      leg.position.set(x, y, z);
+      leg.material = limbMat;
+      leg.parent = this.root;
+      leg.checkCollisions = false;
+      leg.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
+      this.limbMeshes.push(leg);
+    }
   }
 
   private eyePosition(): Vector3 {

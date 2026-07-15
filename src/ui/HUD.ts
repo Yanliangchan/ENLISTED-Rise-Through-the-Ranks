@@ -47,6 +47,7 @@ export class HUD {
   private hitmarkerUntil = 0;
   private flashIntensity = 0;
   private centerMessageUntil = 0;
+  private shotKickUntil = 0;
 
   constructor(
     container: HTMLElement,
@@ -76,8 +77,8 @@ export class HUD {
     const style = document.createElement("style");
     style.textContent = `
       .ch-line {
-        position: absolute; background: rgba(230,240,225,0.95);
-        box-shadow: 0 0 1.5px 0.5px rgba(0,0,0,0.85);
+        position: absolute; background: #39ff6a;
+        box-shadow: 0 0 3px rgba(57,255,106,0.9), 0 0 1px 0.5px rgba(0,0,0,0.9);
       }
       .ch-top, .ch-bottom { left: 50%; width: 1.5px; height: 5px; margin-left: -0.75px; }
       .ch-left, .ch-right { top: 50%; height: 1.5px; width: 5px; margin-top: -0.75px; }
@@ -85,8 +86,8 @@ export class HUD {
       .ch-left { left: 0; } .ch-right { right: 0; }
       .ch-dot {
         position: absolute; top: 50%; left: 50%; width: 1.5px; height: 1.5px;
-        margin: -0.75px; border-radius: 50%; background: rgba(230,240,225,0.8);
-        box-shadow: 0 0 1.5px 0.5px rgba(0,0,0,0.85);
+        margin: -0.75px; border-radius: 50%; background: #39ff6a;
+        box-shadow: 0 0 3px rgba(57,255,106,0.9), 0 0 1px 0.5px rgba(0,0,0,0.9);
       }
     `;
     this.root.appendChild(style);
@@ -188,6 +189,11 @@ export class HUD {
     this.hitmarkerUntil = performance.now() + 150;
   }
 
+  /** Brief crosshair kick on every shot — subtle visual feedback, decays fast. */
+  notifyShotFired(): void {
+    this.shotKickUntil = performance.now() + 130;
+  }
+
   notifyKill(enemyName: string, headshot: boolean): void {
     this.killFeed.unshift({
       text: `${headshot ? "☠ HEADSHOT — " : ""}${enemyName} eliminated`,
@@ -243,9 +249,12 @@ export class HUD {
     this.waveEl.textContent = phaseLabel;
 
     this.crosshair.style.display = this.weaponController.isScopedIn ? "none" : "block";
-    // Small, sharp, and mostly static — a light touch of dynamic spread reads as
-    // feedback without the crosshair ballooning across the screen while moving/firing.
-    const spreadPx = 4 + Math.min(10, this.currentSpreadDeg() * 1.6);
+    // Small, sharp, and mostly static — a light touch of dynamic spread (tracking
+    // the weapon's actual live spread cone, not just a static per-weapon stat)
+    // plus a brief per-shot kick reads as feedback without the crosshair
+    // ballooning across the screen while moving/firing.
+    const shotKick = Math.max(0, (this.shotKickUntil - now) / 130) * 3;
+    const spreadPx = 3.5 + Math.min(8, this.weaponController.currentSpreadDegrees * 1.1) + shotKick;
     this.applyCrosshairSpread(spreadPx);
 
     if (this.player.inSafeZone) {
@@ -294,11 +303,6 @@ export class HUD {
       return `ARMOURY — Wave ${wm.wave} in ${Math.max(0, Math.ceil(wm.armouryTimeRemaining))}s`;
     }
     return `WAVE ${wm.wave} — ${wm.enemyManager.totalForWaveRemaining} OPFOR remaining`;
-  }
-
-  private currentSpreadDeg(): number {
-    const w = this.weaponController;
-    return w.isAiming ? w.effective.spreadAds : w.effective.spreadHip;
   }
 
   private applyCrosshairSpread(px: number): void {
