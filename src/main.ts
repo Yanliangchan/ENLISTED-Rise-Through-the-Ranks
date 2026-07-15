@@ -20,6 +20,7 @@ import { LandingPage } from "@/ui/LandingPage";
 import { ScopeOverlay } from "@/ui/ScopeOverlay";
 import { TacticalMap } from "@/ui/TacticalMap";
 import { SafeZoneManager } from "@/world/SafeZone";
+import { UAVSupport } from "@/world/UAVSupport";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -113,7 +114,12 @@ throwableController.onFlashbangScreen = (intensity) => hud.flashWhite(intensity)
 
 const hud = new HUD(uiRoot, player, weaponController, loadout, gameState, waveManager, buildingLayout);
 const armoury = new Armoury(uiRoot, gameState, weaponController, player, audio);
-armoury.onStartWave = () => waveManager.skipArmoury();
+armoury.onStartWave = () => {
+  waveManager.skipArmoury();
+  // The DEPLOY click is a user gesture, so grab the pointer straight back —
+  // the player never has to click the window to regain control.
+  input.lockPointer();
+};
 
 const pauseMenu = new PauseMenu(uiRoot, settings, audio, player, gameState);
 const gameOverScreen = new GameOverScreen(uiRoot, gameState);
@@ -122,6 +128,7 @@ const gameOverScreen = new GameOverScreen(uiRoot, gameState);
 function resupplyOnSpawn(): void {
   weaponController.resetAllAmmo();
   gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
+  uav.reset();
   gameState.save();
 }
 
@@ -147,12 +154,22 @@ landingPage.onDeploy = () => {
   hud.showCenterMessage("OPERATION SENTINEL SHIELD — Scout the sector before OPFOR forms up", 4000);
   waveManager.beginIntro();
   resupplyOnSpawn();
+  input.lockPointer(); // grab control immediately — no need to click the window
 };
 
 const tacticalMap = new TacticalMap(uiRoot, buildingLayout);
 
+const uav = new UAVSupport(input, audio, {
+  onActivate: () => hud.showCenterMessage("UAV OVERHEAD — press M for tactical map", 4000),
+  onUnavailable: (reason) =>
+    hud.showCenterMessage(reason === "empty" ? "NO UAV CHARGES REMAINING" : "UAV RECHARGING", 1500),
+});
+
 window.addEventListener("keydown", (e) => {
-  if (e.code === "Escape") pauseMenu.toggle();
+  if (e.code === "Escape") {
+    pauseMenu.toggle();
+    if (!pauseMenu.visible) input.lockPointer(); // re-grab control when closing pause
+  }
   if (e.code === "Tab") {
     e.preventDefault();
     controlsOverlay.toggle();
@@ -160,9 +177,11 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyM" && !landingPage.visible && waveManager.phase !== "gameover") {
     tacticalMap.toggle();
     if (tacticalMap.visible) document.exitPointerLock();
+    else input.lockPointer(); // re-grab control when closing the map
   }
   if (e.code === "KeyB" && (waveManager.phase === "intro" || waveManager.phase === "armoury")) {
     armoury.visible ? armoury.hide() : armoury.show();
+    if (!armoury.visible) input.lockPointer();
   }
 });
 
@@ -179,11 +198,15 @@ game.onUpdate((deltaSeconds) => {
     throwableController.update(dt);
     waveManager.update(dt);
     supplyCrates.update(dt);
+    uav.update(dt);
   }
 
-  if (tacticalMap.visible) tacticalMap.update(player, waveManager.enemyManager.intel(player.position));
+  if (tacticalMap.visible) {
+    tacticalMap.update(player, waveManager.enemyManager.intel(player.position, uav.active));
+  }
 
   hud.update(input.isPointerLocked, waveManager.enemyManager.livePositions(), supplyCrates.promptText);
+  hud.updateUAV(uav.active, uav.secondsRemaining, uav.chargesRemaining, uav.cooldownRemaining);
   input.resetFrame();
 });
 

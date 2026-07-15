@@ -252,6 +252,7 @@ export function buildLevel(scene: Scene): void {
   buildContainerYard(scene);
   buildCarPark(scene);
   buildGardenDistrict(scene);
+  buildDrainageCanal(scene);
   buildMbsLandmark(scene);
   buildMrtViaduct(scene);
 
@@ -1869,6 +1870,86 @@ function buildCanal(scene: Scene): void {
       side === -1 ? 900 : 901,
       "canalRailing"
     );
+  }
+}
+
+/**
+ * A Singapore-style concrete monsoon drainage canal cutting E–W across the
+ * central plaza corridor (the z≈0 band is clear of grid buildings). It adds the
+ * one thing a flat street grid lacks: real vertical relief. The channel floor
+ * sits ~1.2m below street level (accessible low ground / a fighting trench),
+ * reached by sloped concrete embankments on both long sides; two pedestrian
+ * footbridges span it so the two halves of the map stay interconnected without
+ * forcing everyone down into the ditch; a sludge-water strip runs the base; and
+ * low kerb walls along the top edges give crouch cover overlooking the cut.
+ */
+function buildDrainageCanal(scene: Scene): void {
+  const halfLen = 42; // extends x = -42 .. +42
+  const cz = 0; // centred on the building-free central corridor
+  const floorY = -1.25;
+  const floorHalfW = 2.0; // channel floor half-width (z)
+  const slopeRun = 2.6; // horizontal run of each embankment
+  const outerHalfW = floorHalfW + slopeRun; // top edge of the cut
+
+  const concrete = solidMat(scene, "canalConcreteMat", new Color3(0.46, 0.47, 0.44));
+  const concreteDark = solidMat(scene, "canalConcreteDarkMat", new Color3(0.34, 0.35, 0.33));
+
+  // Channel floor — walkable low ground.
+  const floor = MeshBuilder.CreateGround("drainFloor", { width: halfLen * 2, height: floorHalfW * 2 }, scene);
+  floor.position.set(0, floorY, cz);
+  floor.material = concreteDark;
+  floor.checkCollisions = true;
+
+  // Sludge / storm-water strip down the centre of the base (visual only).
+  const waterMat = new StandardMaterial("drainWaterMat", scene);
+  waterMat.diffuseColor = new Color3(0.16, 0.22, 0.18);
+  waterMat.specularColor = new Color3(0.3, 0.35, 0.32);
+  waterMat.alpha = 0.85;
+  const water = MeshBuilder.CreateGround("drainWater", { width: halfLen * 2 - 3, height: 1.5 }, scene);
+  water.position.set(0, floorY + 0.05, cz);
+  water.material = waterMat;
+  water.isPickable = false;
+
+  // Sloped embankments both long sides — walkable ramps ground↔floor.
+  const slopeLen = Math.hypot(slopeRun, -floorY);
+  const slopeAngle = Math.atan2(-floorY, slopeRun);
+  for (const side of [-1, 1]) {
+    const slope = MeshBuilder.CreateBox(`drainSlope_${side}`, { width: halfLen * 2, height: 0.3, depth: slopeLen }, scene);
+    slope.position.set(0, floorY / 2, cz + side * (floorHalfW + slopeRun / 2));
+    // +z side must rise toward +z (outer), so tilt opposite the -z side.
+    slope.rotation.x = -side * slopeAngle;
+    slope.material = concrete;
+    slope.checkCollisions = true;
+  }
+
+  // Vertical retaining walls cap each end of the segment.
+  for (const side of [-1, 1]) {
+    const endWall = MeshBuilder.CreateBox(`drainEnd_${side}`, { width: outerHalfW * 2, height: -floorY, depth: 0.4 }, scene);
+    endWall.position.set(side * halfLen, floorY / 2, cz);
+    endWall.material = concreteDark;
+    endWall.checkCollisions = true;
+  }
+
+  // Two footbridges over the cut, with railings — keep the halves connected.
+  const bridgeMat = solidMat(scene, "drainBridgeMat", new Color3(0.4, 0.4, 0.42));
+  const railMat = solidMat(scene, "drainRailMat", new Color3(0.28, 0.3, 0.32));
+  for (const bx of [-18, 18]) {
+    const deck = MeshBuilder.CreateBox(`drainBridge_${bx}`, { width: 3.4, height: 0.2, depth: outerHalfW * 2 + 1 }, scene);
+    deck.position.set(bx, 0.02, cz);
+    deck.material = bridgeMat;
+    deck.checkCollisions = true;
+    for (const side of [-1, 1]) {
+      buildFenceLine(scene, bx, cz + side * (outerHalfW + 0.3), 0, 0.9, railMat, bx + side, "drainBridgeRail");
+    }
+  }
+
+  // Low kerb walls along the top edges as crouch cover, with gaps at the bridges
+  // and one open descent point per side.
+  for (const side of [-1, 1]) {
+    const z = cz + side * (outerHalfW + 0.35);
+    for (const x of [-34, -26, -8, 8, 26, 34]) {
+      buildLowWall(scene, x, z, 0, concrete, x + side * 1000, "drainKerb");
+    }
   }
 }
 

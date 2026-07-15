@@ -145,6 +145,8 @@ export class EnemyInstance implements Damageable {
   private bodyMesh: Mesh;
   private headMesh: Mesh;
   private limbMeshes: Mesh[] = [];
+  private legMeshes: Mesh[] = [];
+  private rifleNode!: TransformNode;
   private visualRoot!: TransformNode;
   private bodyMat: StandardMaterial;
 
@@ -159,6 +161,17 @@ export class EnemyInstance implements Damageable {
   private fireCooldown = 0;
   private suppressedTimer = 0;
   private deathTimer = 0;
+  // Combat discipline: a soldier doesn't fire the instant it sees you (reaction
+  // time), and it can't fire forever — it burns a magazine, then reloads (with a
+  // matching gun-lowered animation) before it can shoot again.
+  private reactionTimer = 0;
+  private readonly magCapacity: number;
+  private roundsInMag: number;
+  private isReloading = false;
+  private reloadTimer = 0;
+  // Locomotion animation.
+  private walkPhase = 0;
+  private movingThisFrame = false;
   // Anti-stuck: when movement is repeatedly blocked (a container lane wall, a
   // building corner), sidestep along an escape vector for a moment.
   private stuckTimer = 0;
@@ -182,6 +195,9 @@ export class EnemyInstance implements Damageable {
     this.maxHealth = Math.round(type.health * waveHealthMult);
     this.health = this.maxHealth;
     this.patrolTarget = spawnPosition.clone();
+    // Magazine size by carried weapon class — LMG belt is large, DMR small.
+    this.magCapacity = type.weapon === "generic_lmg" ? 50 : type.weapon === "generic_dmr" ? 10 : 30;
+    this.roundsInMag = this.magCapacity;
 
     this.root = MeshBuilder.CreateCapsule(`${this.id}_collider`, { height: 1.7, radius: 0.3 }, scene);
     this.root.position = spawnPosition.clone();
@@ -281,11 +297,11 @@ export class EnemyInstance implements Damageable {
       arm.checkCollisions = false;
       arm.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
       this.limbMeshes.push(arm);
-      // Glove at the end of each arm.
+      // Glove at the end of each arm — parented to the arm so it rides with it.
       const hand = MeshBuilder.CreateBox(`${this.id}_hand_${x}`, { width: 0.13, height: 0.15, depth: 0.15 }, scene);
-      hand.position.set(x, y - 0.4, z + 0.06);
+      hand.position.set(0, -0.4, 0.06);
       hand.material = assets.webbingMat;
-      hand.parent = vr;
+      hand.parent = arm;
       hand.isPickable = false;
     }
     const legSpecs: Array<[number, number, number]> = [
@@ -300,11 +316,12 @@ export class EnemyInstance implements Damageable {
       leg.checkCollisions = false;
       leg.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
       this.limbMeshes.push(leg);
-      // Combat boot.
+      this.legMeshes.push(leg);
+      // Combat boot — parented to the leg so it swings with the walk cycle.
       const boot = MeshBuilder.CreateBox(`${this.id}_boot_${x}`, { width: 0.22, height: 0.14, depth: 0.34 }, scene);
-      boot.position.set(x, 0.07, z + 0.06);
+      boot.position.set(0, -0.35, 0.06);
       boot.material = assets.bootMat;
-      boot.parent = vr;
+      boot.parent = leg;
       boot.isPickable = false;
     }
 
@@ -317,33 +334,37 @@ export class EnemyInstance implements Damageable {
    * parented to the (scaled) visual root so it rides with the soldier.
    */
   private buildHeldRifle(assets: OpforAssets): void {
-    const vr = this.visualRoot;
+    // All rifle parts hang off one node so the whole weapon can be lowered/tilted
+    // as a unit for the reload animation.
+    const rifleNode = new TransformNode(`${this.id}_rifle`, this.scene);
+    rifleNode.parent = this.visualRoot;
+    this.rifleNode = rifleNode;
     const forward = 0.32; // out in front of the chest
     const y = 0.98;
     const receiver = MeshBuilder.CreateBox(`${this.id}_gun_body`, { width: 0.05, height: 0.09, depth: 0.5 }, this.scene);
     receiver.position.set(0.1, y, forward);
     receiver.material = assets.gunMetalMat;
-    receiver.parent = vr;
+    receiver.parent = rifleNode;
     receiver.isPickable = false;
 
     const barrel = MeshBuilder.CreateCylinder(`${this.id}_gun_barrel`, { diameter: 0.02, height: 0.28 }, this.scene);
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0.1, y + 0.02, forward + 0.36);
     barrel.material = assets.gunMetalMat;
-    barrel.parent = vr;
+    barrel.parent = rifleNode;
     barrel.isPickable = false;
 
     const mag = MeshBuilder.CreateBox(`${this.id}_gun_mag`, { width: 0.035, height: 0.16, depth: 0.09 }, this.scene);
     mag.position.set(0.1, y - 0.11, forward + 0.02);
     mag.rotation.x = 0.35; // AK banana-mag forward curve
     mag.material = assets.gunMetalMat;
-    mag.parent = vr;
+    mag.parent = rifleNode;
     mag.isPickable = false;
 
     const stock = MeshBuilder.CreateBox(`${this.id}_gun_stock`, { width: 0.04, height: 0.07, depth: 0.24 }, this.scene);
     stock.position.set(0.1, y, forward - 0.36);
     stock.material = assets.gunFurnitureMat;
-    stock.parent = vr;
+    stock.parent = rifleNode;
     stock.isPickable = false;
   }
 
@@ -429,16 +450,22 @@ export class EnemyInstance implements Damageable {
       return;
     }
 
+    this.movingThisFrame = false;
+
     // AI must never occupy the army base: if a knockback/blast or navigation
     // edge case ever lands one inside the exclusion zone, immediately retreat
     // instead of running the normal FSM this frame.
     if (isInExclusionZone(this.root.position)) {
       this.retreatFromExclusionZone(dt);
+      this.animateLocomotion(dt);
       return;
     }
 
     this.stateTimer += dt;
     if (this.fireCooldown > 0) this.fireCooldown -= dt;
+    // Reload runs on its own clock regardless of state, so an enemy that breaks
+    // contact mid-reload still finishes it.
+    this.updateReload(dt);
 
     const playerInSafeZone = isInSafeZone(player.position);
     // Losing aggro the moment the player is back in the safe zone means OPFOR
@@ -470,6 +497,9 @@ export class EnemyInstance implements Damageable {
           // Approaches regardless, but only opens fire once a concurrent-attacker slot frees up.
           if (!this.engageLimiter || this.engageLimiter.requestEngage(this.id, wave)) {
             this.state = "attack";
+            // Human reaction time: face the target and settle before the first
+            // shot. Harder waves react faster; early waves are noticeably slow.
+            this.reactionTimer = 0.55 - 0.3 * Math.min(1, this.difficultyMult) + Math.random() * 0.15;
           }
         }
         break;
@@ -480,6 +510,11 @@ export class EnemyInstance implements Damageable {
           this.state = "chase";
           break;
         }
+        // Hold fire until the reaction delay elapses (unless mid-reload).
+        if (this.reactionTimer > 0) {
+          this.reactionTimer -= dt;
+          break;
+        }
         this.tryFire(player);
         break;
       case "suppressed":
@@ -487,6 +522,8 @@ export class EnemyInstance implements Damageable {
         if (this.suppressedTimer <= 0) this.state = "chase";
         break;
     }
+
+    this.animateLocomotion(dt);
   }
 
   private wander(dt: number): void {
@@ -542,6 +579,7 @@ export class EnemyInstance implements Damageable {
     const before = pos.clone();
     this.root.moveWithCollisions(dir.scale(speed * dt));
     this.root.rotation.y = Math.atan2(dir.x, dir.z);
+    this.movingThisFrame = true;
 
     // Stuck detection: if we tried to move but barely did, count it; once it
     // persists, sidestep perpendicular for a beat to get around the obstacle.
@@ -579,15 +617,70 @@ export class EnemyInstance implements Damageable {
   }
 
   private tryFire(player: PlayerController): void {
+    if (this.isReloading) return; // can't shoot mid-reload
     if (this.fireCooldown > 0) return;
+    if (this.roundsInMag <= 0) {
+      this.startReload();
+      return;
+    }
     // Early waves fire slower and less accurately — ramps to full lethality by ~wave 7.
     this.fireCooldown = 60 / (this.type.fireRateRpm * this.difficultyMult);
+    this.roundsInMag -= 1;
     const hit = Math.random() < this.type.accuracy * this.difficultyMult;
     this.audio.gunshot();
     if (hit) {
       player.takeDamage(this.type.damage);
       this.onDamagePlayer?.(this.type.damage, this.root.position.clone());
       this.audio.playerHurt();
+    }
+    // Emptied the magazine — go straight into a reload so fire can't continue.
+    if (this.roundsInMag <= 0) this.startReload();
+  }
+
+  /** Reload time by weapon class — the belt-fed LMG is the slowest to bring back up. */
+  private reloadDuration(): number {
+    return this.type.weapon === "generic_lmg" ? 4.5 : this.type.weapon === "generic_dmr" ? 2.8 : 2.4;
+  }
+
+  private startReload(): void {
+    if (this.isReloading) return;
+    this.isReloading = true;
+    this.reloadTimer = this.reloadDuration();
+    this.audio.reload();
+  }
+
+  /** Advance an in-progress reload and drive the gun-lowered reload animation. */
+  private updateReload(dt: number): void {
+    if (!this.isReloading) return;
+    this.reloadTimer -= dt;
+    const dur = this.reloadDuration();
+    const progress = 1 - Math.max(0, this.reloadTimer) / dur; // 0 → 1
+    // Dip and tilt the whole rifle down mid-reload, then bring it back up.
+    const dip = Math.sin(Math.min(1, progress) * Math.PI);
+    this.rifleNode.position.y = -dip * 0.14;
+    this.rifleNode.rotation.x = dip * 0.55;
+    if (this.reloadTimer <= 0) {
+      this.isReloading = false;
+      this.roundsInMag = this.magCapacity;
+      this.rifleNode.position.y = 0;
+      this.rifleNode.rotation.x = 0;
+      // A fresh mag means re-acquiring the sight picture — small delay before firing.
+      this.reactionTimer = Math.max(this.reactionTimer, 0.2);
+    }
+  }
+
+  /** Leg-swing walk cycle + subtle body bob while moving; settles to rest when still. */
+  private animateLocomotion(dt: number): void {
+    if (this.movingThisFrame && this.state !== "dead") {
+      this.walkPhase += dt * 9;
+      const swing = Math.sin(this.walkPhase) * 0.5;
+      if (this.legMeshes[0]) this.legMeshes[0].rotation.x = swing;
+      if (this.legMeshes[1]) this.legMeshes[1].rotation.x = -swing;
+      this.visualRoot.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.04;
+    } else {
+      const decay = Math.max(0, 1 - dt * 10);
+      for (const leg of this.legMeshes) leg.rotation.x *= decay;
+      this.visualRoot.position.y *= decay;
     }
   }
 

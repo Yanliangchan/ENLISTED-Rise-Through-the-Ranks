@@ -28,8 +28,10 @@ export class HUD {
   private ammoEl: HTMLDivElement;
   private weaponNameEl: HTMLDivElement;
   private throwableEl: HTMLDivElement;
+  private specialEl: HTMLDivElement;
   private creditsEl: HTMLDivElement;
   private waveEl: HTMLDivElement;
+  private uavEl: HTMLDivElement;
   private crosshair: HTMLDivElement;
   private hitmarker: HTMLDivElement;
   private killFeedEl: HTMLDivElement;
@@ -111,9 +113,11 @@ export class HUD {
     this.ammoEl = el("div", "font-size:26px; font-weight:bold;");
     this.weaponNameEl = el("div", "");
     this.throwableEl = el("div", "");
+    this.specialEl = el("div", "color:#e0a15a;");
     bottomRight.appendChild(this.ammoEl);
     bottomRight.appendChild(this.weaponNameEl);
     bottomRight.appendChild(this.throwableEl);
+    bottomRight.appendChild(this.specialEl);
 
     const topLeft = el("div", `
       position:absolute; top:20px; left:24px; font-size:15px;
@@ -121,8 +125,10 @@ export class HUD {
     `);
     this.waveEl = el("div", "font-size:18px; font-weight:bold; letter-spacing:1px;");
     this.creditsEl = el("div", "");
+    this.uavEl = el("div", "color:#7fd0ff; font-size:14px;");
     topLeft.appendChild(this.waveEl);
     topLeft.appendChild(this.creditsEl);
+    topLeft.appendChild(this.uavEl);
 
     this.killFeedEl = el("div", `
       position:absolute; top:20px; right:24px; text-align:right; font-size:13px;
@@ -185,6 +191,20 @@ export class HUD {
     container.appendChild(this.root);
   }
 
+  /** Reflect UAV recon state: live countdown while overhead, otherwise charge/cooldown readiness. */
+  updateUAV(active: boolean, secondsRemaining: number, charges: number, cooldownRemaining: number): void {
+    if (active) {
+      this.uavEl.textContent = `UAV ACTIVE — ${Math.ceil(secondsRemaining)}s (press M)`;
+      this.uavEl.style.color = "#7fd0ff";
+    } else if (cooldownRemaining > 0) {
+      this.uavEl.textContent = `UAV recharging — ${Math.ceil(cooldownRemaining)}s`;
+      this.uavEl.style.color = "#8a9a84";
+    } else {
+      this.uavEl.textContent = `UAV ready ×${charges} [Q]`;
+      this.uavEl.style.color = charges > 0 ? "#7fd0ff" : "#8a9a84";
+    }
+  }
+
   notifyHit(): void {
     this.hitmarkerUntil = performance.now() + 150;
   }
@@ -243,6 +263,17 @@ export class HUD {
     const throwableId = this.gameState.data.loadout.throwable;
     const throwableName = throwableId ? throwableId.toUpperCase() : "—";
     this.throwableEl.textContent = `${throwableName} ×${this.gameState.data.loadout.throwableCount}`;
+
+    // Special-slot launcher (MATADOR): show remaining charges so the player
+    // knows how many shots they're carrying at a glance.
+    const specialId = this.gameState.data.loadout.special;
+    if (specialId) {
+      const charges = this.weaponController.chargesFor(specialId);
+      this.specialEl.textContent = `${specialId.toUpperCase()} ×${charges}`;
+      this.specialEl.style.display = "block";
+    } else {
+      this.specialEl.style.display = "none";
+    }
 
     this.creditsEl.textContent = `Credits: ${this.gameState.data.credits}`;
     const phaseLabel = this.phaseLabel();

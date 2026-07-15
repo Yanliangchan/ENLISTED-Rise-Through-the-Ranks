@@ -85,11 +85,31 @@ export class WeaponController {
     return (this.computeSpreadRadians() * 180) / Math.PI;
   }
 
+  /** A resupply/ammo box never leaves the player holding more than this many launcher (MATADOR) charges. */
+  static readonly MAX_LAUNCHER_CHARGES = 2;
+
   /** Supply-crate ammo pickup: tops up every weapon whose ammo state has already been touched this run. */
   resupplyAmmo(amount: number): void {
-    for (const state of this.ammoByWeapon.values()) {
-      state.reserve += amount;
+    for (const [id, state] of this.ammoByWeapon.entries()) {
+      const weapon = WEAPONS[id];
+      if (weapon?.isProjectile) {
+        // The MATADOR is limited-carry: an ammo box tops the player up to at most
+        // 2 total charges (mag + reserve), never a full-blown stockpile.
+        const total = Math.min(
+          WeaponController.MAX_LAUNCHER_CHARGES,
+          state.mag + state.reserve + amount
+        );
+        state.reserve = Math.max(0, total - state.mag);
+      } else {
+        state.reserve += amount;
+      }
     }
+  }
+
+  /** Total remaining charges (mag + reserve) for a weapon touched this run — the HUD reads this for the MATADOR. */
+  chargesFor(weaponId: string): number {
+    const state = this.ammoByWeapon.get(weaponId);
+    return state ? state.mag + state.reserve : 0;
   }
 
   /** Full resupply on spawn/redeploy: every touched weapon gets a full mag and full reserve back. */

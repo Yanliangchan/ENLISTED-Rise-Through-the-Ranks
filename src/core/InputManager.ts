@@ -36,17 +36,32 @@ export class InputManager {
   };
 
   private requestPointerLock = () => {
-    this.canvas.requestPointerLock();
+    void this.canvas.requestPointerLock();
   };
+
+  /** Programmatically grab the pointer (call from a user-gesture handler: a button click or keydown). */
+  lockPointer(): void {
+    if (document.pointerLockElement !== this.canvas) {
+      const p = this.canvas.requestPointerLock() as unknown as Promise<void> | undefined;
+      // Some browsers reject if called too soon after an Escape-triggered exit; ignore.
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    }
+  }
+
+  /** Drop all held keys — used across menu/round transitions so nothing (e.g. W) carries over and auto-drives the player. */
+  clearKeys(): void {
+    this.keys.clear();
+    this.keysPressedThisFrame.clear();
+    this.leftMouseDown = false;
+    this.rightMouseDown = false;
+  }
 
   private onPointerLockChange = () => {
     this.isPointerLocked = document.pointerLockElement === this.canvas;
-    // Leaving pointer lock (opening a menu, dying, deploying) always releases
-    // the mouse buttons, so the next wave never starts mid-fire or pre-scoped.
-    if (!this.isPointerLocked) {
-      this.leftMouseDown = false;
-      this.rightMouseDown = false;
-    }
+    // Any lock transition (opening/closing a menu, dying, deploying, re-engaging)
+    // clears held inputs, so the next moment of control never starts mid-fire,
+    // pre-scoped, or auto-walking from a key that was down across the transition.
+    this.clearKeys();
   };
 
   private onKeyDown = (e: KeyboardEvent) => {

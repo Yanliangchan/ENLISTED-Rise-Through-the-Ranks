@@ -12,6 +12,7 @@ const BINDINGS: Array<[string, string]> = [
   ["F", "Collect supply crate (ammo/health)"],
   ["1 / 2 / 3 / 4", "Primary / Secondary / Special / Throwable"],
   ["Mouse Wheel", "Cycle equipped slots"],
+  ["Q", "Launch UAV recon (reveals enemies 20s)"],
   ["B", "Open armoury (between waves)"],
   ["M", "Tactical map"],
   ["Tab", "Toggle controls list"],

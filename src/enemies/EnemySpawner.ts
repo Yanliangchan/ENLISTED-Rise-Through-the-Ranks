@@ -14,16 +14,19 @@ import type { AudioManager } from "@/core/AudioManager";
  * jittered spawn position at runtime as a second line of defence.
  */
 const SPAWN_POINTS: Vector3[] = [
-  new Vector3(94, 0, 0),
-  new Vector3(-94, 0, 0),
-  new Vector3(0, 0, 94),
-  new Vector3(0, 0, -94),
-  new Vector3(65, 0, 65),
-  new Vector3(-65, 0, 65),
-  new Vector3(65, 0, -65),
+  // Pulled in from the ±94 boundary ring (~18% closer to the centre) so OPFOR
+  // reach the fight sooner — shorter travel time between engagements — while
+  // still starting outside the built-up blocks and clear of the camp.
+  new Vector3(77, 0, 0),
+  new Vector3(-77, 0, 0),
+  new Vector3(0, 0, 77),
+  new Vector3(0, 0, -77),
+  new Vector3(53, 0, 53),
+  new Vector3(-53, 0, 53),
+  new Vector3(53, 0, -53),
   // South edge, well east of the SW camp corner — clears the exclusion zone
   // by a wide margin (unlike the old (-94,-45) point, which sat inside it).
-  new Vector3(-20, 0, -94),
+  new Vector3(-16, 0, -77),
 ];
 
 /** Enemy-type mix per wave band, roughly matching the story's escalation. */
@@ -94,14 +97,30 @@ export class EnemyManager {
   }
 
   /**
-   * Tactical-map intel: enemies within confirm range report a live "confirmed"
-   * contact (and refresh their last-known position); enemies that have moved
-   * out of range still show as a "suspected" contact at their last-known spot
-   * until the intel goes stale. Enemies never yet seen don't appear.
+   * Tactical-map intel. Normal ops give the player a deliberately sparse
+   * picture: at most ONE confirmed contact (the nearest enemy currently within
+   * confirm range) plus up to TWO suspected/last-known contacts from recent
+   * intel — enough to hint at the threat without a full radar. When `revealAll`
+   * is set (UAV overhead), every living enemy is reported as a live confirmed
+   * contact instead.
    */
-  intel(playerPos: Vector3): EnemyIntel[] {
+  intel(playerPos: Vector3, revealAll = false): EnemyIntel[] {
     const now = performance.now();
-    const out: EnemyIntel[] = [];
+
+    if (revealAll) {
+      const out: EnemyIntel[] = [];
+      for (const e of this.enemies) {
+        if (e.isDead) continue;
+        // Keep the last-known map fresh too, so intel doesn't snap to "unseen"
+        // the instant the UAV expires.
+        this.intelMap.set(e.id, { x: e.root.position.x, z: e.root.position.z, lastConfirmed: now });
+        out.push({ x: e.root.position.x, z: e.root.position.z, status: "confirmed" });
+      }
+      return out;
+    }
+
+    const confirmed: Array<{ x: number; z: number; dist: number }> = [];
+    const suspected: Array<{ x: number; z: number; age: number }> = [];
     const liveIds = new Set<string>();
     for (const e of this.enemies) {
       if (e.isDead) continue;
@@ -109,16 +128,28 @@ export class EnemyManager {
       const dist = Math.hypot(e.root.position.x - playerPos.x, e.root.position.z - playerPos.z);
       if (dist < INTEL_CONFIRM_RANGE) {
         this.intelMap.set(e.id, { x: e.root.position.x, z: e.root.position.z, lastConfirmed: now });
-        out.push({ x: e.root.position.x, z: e.root.position.z, status: "confirmed" });
+        confirmed.push({ x: e.root.position.x, z: e.root.position.z, dist });
       } else {
         const rec = this.intelMap.get(e.id);
         if (rec && now - rec.lastConfirmed < INTEL_SUSPECT_TTL) {
-          out.push({ x: rec.x, z: rec.z, status: "suspected" });
+          suspected.push({ x: rec.x, z: rec.z, age: now - rec.lastConfirmed });
         }
       }
     }
     for (const id of [...this.intelMap.keys()]) {
       if (!liveIds.has(id)) this.intelMap.delete(id);
+    }
+
+    const out: EnemyIntel[] = [];
+    // 0–1 confirmed contact: only the single closest live sighting.
+    if (confirmed.length > 0) {
+      confirmed.sort((a, b) => a.dist - b.dist);
+      out.push({ x: confirmed[0].x, z: confirmed[0].z, status: "confirmed" });
+    }
+    // up to 2 suspected contacts: the freshest last-known positions.
+    suspected.sort((a, b) => a.age - b.age);
+    for (const s of suspected.slice(0, 2)) {
+      out.push({ x: s.x, z: s.z, status: "suspected" });
     }
     return out;
   }
