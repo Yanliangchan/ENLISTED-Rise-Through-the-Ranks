@@ -80,9 +80,8 @@ export function injectLandingStyles(): void {
 .lp-hud-panel {
   position: absolute; padding: 10px 14px; line-height: 1.7;
   color: #8fb083; text-shadow: 0 0 6px rgba(70, 220, 110, 0.25);
-  background: linear-gradient(160deg, rgba(6, 14, 8, 0.55), rgba(6, 14, 8, 0.15));
+  background: linear-gradient(160deg, rgba(6, 14, 8, 0.82), rgba(6, 14, 8, 0.6));
   border: 1px solid rgba(110, 190, 120, 0.14);
-  backdrop-filter: blur(1.5px);
   transform: translate3d(calc(var(--lp-mx) * var(--lp-tilt, 6px)), calc(var(--lp-my) * var(--lp-tilt, 6px)), 0);
   will-change: transform;
 }
@@ -233,7 +232,33 @@ export function injectLandingStyles(): void {
 }
 @keyframes lp-bob { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 6px); } }
 
-/* --- Briefing cards --- */
+/* --- Primary nav row --- */
+.lp-nav {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
+  margin-top: 26px; max-width: 620px;
+}
+.lp-nav-btn {
+  font-family: inherit; letter-spacing: 2px; font-size: 11px; padding: 11px 16px;
+  background: rgba(8, 16, 9, 0.72); border: 1px solid rgba(110, 190, 120, 0.3);
+  color: #b9d8a8; cursor: pointer; transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+.lp-nav-btn:hover, .lp-nav-btn:focus-visible {
+  border-color: rgba(170, 250, 160, 0.7); color: #eaf4e4; background: rgba(20, 40, 20, 0.8); outline: none;
+}
+
+/* --- Briefing cards (collapsible) --- */
+.lp-briefing-toggle {
+  margin-top: 34px; font-family: inherit; letter-spacing: 3px; font-size: 11px;
+  background: none; border: none; color: #6a8562; cursor: pointer; padding: 8px;
+  display: flex; align-items: center; gap: 8px;
+}
+.lp-briefing-toggle:hover { color: #a9bfa0; }
+.lp-briefing-toggle .lp-briefing-chevron { display: inline-block; transition: transform 0.25s ease; }
+.lp-briefing-toggle.lp-open .lp-briefing-chevron { transform: rotate(180deg); }
+.lp-briefing-wrap {
+  max-height: 0; overflow: hidden; transition: max-height 0.35s ease;
+}
+.lp-briefing-wrap.lp-open { max-height: 2400px; }
 .lp-briefing {
   display: flex; gap: 18px; justify-content: center; align-items: stretch; flex-wrap: wrap;
   padding: 30px 26px 90px; max-width: 1180px; margin: 0 auto;
@@ -307,6 +332,26 @@ export function injectLandingStyles(): void {
   50% { transform: translate(4px, -3px); filter: hue-rotate(-14deg); }
   100% { transform: translate(-2px, 1px); filter: none; }
 }
+
+/* --- Lightweight modal (settings / quit) --- */
+.lp-modal-backdrop {
+  position: fixed; inset: 0; z-index: 60; background: rgba(2, 5, 3, 0.82);
+  display: flex; align-items: center; justify-content: center;
+}
+.lp-modal {
+  width: min(380px, 90vw); background: rgba(8, 16, 9, 0.96); border: 1px solid rgba(110, 190, 120, 0.3);
+  padding: 24px 26px; color: #d7e8d0;
+}
+.lp-modal h3 { font-size: 13px; letter-spacing: 3px; color: #b9d8a8; margin: 0 0 18px; }
+.lp-modal-row { margin-bottom: 16px; font-size: 12px; }
+.lp-modal-row label { display: flex; justify-content: space-between; margin-bottom: 6px; color: #a9bfa0; letter-spacing: 1px; }
+.lp-modal-row input[type="range"] { width: 100%; }
+.lp-modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.lp-modal-actions button {
+  font-family: inherit; letter-spacing: 2px; font-size: 11px; padding: 9px 16px; cursor: pointer;
+  background: rgba(20, 40, 20, 0.7); border: 1px solid rgba(110, 190, 120, 0.35); color: #d7e8d0;
+}
+.lp-modal-actions button:hover { border-color: rgba(170, 250, 160, 0.7); }
 
 /* --- Audio toggle --- */
 .lp-audio-toggle {

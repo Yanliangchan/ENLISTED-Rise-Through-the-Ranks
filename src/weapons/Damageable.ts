@@ -20,4 +20,11 @@ export interface HitMeshMetadata {
   hitZone?: HitZone;
   /** Legacy flag — kept in sync with `hitZone === "head"` for existing call sites. */
   isHeadshotMesh?: boolean;
+  /**
+   * Fired with the exact world-space impact point and zone, in addition to
+   * `takeDamage` — lets a system that cares about *where* a shot landed (the
+   * training range's group-size/centre-offset scoring) get more than the
+   * damage economy's damage/isHeadshot/sourcePosition triple conveys.
+   */
+  onImpact?: (point: import("@babylonjs/core").Vector3, zone: HitZone) => void;
 }

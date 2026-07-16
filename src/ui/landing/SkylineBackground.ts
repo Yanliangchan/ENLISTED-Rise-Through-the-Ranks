@@ -14,13 +14,6 @@ interface Building {
   windows: Array<{ x: number; y: number }>;
 }
 
-interface Heli {
-  x: number; y: number; dir: number; speed: number;
-  strobe: number; rotor: number; searchlight: boolean;
-}
-
-interface SmokeParticle { x: number; y: number; r: number; alpha: number; vx: number; vy: number; }
-
 function mulberry32(seed: number): () => number {
   let state = seed;
   return () => {
@@ -52,17 +45,10 @@ export class SkylineBackground {
   private searchlights: Array<{ x: number; phase: number; speed: number; spread: number }> = [];
   private clouds: Array<{ x: number; y: number; scale: number; speed: number; depth: number; alpha: number }> = [];
   private fogBands: Array<{ y: number; phase: number; speed: number; alpha: number }> = [];
-  private smoke: SmokeParticle[] = [];
-  private smokeEmitters: Array<{ x: number; y: number; clock: number }> = [];
   private twinkles: Array<{ x: number; y: number; phase: number }> = [];
 
-  private heli: Heli | null = null;
-  private nextHeliIn = 6;
   private time = 0;
   private reducedMotion: boolean;
-
-  /** Fired when a helicopter starts crossing — lets the ambience audio play the rotor flyby. */
-  onHelicopter?: (durationSec: number, fromPan: number, toPan: number) => void;
 
   constructor(parent: HTMLElement) {
     this.canvas = document.createElement("canvas");
@@ -103,13 +89,15 @@ export class SkylineBackground {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
       this.twinkles = [];
-      for (let i = 0; i < 130; i++) {
+      // Most stars are baked static into this layer (zero per-frame cost); only
+      // a sparse subset animates (drawn live each frame in `frame()`).
+      for (let i = 0; i < 80; i++) {
         const x = rand() * w;
         const y = rand() * h * 0.55;
         const a = 0.15 + rand() * 0.5;
         ctx.fillStyle = `rgba(200, 225, 205, ${a})`;
         ctx.fillRect(x, y, 1, 1);
-        if (i % 9 === 0) this.twinkles.push({ x, y, phase: rand() * Math.PI * 2 });
+        if (i % 14 === 0) this.twinkles.push({ x, y, phase: rand() * Math.PI * 2 });
       }
       // A sliver of moon haze high in the frame.
       const moonX = w * 0.78;
@@ -262,11 +250,6 @@ export class SkylineBackground {
       { x: w * 0.2, phase: 0.6, speed: 0.11, spread: 0.05 },
       { x: w * 0.83, phase: 3.4, speed: 0.08, spread: 0.04 },
     ];
-    this.smokeEmitters = [
-      { x: w * 0.31, y: h * 0.83, clock: 0 },
-      { x: w * 0.9, y: h * 0.86, clock: 0.4 },
-    ];
-    this.smoke = [];
   }
 
   private makeLayer(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void): HTMLCanvasElement {
@@ -353,9 +336,6 @@ export class SkylineBackground {
       ctx.fill();
     }
 
-    this.updateSmoke(dt, t);
-    this.updateHeli(dt, t, mx, my);
-
     // Near clouds and fog drift over everything.
     for (const c of this.clouds) {
       if (c.depth <= 0.5) continue;
@@ -384,111 +364,6 @@ export class SkylineBackground {
     }
   }
 
-  private updateSmoke(dt: number, _t: number): void {
-    const { ctx } = this;
-    if (!this.reducedMotion) {
-      for (const em of this.smokeEmitters) {
-        em.clock -= dt;
-        if (em.clock <= 0 && this.smoke.length < 70) {
-          em.clock = 0.28 + Math.random() * 0.2;
-          this.smoke.push({
-            x: em.x + (Math.random() - 0.5) * 8, y: em.y,
-            r: 4 + Math.random() * 5, alpha: 0.12 + Math.random() * 0.06,
-            vx: 3 + Math.random() * 5, vy: -(6 + Math.random() * 7),
-          });
-        }
-      }
-    }
-    for (let i = this.smoke.length - 1; i >= 0; i--) {
-      const p = this.smoke[i];
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.r += dt * 7;
-      p.alpha -= dt * 0.018;
-      if (p.alpha <= 0.005) { this.smoke.splice(i, 1); continue; }
-      ctx.fillStyle = `rgba(30, 36, 30, ${p.alpha})`;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  private updateHeli(dt: number, t: number, mx: number, my: number): void {
-    const { ctx, w, h } = this;
-    if (!this.heli) {
-      if (this.reducedMotion) return;
-      this.nextHeliIn -= dt;
-      if (this.nextHeliIn <= 0) {
-        const dir = Math.random() < 0.5 ? 1 : -1;
-        const speed = w / (13 + Math.random() * 6);
-        this.heli = {
-          x: dir === 1 ? -60 : w + 60, y: h * (0.16 + Math.random() * 0.2),
-          dir, speed, strobe: 0, rotor: 0, searchlight: Math.random() < 0.55,
-        };
-        const durSec = (w + 120) / speed;
-        this.onHelicopter?.(durSec, -dir, dir);
-      }
-      return;
-    }
-
-    const heli = this.heli;
-    heli.x += heli.dir * heli.speed * dt;
-    heli.y += Math.sin(t * 0.9) * dt * 4;
-    heli.rotor += dt * 40;
-    if ((heli.dir === 1 && heli.x > w + 80) || (heli.dir === -1 && heli.x < -80)) {
-      this.heli = null;
-      this.nextHeliIn = 16 + Math.random() * 18;
-      return;
-    }
-
-    const hx = heli.x + mx * -18;
-    const hy = heli.y + my * -8;
-    const s = w / 1400; // scale with viewport
-
-    // Searchlight cone sweeping the ground below.
-    if (heli.searchlight) {
-      const swing = Math.sin(t * 0.7) * 30 * s;
-      const groundY = h * 0.88;
-      const grad = ctx.createLinearGradient(hx, hy, hx + swing, groundY);
-      grad.addColorStop(0, "rgba(210, 235, 200, 0.16)");
-      grad.addColorStop(1, "rgba(210, 235, 200, 0.01)");
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(hx, hy + 4 * s);
-      ctx.lineTo(hx + swing - 26 * s, groundY);
-      ctx.lineTo(hx + swing + 26 * s, groundY);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // Silhouette: fuselage + tail boom + spinning rotor disc.
-    ctx.fillStyle = "#070c09";
-    ctx.beginPath();
-    ctx.ellipse(hx, hy, 13 * s, 5 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillRect(hx - heli.dir * 26 * s, hy - 1.6 * s, heli.dir * 16 * s, 2.6 * s);
-    ctx.fillRect(hx - heli.dir * 27 * s, hy - 6 * s, heli.dir * 2.4 * s, 6 * s);
-    const rotorLen = 17 * s * Math.abs(Math.sin(heli.rotor));
-    ctx.strokeStyle = "rgba(10, 16, 12, 0.85)";
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.moveTo(hx - rotorLen, hy - 6.5 * s);
-    ctx.lineTo(hx + rotorLen, hy - 6.5 * s);
-    ctx.stroke();
-
-    // Anti-collision strobe (red) + nav light (green, side-dependent).
-    heli.strobe += dt;
-    if (heli.strobe % 1.1 < 0.08) {
-      ctx.fillStyle = "rgba(255, 70, 60, 0.95)";
-      ctx.beginPath();
-      ctx.arc(hx, hy - 8 * s, 2 * s, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.fillStyle = "rgba(90, 230, 110, 0.8)";
-    ctx.beginPath();
-    ctx.arc(hx + heli.dir * 11 * s, hy, 1.3 * s, 0, Math.PI * 2);
-    ctx.fill();
-  }
 
   dispose(): void {
     window.removeEventListener("resize", this.resize);

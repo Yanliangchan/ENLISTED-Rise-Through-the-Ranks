@@ -3,6 +3,9 @@ import { SkylineBackground } from "./landing/SkylineBackground";
 import { AmbienceAudio } from "./landing/AmbienceAudio";
 import { HudDecor } from "./landing/HudDecor";
 import { TerminalBoot } from "./landing/TerminalBoot";
+import type { Settings } from "@/core/Settings";
+import type { AudioManager } from "@/core/AudioManager";
+import type { PlayerController } from "@/player/PlayerController";
 
 const SLOGAN = "EVERY DECISION MATTERS";
 const SUBLINE = "One mission.\nOne chance.";
@@ -42,6 +45,8 @@ export class LandingPage {
   visible = true;
   onDeploy?: () => void;
   onProfile?: () => void;
+  onTrainingRange?: () => void;
+  onLeaderboards?: () => void;
 
   private targetMx = 0;
   private targetMy = 0;
@@ -55,7 +60,12 @@ export class LandingPage {
   private disposed = false;
   private reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  constructor(container: HTMLElement) {
+  constructor(
+    container: HTMLElement,
+    private readonly settings?: Settings,
+    private readonly gameAudio?: AudioManager,
+    private readonly player?: PlayerController
+  ) {
     injectLandingStyles();
 
     this.root = document.createElement("div");
@@ -71,7 +81,6 @@ export class LandingPage {
 
     this.background = new SkylineBackground(breathe);
     this.audio = new AmbienceAudio();
-    this.background.onHelicopter = (dur, from, to) => this.audio.heliFlyby(dur, from, to);
 
     for (const cls of ["lp-scanlines", "lp-vignette", "lp-interference"]) {
       const overlay = document.createElement("div");
@@ -81,7 +90,6 @@ export class LandingPage {
 
     this.hud = new HudDecor(this.zoomWrap);
     this.buildAudioToggle();
-    this.buildProfileButton();
     this.buildContent(breathe);
 
     this.fxLayer = document.createElement("div");
@@ -164,11 +172,17 @@ export class LandingPage {
     hint.textContent = "AUDIO ADVISED · HEADSET COMMS PREFERRED";
     deployWrap.appendChild(hint);
 
-    const scrollHint = document.createElement("div");
-    scrollHint.className = "lp-scroll-hint";
-    scrollHint.textContent = "▼ OPERATIONAL BRIEF";
+    const nav = this.buildPrimaryNav();
 
-    hero.append(kicker, title, slogan, subline, deployWrap, scrollHint);
+    const briefingToggle = document.createElement("button");
+    briefingToggle.className = "lp-briefing-toggle lp-interactive";
+    briefingToggle.innerHTML = `OPERATIONAL BRIEF <span class="lp-briefing-chevron">▾</span>`;
+    briefingToggle.setAttribute("aria-expanded", "false");
+
+    hero.append(kicker, title, slogan, subline, deployWrap, nav, briefingToggle);
+
+    const briefingWrap = document.createElement("div");
+    briefingWrap.className = "lp-briefing-wrap";
 
     const briefing = document.createElement("section");
     briefing.className = "lp-briefing";
@@ -193,12 +207,137 @@ export class LandingPage {
       `),
       this.buildKeysCard()
     );
+    briefingWrap.appendChild(briefing);
 
-    scroll.append(hero, briefing);
+    briefingToggle.addEventListener("click", () => {
+      const open = briefingWrap.classList.toggle("lp-open");
+      briefingToggle.classList.toggle("lp-open", open);
+      briefingToggle.setAttribute("aria-expanded", String(open));
+      this.audio.uiHover();
+    });
+
+    scroll.append(hero, briefingWrap);
     parent.appendChild(scroll);
 
     // Typed sub-line under the slogan, after the slogan letters land.
     window.setTimeout(() => this.typeSubline(subline), 2100);
+  }
+
+  /** Secondary primary actions — DEPLOY (the hero CTA) covers Play; this row covers the rest. */
+  private buildPrimaryNav(): HTMLDivElement {
+    const nav = document.createElement("div");
+    nav.className = "lp-nav";
+    const actions: Array<[string, () => void]> = [
+      ["TRAINING RANGE", () => this.onTrainingRange?.()],
+      ["PROFILE", () => this.onProfile?.()],
+      ["LEADERBOARDS", () => this.onLeaderboards?.()],
+      ["SETTINGS", () => this.showSettingsModal()],
+      ["QUIT", () => this.showQuitModal()],
+    ];
+    for (const [label, action] of actions) {
+      const btn = document.createElement("button");
+      btn.className = "lp-nav-btn lp-interactive";
+      btn.textContent = label;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.audio.uiHover();
+        action();
+      });
+      nav.appendChild(btn);
+    }
+    return nav;
+  }
+
+  private showModal(titleText: string, bodyBuilder: (body: HTMLDivElement) => void): void {
+    const backdrop = document.createElement("div");
+    backdrop.className = "lp-modal-backdrop";
+    const modal = document.createElement("div");
+    modal.className = "lp-modal";
+    const title = document.createElement("h3");
+    title.textContent = titleText;
+    modal.appendChild(title);
+    const body = document.createElement("div");
+    modal.appendChild(body);
+    bodyBuilder(body);
+    backdrop.appendChild(modal);
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) backdrop.remove();
+    });
+    this.root.appendChild(backdrop);
+  }
+
+  private showSettingsModal(): void {
+    this.showModal("SETTINGS", (body) => {
+      const s = this.settings;
+      const sens = document.createElement("div");
+      sens.className = "lp-modal-row";
+      sens.innerHTML = `<label><span>Mouse sensitivity</span><span id="sens-val">${(s?.data.sensitivity ?? 1).toFixed(2)}</span></label>`;
+      const sensInput = document.createElement("input");
+      sensInput.type = "range";
+      sensInput.min = "0.3";
+      sensInput.max = "2.5";
+      sensInput.step = "0.05";
+      sensInput.value = String(s?.data.sensitivity ?? 1);
+      sensInput.addEventListener("input", () => {
+        const v = parseFloat(sensInput.value);
+        sens.querySelector("#sens-val")!.textContent = v.toFixed(2);
+        if (s) {
+          s.data.sensitivity = v;
+          s.save();
+        }
+        if (this.player) this.player.sensitivityMult = v;
+      });
+      sens.appendChild(sensInput);
+
+      const vol = document.createElement("div");
+      vol.className = "lp-modal-row";
+      vol.innerHTML = `<label><span>Volume</span><span id="vol-val">${Math.round((s?.data.volume ?? 0.6) * 100)}%</span></label>`;
+      const volInput = document.createElement("input");
+      volInput.type = "range";
+      volInput.min = "0";
+      volInput.max = "1";
+      volInput.step = "0.05";
+      volInput.value = String(s?.data.volume ?? 0.6);
+      volInput.addEventListener("input", () => {
+        const v = parseFloat(volInput.value);
+        vol.querySelector("#vol-val")!.textContent = `${Math.round(v * 100)}%`;
+        if (s) {
+          s.data.volume = v;
+          s.save();
+        }
+        this.gameAudio?.setVolume(v);
+      });
+      vol.appendChild(volInput);
+
+      body.append(sens, vol);
+
+      const actions = document.createElement("div");
+      actions.className = "lp-modal-actions";
+      const close = document.createElement("button");
+      close.textContent = "CLOSE";
+      close.addEventListener("click", () => body.closest(".lp-modal-backdrop")?.remove());
+      actions.appendChild(close);
+      body.appendChild(actions);
+    });
+  }
+
+  private showQuitModal(): void {
+    this.showModal("QUIT", (body) => {
+      const msg = document.createElement("p");
+      msg.style.cssText = "font-size:12px; line-height:1.7; color:#a9bfa0; margin:0;";
+      msg.textContent = "There's no in-browser quit — close this tab (or the window) to end your session. Your progress is already saved.";
+      body.appendChild(msg);
+      const actions = document.createElement("div");
+      actions.className = "lp-modal-actions";
+      const tryClose = document.createElement("button");
+      tryClose.textContent = "CLOSE TAB";
+      tryClose.addEventListener("click", () => window.close());
+      const cancel = document.createElement("button");
+      cancel.textContent = "CANCEL";
+      cancel.addEventListener("click", () => body.closest(".lp-modal-backdrop")?.remove());
+      actions.append(cancel, tryClose);
+      body.appendChild(actions);
+    });
   }
 
   private buildCard(title: string, id: string, bodyHtml: string): HTMLDivElement {
@@ -257,20 +396,6 @@ export class LandingPage {
     window.addEventListener("keydown", sync, { once: true });
   }
 
-  private buildProfileButton(): void {
-    const btn = document.createElement("button");
-    btn.className = "lp-audio-toggle lp-interactive";
-    btn.style.right = "auto";
-    btn.style.left = "24px";
-    btn.textContent = "OPERATOR PROFILE";
-    btn.setAttribute("aria-label", "Open operator profile");
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.onProfile?.();
-    });
-    this.zoomWrap.appendChild(btn);
-  }
-
   private animateHeroIn(): void {
     // The kicker + deploy button fade in staged after the title lands.
     const stage = (selector: string, delayMs: number) => {
@@ -282,7 +407,8 @@ export class LandingPage {
     };
     stage(".lp-kicker", 350);
     stage(".lp-deploy-wrap", 1500);
-    stage(".lp-scroll-hint", 2600);
+    stage(".lp-nav", 2000);
+    stage(".lp-briefing-toggle", 2400);
   }
 
   private typeSubline(el: HTMLElement): void {

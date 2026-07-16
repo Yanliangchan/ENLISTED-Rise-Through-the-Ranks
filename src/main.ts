@@ -29,6 +29,11 @@ import { SafeZoneManager } from "@/world/SafeZone";
 import { UAVSupport } from "@/world/UAVSupport";
 import { MedKitController } from "@/player/MedKit";
 import { Ambience } from "@/world/Ambience";
+import { Vector3, Ray } from "@babylonjs/core";
+import { buildTrainingRange, RANGE_FIRING_LINE, RANGE_DISTANCES_M } from "@/world/TrainingRange";
+import { RangeTargetController } from "@/world/RangeTarget";
+import { TrainingRangeUI, type RangeWeaponOption } from "@/ui/TrainingRangeUI";
+import { WEAPONS } from "@/data/weapons";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -77,6 +82,7 @@ async function boot(): Promise<void> {
 
   buildLevel(game.scene);
   const buildingLayout = generateBuildingLayout();
+  const rangeAssets = buildTrainingRange(game.scene);
 
   const input = new InputManager(canvas);
 
@@ -99,6 +105,11 @@ async function boot(): Promise<void> {
 
   const audio = new AudioManager();
   audio.setVolume(settings.data.volume);
+
+  // Training Range mode flag — declared early since several callbacks built
+  // below (weapon fire, the update loop, key handlers) all need to branch on
+  // it, but the range's own controller/UI aren't constructed until later.
+  let rangeActive = false;
 
   const player = new PlayerController(game.scene, input, SPAWN_POINT, audio);
   attachCinematicPipeline(game.scene, player.camera);
@@ -168,8 +179,12 @@ async function boot(): Promise<void> {
     waveManager.enemyManager,
     {
       onFire: () => {
-        hud.notifyShotFired();
-        stats.recordShot();
+        if (rangeActive) {
+          rangeTarget.notifyShotFired();
+        } else {
+          hud.notifyShotFired();
+          stats.recordShot();
+        }
       },
       onHit: (_dmg, headshot) => {
         hud.notifyHit();
@@ -238,17 +253,97 @@ async function boot(): Promise<void> {
 
   applyWaveArcLighting(game.scene, waveManager.wave);
 
-  const landingPage = new LandingPage(uiRoot);
-  landingPage.onDeploy = () => {
-    hud.showCenterMessage("OPERATION SENTINEL SHIELD — Scout the sector before OPFOR forms up", 4000);
-    waveManager.beginIntro();
-    beginDeployment();
-    input.lockPointer();
-  };
-  if (backend) {
-    const profilePage = new ProfilePage(uiRoot, backend);
-    landingPage.onProfile = () => profilePage.show();
+  // ---- Training Range --------------------------------------------------
+  const rangeTarget = new RangeTargetController(game.scene, rangeAssets.targetCarriage, RANGE_DISTANCES_M[0]);
+  let currentRangeWeaponId = gameState.data.loadout.primary;
+
+  /** Only hitscan weapons make sense on the range — MATADOR/M203 don't raycast through `onImpact`. */
+  function rangeWeaponOptions(): RangeWeaponOption[] {
+    return gameState.data.ownedWeapons
+      .map((id) => WEAPONS[id])
+      .filter((w): w is NonNullable<typeof w> => !!w && !w.isProjectile)
+      .map((w) => ({ id: w.id, name: w.name }));
   }
+
+  const rangeUI = new TrainingRangeUI(uiRoot, {
+    onRetry: () => startRangeSession(currentRangeWeaponId, rangeTarget.distanceM),
+    onChangeWeapon: (id) => startRangeSession(id, rangeTarget.distanceM),
+    onChangeDistance: (m) => startRangeSession(currentRangeWeaponId, m),
+    onResetTarget: () => startRangeSession(currentRangeWeaponId, rangeTarget.distanceM),
+    onReturnToMenu: () => exitTrainingRangeToMenu(),
+  });
+
+  rangeTarget.onShotResolved = (shotsSoFar) => rangeUI.updateShotCount(shotsSoFar);
+  rangeTarget.onSessionComplete = (result) => {
+    document.exitPointerLock();
+    rangeUI.showResults(result, WEAPONS[currentRangeWeaponId]?.name ?? currentRangeWeaponId);
+  };
+
+  /** Fresh 10-round session: equips the chosen weapon (full ammo), relocates the target, clears prior hits. */
+  function startRangeSession(weaponId: string, distanceM: number): void {
+    currentRangeWeaponId = weaponId;
+    weaponController.equip(weaponId);
+    weaponController.resetAllAmmo();
+    rangeTarget.setDistance(distanceM);
+    rangeTarget.reset();
+    rangeUI.setWeaponOptions(rangeWeaponOptions(), weaponId);
+    rangeUI.setDistanceOptions(RANGE_DISTANCES_M, distanceM);
+    rangeUI.updateShotCount(0);
+    input.lockPointer();
+  }
+
+  function enterTrainingRange(): void {
+    landingPage.hide();
+    game.renderingPaused = false;
+    rangeActive = true;
+    hud.setVisible(false);
+    player.respawn(new Vector3(RANGE_FIRING_LINE.x, 2, RANGE_FIRING_LINE.z - 2));
+    // SafeZoneManager isn't ticked in range mode (see the update loop below),
+    // so its "player starts inside the safe zone" default never clears —
+    // and hits deliberately can't register while inSafeZone (city rule
+    // "no damage from inside the safe zone"). The range is nowhere near it.
+    player.inSafeZone = false;
+    player.spawnProtected = false;
+    (player as unknown as { collider: { rotation: { y: number } } }).collider.rotation.y = 0;
+    player.camera.rotation.x = 0;
+    const defaultWeapon = rangeWeaponOptions()[0]?.id ?? currentRangeWeaponId;
+    startRangeSession(defaultWeapon, RANGE_DISTANCES_M[0]);
+    rangeUI.show();
+  }
+
+  function exitTrainingRangeToMenu(): void {
+    rangeActive = false;
+    rangeUI.hide();
+    hud.setVisible(true);
+    game.renderingPaused = true;
+    document.exitPointerLock();
+    player.respawn(SPAWN_POINT);
+    showMainMenu();
+  }
+
+  // ---- Main menu (landing page) -----------------------------------------
+  let profilePage: ProfilePage | undefined;
+  if (backend) profilePage = new ProfilePage(uiRoot, backend);
+
+  let landingPage: LandingPage;
+  function showMainMenu(): void {
+    landingPage = new LandingPage(uiRoot, settings, audio, player);
+    landingPage.onDeploy = () => {
+      hud.showCenterMessage("OPERATION SENTINEL SHIELD — Scout the sector before OPFOR forms up", 4000);
+      loadout.switchTo("primary"); // guarantee the real loadout weapon, not whatever the range last had equipped
+      waveManager.beginIntro();
+      beginDeployment();
+      game.renderingPaused = false;
+      input.lockPointer();
+    };
+    landingPage.onTrainingRange = () => enterTrainingRange();
+    if (profilePage) {
+      landingPage.onProfile = () => profilePage!.show();
+      landingPage.onLeaderboards = () => profilePage!.show();
+    }
+  }
+  showMainMenu();
+  game.renderingPaused = true;
 
   const tacticalMap = new TacticalMap(uiRoot, buildingLayout);
 
@@ -267,7 +362,7 @@ async function boot(): Promise<void> {
       e.preventDefault();
       controlsOverlay.toggle();
     }
-    if (e.code === "KeyM" && !landingPage.visible && waveManager.phase !== "gameover") {
+    if (e.code === "KeyM" && !landingPage.visible && !rangeActive && waveManager.phase !== "gameover") {
       tacticalMap.toggle();
       if (tacticalMap.visible) document.exitPointerLock();
       else input.lockPointer();
@@ -291,17 +386,25 @@ async function boot(): Promise<void> {
       pauseMenu.visible || armoury.visible || gameOverScreen.visible || landingPage.visible || tacticalMap.visible;
 
     if (!paused) {
-      player.update(dt);
-      ambience.update(dt);
-      safeZone.update(dt);
-      loadout.update();
-      weaponController.update(dt);
-      throwableController.update(dt);
-      waveManager.update(dt);
-      supplyCrates.update(dt);
-      uav.update(dt);
-      medKit.update(dt);
-      if (waveManager.phase === "combat") stats.addPlaytime(dt);
+      if (rangeActive) {
+        // Range sessions only need movement, aiming/firing, and weapon-slot
+        // switching — no waves, crates, UAV, medkits, or rain ambience.
+        player.update(dt);
+        loadout.update();
+        weaponController.update(dt);
+      } else {
+        player.update(dt);
+        ambience.update(dt);
+        safeZone.update(dt);
+        loadout.update();
+        weaponController.update(dt);
+        throwableController.update(dt);
+        waveManager.update(dt);
+        supplyCrates.update(dt);
+        uav.update(dt);
+        medKit.update(dt);
+        if (waveManager.phase === "combat") stats.addPlaytime(dt);
+      }
     }
 
     if (tacticalMap.visible) {
@@ -309,9 +412,11 @@ async function boot(): Promise<void> {
     }
 
     damageNumbers.update(game.scene);
-    hud.update(input.isPointerLocked, waveManager.enemyManager.livePositions(), supplyCrates.promptText);
-    hud.updateUAV(uav.active, uav.secondsRemaining, uav.chargesRemaining, uav.cooldownRemaining);
-    hud.updateMedkit(medKit.count);
+    if (!rangeActive) {
+      hud.update(input.isPointerLocked, waveManager.enemyManager.livePositions(), supplyCrates.promptText);
+      hud.updateUAV(uav.active, uav.secondsRemaining, uav.chargesRemaining, uav.cooldownRemaining);
+      hud.updateMedkit(medKit.count);
+    }
     input.resetFrame();
   });
 
@@ -324,6 +429,17 @@ async function boot(): Promise<void> {
         (player as unknown as { collider: { rotation: { y: number } } }).collider.rotation.y = yaw;
         player.camera.rotation.x = pitch;
       },
+      /** Test helper: orient the player to look directly at a world point (yaw + pitch). */
+      aimAt: (x: number, y: number, z: number) => {
+        const camPos = player.camera.globalPosition;
+        const dx = x - camPos.x;
+        const dz = z - camPos.z;
+        const horiz = Math.hypot(dx, dz);
+        const yaw = Math.atan2(dx, dz);
+        const pitch = Math.atan2(camPos.y - y, horiz);
+        (player as unknown as { collider: { rotation: { y: number } } }).collider.rotation.y = yaw;
+        player.camera.rotation.x = pitch;
+      },
       player,
       waveManager,
       game,
@@ -332,6 +448,36 @@ async function boot(): Promise<void> {
       medKit,
       gameState,
       supplyCrates,
+      hud,
+      rangeTarget,
+      rangeUI,
+      enterTrainingRange,
+      exitTrainingRangeToMenu,
+      weaponController,
+      input,
+      /** Test helper: current player physics state (grounded/moving/aiming). */
+      debugPlayerState: () => ({
+        grounded: player.grounded,
+        isMoving: player.isMoving,
+        currentSpreadDegrees: weaponController.currentSpreadDegrees,
+        isAiming: weaponController.isAiming,
+        inSafeZone: player.inSafeZone,
+        spawnProtected: (player as unknown as { spawnProtected: boolean }).spawnProtected,
+      }),
+      /** Test helper: what does the current camera aim direction actually hit? */
+      debugRaycast: () => {
+        const cam = player.camera;
+        const dir = cam.getDirection(new Vector3(0, 0, 1));
+        const ray = new Ray(cam.globalPosition, dir, 1000);
+        const pick = game.scene.pickWithRay(ray, (m) => m.isPickable);
+        return {
+          camPos: { x: cam.globalPosition.x, y: cam.globalPosition.y, z: cam.globalPosition.z },
+          dir: { x: dir.x, y: dir.y, z: dir.z },
+          hitMesh: pick?.pickedMesh?.name ?? null,
+          distance: pick?.distance ?? null,
+          point: pick?.pickedPoint ? { x: pick.pickedPoint.x, y: pick.pickedPoint.y, z: pick.pickedPoint.z } : null,
+        };
+      },
     };
   }
 }

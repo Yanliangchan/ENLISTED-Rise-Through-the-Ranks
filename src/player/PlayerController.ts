@@ -64,6 +64,10 @@ export class PlayerController {
     );
     this.collider.position = spawnPosition.clone();
     this.collider.isVisible = false;
+    // Own hitscan rays originate at the camera, which sits inside/near this
+    // capsule's own dome — pickable left true, a downward-angled shot could
+    // self-intersect its own collider before ever reaching a real target.
+    this.collider.isPickable = false;
     this.collider.checkCollisions = true;
     this.collider.ellipsoid = new Vector3(0.4, STAND_EYE_HEIGHT / 2, 0.4);
     this.collider.ellipsoidOffset = new Vector3(0, STAND_EYE_HEIGHT / 2, 0);

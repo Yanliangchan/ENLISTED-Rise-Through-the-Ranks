@@ -461,6 +461,7 @@ export class WeaponController {
         const zoneMult = zone === "head" ? this.weapon.headshotMultiplier : ZONE_MULTIPLIER[zone];
         const finalDmg = dmg * zoneMult;
         meta.damageable.takeDamage(finalDmg, isHeadshot, origin);
+        meta.onImpact?.(pick.pickedPoint.clone(), zone);
         this.audio.hitmarker();
         if (isHeadshot) this.audio.headshot();
         this.callbacks.onHit?.(finalDmg, isHeadshot);

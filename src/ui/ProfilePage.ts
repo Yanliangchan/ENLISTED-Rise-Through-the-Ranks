@@ -1,4 +1,24 @@
 import type { Backend } from "@/core/Backend";
+import { RANKS, type Track } from "@/data/ranks";
+import { BADGES, CHALLENGE_OPS } from "@/data/badges";
+
+const TRACK_LABELS: Record<Track, string> = {
+  enlistee: "Enlistee (Other Ranks)",
+  specialist: "Specialist (NCO)",
+  warrant: "Warrant Officer",
+  officer: "Officer (Commissioned)",
+  military_expert: "Military Expert (MDES)",
+};
+
+/** Best-effort match from the server's free-text career-track string onto the reference ladder's Track type. */
+function guessTrack(careerTrack: string): Track {
+  const s = careerTrack.toLowerCase();
+  if (s.includes("officer") || s.includes("lieutenant") || s.includes("captain") || s.includes("colonel") || s.includes("general")) return "officer";
+  if (s.includes("warrant") || s.includes("wo")) return "warrant";
+  if (s.includes("expert") || s.includes("mdes") || s.includes("me1") || s.includes("me2")) return "military_expert";
+  if (s.includes("sergeant") || s.includes("specialist") || s.includes("sg")) return "specialist";
+  return "enlistee";
+}
 
 const LEADERBOARD_CATEGORIES: Array<{ key: string; label: string }> = [
   { key: "highest_wave", label: "HIGHEST WAVE" },
@@ -122,6 +142,8 @@ export class ProfilePage {
       <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;">BADGES EARNED (${p.badges.length})</div>
       <div style="margin-bottom:26px;">${badgesHtml}</div>
 
+      ${this.buildCareerLadderSection(guessTrack(p.careerTrack))}
+
       <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;">LEADERBOARD</div>
       <div id="lb-tabs" style="display:flex; gap:6px; margin-bottom:10px;">
         ${LEADERBOARD_CATEGORIES.map(
@@ -164,6 +186,72 @@ export class ProfilePage {
     };
     tabButtons.forEach((b) => b.addEventListener("click", () => loadCategory(b.dataset.cat!)));
     loadCategory(LEADERBOARD_CATEGORIES[0].key);
+
+    const ladderToggle = this.body.querySelector<HTMLButtonElement>("#ladder-toggle");
+    const ladderBody = this.body.querySelector<HTMLDivElement>("#ladder-body");
+    ladderToggle?.addEventListener("click", () => {
+      const open = ladderBody!.style.display !== "none";
+      ladderBody!.style.display = open ? "none" : "block";
+      ladderToggle.textContent = open ? "SHOW FULL LADDER + CHALLENGE OPS ▾" : "HIDE FULL LADDER + CHALLENGE OPS ▴";
+    });
+  }
+
+  /**
+   * Reference/planning section: the full SAF-accurate multi-track rank
+   * ladder and the badge/Challenge-Op catalog (src/data/ranks.ts,
+   * src/data/badges.ts). This is presentation over the existing
+   * server-authoritative rank/badges shown above — it doesn't (yet) replace
+   * the live merit economy, since the two use different XP scales. Collapsed
+   * by default since it's reference material, not something checked every visit.
+   */
+  private buildCareerLadderSection(track: Track): string {
+    const tracks: Track[] = ["enlistee", "specialist", "warrant", "officer", "military_expert"];
+    const rows = tracks
+      .map((t) => {
+        const ranksInTrack = RANKS.filter((r) => r.track === t).sort((a, b) => a.tier - b.tier);
+        const isCurrent = t === track;
+        return `
+          <div style="margin-bottom:14px; ${isCurrent ? "border-left:2px solid #6ea24a; padding-left:10px;" : ""}">
+            <div style="font-size:12px; letter-spacing:1px; color:${isCurrent ? "#bfe0ab" : "#7f9a72"}; margin-bottom:6px;">
+              ${TRACK_LABELS[t]}${isCurrent ? " — YOUR TRACK" : ""}
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px;">
+              ${ranksInTrack
+                .map(
+                  (r) => `
+                <div title="${escapeHtml(r.perk)}" style="
+                  background:#0e1610; border:1px solid #2c3a26; padding:4px 8px; font-size:11px; color:#a9bfa0;
+                ">${r.abbr}</div>`
+                )
+                .join("")}
+            </div>
+          </div>`;
+      })
+      .join("");
+
+    const badgeRows = Object.values(BADGES)
+      .map((b) => {
+        const op = CHALLENGE_OPS[b.challengeId];
+        return `
+          <div style="background:#0e1610; border:1px solid #2c3a26; padding:8px 12px; margin-bottom:6px;">
+            <div style="font-weight:bold; color:#bfe0ab; font-size:12px;">${escapeHtml(b.name)}</div>
+            <div style="font-size:11px; color:#8fa585; margin-top:2px;">${escapeHtml(b.perk)}</div>
+            <div style="font-size:10px; color:#6a8562; margin-top:4px;">${op ? escapeHtml(op.brief) : ""}</div>
+          </div>`;
+      })
+      .join("");
+
+    return `
+      <button id="ladder-toggle" style="
+        width:100%; text-align:left; background:none; border:1px solid #2c3a26; color:#7f9a72;
+        font-family:inherit; font-size:11px; letter-spacing:2px; padding:8px 12px; margin-bottom:12px; cursor:pointer;
+      ">SHOW FULL LADDER + CHALLENGE OPS ▾</button>
+      <div id="ladder-body" style="display:none; margin-bottom:26px;">
+        <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin:14px 0 10px;">SAF CAREER LADDER</div>
+        ${rows}
+        <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin:18px 0 10px;">CHALLENGE OPS (badge missions)</div>
+        ${badgeRows}
+      </div>`;
   }
 }
 

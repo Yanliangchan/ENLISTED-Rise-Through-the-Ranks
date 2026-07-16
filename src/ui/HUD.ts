@@ -218,6 +218,11 @@ export class HUD {
     }
   }
 
+  /** Hide/show the whole combat HUD — used while a different full-screen mode (e.g. the Training Range) owns the view. */
+  setVisible(visible: boolean): void {
+    this.root.style.display = visible ? "" : "none";
+  }
+
   /** Reflect carried first aid kit count. */
   updateMedkit(count: number): void {
     this.medkitEl.textContent = `First Aid ×${count} [5]`;

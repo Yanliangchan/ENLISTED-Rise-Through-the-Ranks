@@ -8,6 +8,14 @@ export class GameEngine {
   readonly engine: BabylonEngine;
   readonly scene: Scene;
   private updateCallbacks: Array<(deltaSeconds: number) => void> = [];
+  /**
+   * While true, the render loop still ticks update callbacks (so menu-time
+   * bookkeeping keeps working) but skips `scene.render()` — the single most
+   * expensive thing that happens each frame. Set false while a full-screen
+   * DOM menu (landing page, profile) covers the canvas: the 3D world behind
+   * it would otherwise keep rendering at full detail for nothing.
+   */
+  renderingPaused = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.engine = new BabylonEngine(canvas, true, {
@@ -33,7 +41,7 @@ export class GameEngine {
     this.engine.runRenderLoop(() => {
       const deltaSeconds = this.engine.getDeltaTime() / 1000;
       for (const cb of this.updateCallbacks) cb(deltaSeconds);
-      this.scene.render();
+      if (!this.renderingPaused) this.scene.render();
     });
   }
 
