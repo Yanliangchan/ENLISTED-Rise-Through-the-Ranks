@@ -7,8 +7,9 @@ import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
 import { applyGearToPlayer, maxThrowableCapacity } from "@/player/Gear";
 import { getUnlockedSlots, isAttachmentCompatible } from "@/weapons/attachmentSlots";
+import { BOTTY_PRICE } from "@/companion/Botty";
 
-type Tab = "loadout" | "weapons" | "attachments" | "gear" | "throwables";
+type Tab = "loadout" | "weapons" | "attachments" | "gear" | "throwables" | "support";
 
 /**
  * Between-wave field armoury cache: buy/unlock weapons, attachments, gear,
@@ -24,6 +25,8 @@ export class Armoury {
   visible = false;
 
   onStartWave?: () => void;
+  /** Set by main.ts — called right after BOTTY is purchased so the world can spawn him. */
+  onBuyBotty?: () => void;
 
   constructor(
     container: HTMLElement,
@@ -110,6 +113,7 @@ export class Armoury {
       ["attachments", "Attachments"],
       ["gear", "Gear"],
       ["throwables", "Throwables"],
+      ["support", "Support"],
     ];
     for (const [id, label] of tabs) {
       const btn = document.createElement("button");
@@ -145,6 +149,9 @@ export class Armoury {
         break;
       case "throwables":
         this.renderThrowables();
+        break;
+      case "support":
+        this.renderSupport();
         break;
     }
   }
@@ -349,6 +356,38 @@ export class Armoury {
       );
     }
     this.content.appendChild(list);
+  }
+
+  private renderSupport(): void {
+    const wrap = document.createElement("div");
+    const heading = document.createElement("div");
+    heading.textContent = "AI Squadmate";
+    heading.style.cssText = "font-weight:bold; margin-bottom:10px; color:#9fc78a;";
+    wrap.appendChild(heading);
+
+    const owned = this.gameState.data.hasBotty;
+    const row = this.shopRow(
+      "BOTTY — AI combat companion. Follows, suppresses, covers, and can be commanded via the wheel (Q).",
+      BOTTY_PRICE,
+      owned,
+      () => {
+        if (this.gameState.buyBotty(BOTTY_PRICE)) {
+          this.audio.purchase();
+          this.onBuyBotty?.();
+          this.refresh();
+        }
+      }
+    );
+    wrap.appendChild(row);
+
+    if (owned) {
+      const note = document.createElement("div");
+      note.textContent = "BOTTY is deployed with you. Use First Aid Kits to heal him if he goes down.";
+      note.style.cssText = "color:#9fc78a; font-size:12px; margin-top:8px;";
+      wrap.appendChild(note);
+    }
+
+    this.content.appendChild(wrap);
   }
 
   private shopRow(label: string, price: number, owned: boolean, onBuy: () => void): HTMLDivElement {

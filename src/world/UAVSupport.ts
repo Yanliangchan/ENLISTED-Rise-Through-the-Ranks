@@ -1,5 +1,6 @@
 import type { InputManager } from "@/core/InputManager";
 import type { AudioManager } from "@/core/AudioManager";
+import { isUnlocked as isAdminUnlocked } from "@/core/AdminMode";
 
 const UAV_DURATION_SEC = 20; // reveals all enemies for this long
 const UAV_COOLDOWN_SEC = 30; // recharge time between deployments
@@ -12,7 +13,8 @@ export interface UAVCallbacks {
 }
 
 /**
- * UAV recon support ability (default key: Q). When launched it flies overhead
+ * UAV recon support ability (default key: Z — Q now opens the BOTTY command
+ * wheel). When launched it flies overhead
  * for 20 seconds, feeding a live fix on every OPFOR to the tactical map
  * (EnemyManager.intel is called with revealAll while `active`). Limited to a
  * few charges per deployment with a cooldown between launches, so it's a
@@ -61,7 +63,7 @@ export class UAVSupport {
       }
     }
 
-    if (this.input.wasPressed("KeyQ")) this.tryActivate();
+    if (this.input.wasPressed("KeyZ")) this.tryActivate();
   }
 
   private tryActivate(): void {
@@ -71,12 +73,12 @@ export class UAVSupport {
       this.callbacks.onUnavailable?.("cooldown");
       return;
     }
-    if (this.charges <= 0) {
+    if (this.charges <= 0 && !isAdminUnlocked()) {
       this.audio.uiClick();
       this.callbacks.onUnavailable?.("empty");
       return;
     }
-    this.charges -= 1;
+    if (!isAdminUnlocked()) this.charges -= 1;
     this.active = true;
     this.timeLeft = UAV_DURATION_SEC;
     this.audio.waveStart();

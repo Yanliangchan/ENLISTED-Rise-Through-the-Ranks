@@ -16,6 +16,7 @@ import {
   ShadowGenerator,
   ReflectionProbe,
   RenderTargetTexture,
+  PointLight,
 } from "@babylonjs/core";
 import { SkyMaterial } from "@babylonjs/materials";
 import { WorldMaterial } from "@/world/WorldMaterial";
@@ -868,8 +869,10 @@ function buildMrtStation(scene: Scene): void {
 
 /** Road surface texture with lane markings baked in — a dashed/solid centre line and edge lines, tiled along the road's length. Far cheaper than per-dash meshes. */
 function createRoadTexture(scene: Scene, name: string, kind: RoadKind): DynamicTexture {
-  const w = 128;
-  const h = 128;
+  // 256px (up from 128) so the tiled asphalt reads sharp up close instead of
+  // blurring out — same geometry, same draw calls, just a crisper reused tile.
+  const w = 256;
+  const h = 256;
   const tex = new DynamicTexture(name, { width: w, height: h }, scene, false);
   const ctx = tex.getContext() as CanvasRenderingContext2D;
   ctx.fillStyle = kind === "service" ? "#232321" : "#1b1b1c";
@@ -877,33 +880,57 @@ function createRoadTexture(scene: Scene, name: string, kind: RoadKind): DynamicT
 
   // Subtle asphalt speckle.
   const rand = mulberry32(kind === "avenue" ? 11 : kind === "street" ? 22 : 33);
-  for (let i = 0; i < 220; i++) {
+  for (let i = 0; i < 880; i++) {
     const shade = 26 + Math.floor(rand() * 14);
     ctx.fillStyle = `rgb(${shade},${shade},${shade + 1})`;
-    ctx.fillRect(rand() * w, rand() * h, 1.4, 1.4);
+    ctx.fillRect(rand() * w, rand() * h, 1.6, 1.6);
+  }
+  // Tonal weathering blotches and patchwork resurfacing marks — breaks up
+  // the flat asphalt fill into something that reads as worn road surface.
+  for (let i = 0; i < 10; i++) {
+    const shade = 20 + Math.floor(rand() * 12);
+    ctx.fillStyle = `rgba(${shade},${shade},${shade + 1},0.35)`;
+    ctx.beginPath();
+    ctx.ellipse(rand() * w, rand() * h, 14 + rand() * 40, 10 + rand() * 26, rand() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Hairline cracks.
+  ctx.strokeStyle = "rgba(0,0,0,0.3)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    let cx = rand() * w;
+    let cy = rand() * h;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    for (let s = 0; s < 5; s++) {
+      cx += (rand() - 0.5) * 44;
+      cy += (rand() - 0.5) * 44;
+      ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
   }
 
   if (kind === "avenue") {
     // Double yellow centre line + two white lane dividers either side.
     ctx.fillStyle = "#d8b23a";
-    ctx.fillRect(w / 2 - 3, 0, 1.6, h);
-    ctx.fillRect(w / 2 + 1.4, 0, 1.6, h);
+    ctx.fillRect(w / 2 - 6, 0, 3.2, h);
+    ctx.fillRect(w / 2 + 2.8, 0, 3.2, h);
     ctx.fillStyle = "rgba(220,220,210,0.85)";
-    for (const off of [-0.62, 0.62]) {
+    for (const off of [-0.3, 0.3]) {
       const cx = w / 2 + off * w;
-      for (let y = 0; y < h; y += 16) ctx.fillRect(cx - 0.8, y, 1.6, 9);
+      for (let y = 0; y < h; y += 32) ctx.fillRect(cx - 1.6, y, 3.2, 18);
     }
-    ctx.fillRect(2, 0, 1.5, h);
-    ctx.fillRect(w - 3.5, 0, 1.5, h);
+    ctx.fillRect(4, 0, 3, h);
+    ctx.fillRect(w - 7, 0, 3, h);
   } else if (kind === "street") {
     ctx.fillStyle = "rgba(220,220,210,0.85)";
-    for (let y = 0; y < h; y += 18) ctx.fillRect(w / 2 - 0.8, y, 1.6, 10);
-    ctx.fillRect(3, 0, 1.2, h);
-    ctx.fillRect(w - 4.2, 0, 1.2, h);
+    for (let y = 0; y < h; y += 36) ctx.fillRect(w / 2 - 1.6, y, 3.2, 20);
+    ctx.fillRect(6, 0, 2.4, h);
+    ctx.fillRect(w - 8.4, 0, 2.4, h);
   } else {
     ctx.fillStyle = "rgba(200,200,190,0.5)";
-    ctx.fillRect(3, 0, 1, h);
-    ctx.fillRect(w - 4, 0, 1, h);
+    ctx.fillRect(6, 0, 2, h);
+    ctx.fillRect(w - 8, 0, 2, h);
   }
 
   tex.update();
@@ -1515,11 +1542,47 @@ function createWindowTexture(scene: Scene, name: string, base: string): DynamicT
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const lit = rand() < 0.35;
-      ctx.fillStyle = lit ? "#d8e4df" : "#4a5560";
       const pad = cellW * 0.16;
-      ctx.fillRect(c * cellW + pad, r * cellH + pad, cellW - pad * 2, cellH - pad * 2);
+      const wx = c * cellW + pad;
+      const wy = r * cellH + pad;
+      const ww = cellW - pad * 2;
+      const wh = cellH - pad * 2;
+
+      // Darker frame surround so each window reads as a distinct opening
+      // rather than a flat lit/unlit rectangle on the facade.
+      ctx.fillStyle = "rgba(20,22,20,0.55)";
+      ctx.fillRect(wx - 1.5, wy - 1.5, ww + 3, wh + 3);
+
+      ctx.fillStyle = lit ? "#d8e4df" : "#4a5560";
+      ctx.fillRect(wx, wy, ww, wh);
+
+      // A thin mid-mullion on most panes, matching typical HDB/office glazing.
+      if (rand() < 0.7) {
+        ctx.fillStyle = "rgba(20,22,20,0.4)";
+        ctx.fillRect(wx + ww / 2 - 0.6, wy, 1.2, wh);
+      }
+
+      // Occasional wall-mounted AC condenser unit beneath the window — a
+      // recurring HDB/shophouse facade detail that reads well at this scale.
+      if (rand() < 0.22) {
+        ctx.fillStyle = "#9aa39c";
+        const acW = ww * 0.55;
+        const acH = cellH * 0.14;
+        ctx.fillRect(wx + (ww - acW) / 2, wy + wh + 1, acW, acH);
+      }
     }
   }
+
+  // Sparse balcony railings on a couple of rows — a thin horizontal band
+  // with vertical bars, another cheap facade tell that isn't just windows.
+  if (rand() < 0.6) {
+    const balconyRow = 2 + Math.floor(rand() * (rows - 3));
+    const by = balconyRow * cellH + cellH - 3;
+    ctx.fillStyle = "rgba(30,32,30,0.5)";
+    ctx.fillRect(0, by, size, 2.4);
+    for (let x = 4; x < size; x += 10) ctx.fillRect(x, by - 6, 1.4, 8);
+  }
+
   tex.update();
   return tex;
 }
@@ -3133,6 +3196,12 @@ function buildCamp(scene: Scene): void {
   buildCommandTent(scene, tentCx, tentCz);
   buildOpsArea(scene, tentCx, tentCz);
 
+  // Medical tent tucked in the clearing's south corner, clear of the command
+  // tent, vehicles, and the perimeter fence.
+  const medTentCx = CAMP_POSITION.x + 2;
+  const medTentCz = CAMP_POSITION.z - 6;
+  buildMedicalTent(scene, medTentCx, medTentCz);
+
   buildCampFence(scene);
 
   const poleMat = new WorldMaterial("campFlagpoleMat", scene);
@@ -3242,31 +3311,69 @@ function buildCommandTent(scene: Scene, cx: number, cz: number): void {
   ridge.isPickable = false;
 }
 
-/** Operations planning area inside the command tent: map tables, a briefing board, a comms set, and equipment crates. */
+/** Operations planning area inside the command tent: map tables, a briefing board, a comms set, laptops, and equipment crates. */
 function buildOpsArea(scene: Scene, cx: number, cz: number): void {
   const metalMat = solidMat(scene, "opsMetalMat", new Color3(0.28, 0.3, 0.3));
   const woodMat = solidMat(scene, "opsWoodMat", new Color3(0.35, 0.28, 0.18));
   const crateMat = solidMat(scene, "opsCrateMat", new Color3(0.4, 0.35, 0.24));
+  const laptopBaseMat = solidMat(scene, "opsLaptopBaseMat", new Color3(0.16, 0.16, 0.17));
+  const laptopScreenMat = new WorldMaterial("opsLaptopScreenMat", scene);
+  laptopScreenMat.diffuseColor = new Color3(0.1, 0.16, 0.12);
+  laptopScreenMat.emissiveColor = new Color3(0.2, 0.42, 0.26);
+  const whiteboardFrameMat = solidMat(scene, "opsWhiteboardFrameMat", new Color3(0.5, 0.5, 0.5));
   const mapMat = new WorldMaterial("opsMapMat", scene);
   mapMat.diffuseTexture = createOpsMapTexture(scene);
   mapMat.specularColor = Color3.Black();
   mapMat.backFaceCulling = false;
+  const whiteboardMat = new WorldMaterial("opsWhiteboardMat", scene);
+  whiteboardMat.diffuseTexture = createWhiteboardTexture(scene);
+  whiteboardMat.specularColor = Color3.Black();
+
+  // A warm desk lamp so the planning table reads instead of sitting in the tent's ambient light alone.
+  const lampMat = new WorldMaterial("opsLampMat", scene);
+  lampMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
+  lampMat.emissiveColor = new Color3(0.6, 0.5, 0.2);
+  const lampLight = new PointLight("opsLampLight", new Vector3(cx - 3.2, 1.5, cz), scene);
+  lampLight.diffuse = new Color3(1.0, 0.85, 0.55);
+  lampLight.intensity = 0.6;
+  lampLight.range = 6;
 
   // Planning table with a map laid on top (toward the back of the tent).
   const table = MeshBuilder.CreateBox("opsTable", { width: 2.6, height: 0.9, depth: 1.4 }, scene);
   table.position.set(cx - 3.2, 0.45, cz);
   table.material = metalMat;
   table.checkCollisions = true;
-  const mapTop = MeshBuilder.CreateBox("opsMapTop", { width: 2.3, height: 0.05, depth: 1.15 }, scene);
-  mapTop.position.set(cx - 3.2, 0.93, cz);
+  const mapTop = MeshBuilder.CreateBox("opsMapTop", { width: 1.5, height: 0.05, depth: 1.1 }, scene);
+  mapTop.position.set(cx - 3.6, 0.93, cz);
   mapTop.material = mapMat;
   mapTop.isPickable = false;
 
-  // Briefing board stood against the back wall.
-  const board = MeshBuilder.CreateBox("opsBoard", { width: 0.08, height: 1.4, depth: 2.2 }, scene);
-  board.position.set(cx - 4.9, 1.4, cz);
-  board.material = mapMat;
-  board.checkCollisions = true;
+  // Laptop on the same table, open and glowing.
+  const laptopBase = MeshBuilder.CreateBox("opsLaptopBase", { width: 0.5, height: 0.03, depth: 0.36 }, scene);
+  laptopBase.position.set(cx - 2.6, 0.955, cz + 0.3);
+  laptopBase.material = laptopBaseMat;
+  laptopBase.isPickable = false;
+  const laptopScreen = MeshBuilder.CreateBox("opsLaptopScreen", { width: 0.5, height: 0.32, depth: 0.02 }, scene);
+  laptopScreen.position.set(cx - 2.6, 1.12, cz + 0.47);
+  laptopScreen.rotation.x = -0.35;
+  laptopScreen.material = laptopScreenMat;
+  laptopScreen.isPickable = false;
+
+  const lamp = MeshBuilder.CreateCylinder("opsLamp", { diameterTop: 0.02, diameterBottom: 0.12, height: 0.9 }, scene);
+  lamp.position.set(cx - 4.3, 0.95 + 0.45, cz + 0.5);
+  lamp.material = lampMat;
+  lamp.isPickable = false;
+
+  // Whiteboard on a frame, stood against the back wall — replaces the old bare map board.
+  const whiteboardFrame = MeshBuilder.CreateBox("opsWhiteboardFrame", { width: 0.1, height: 1.6, depth: 2.4 }, scene);
+  whiteboardFrame.position.set(cx - 4.92, 1.45, cz);
+  whiteboardFrame.material = whiteboardFrameMat;
+  whiteboardFrame.checkCollisions = true;
+  const whiteboard = MeshBuilder.CreatePlane("opsWhiteboard", { width: 2.2, height: 1.4 }, scene);
+  whiteboard.rotation.y = Math.PI / 2;
+  whiteboard.position.set(cx - 4.85, 1.45, cz);
+  whiteboard.material = whiteboardMat;
+  whiteboard.isPickable = false;
 
   // Folding chairs beside the table.
   for (const dz of [-0.95, 0.95]) {
@@ -3274,6 +3381,11 @@ function buildOpsArea(scene: Scene, cx: number, cz: number): void {
     chair.position.set(cx - 3.2, 0.25, cz + dz);
     chair.material = woodMat;
     chair.checkCollisions = true;
+    const chairBack = MeshBuilder.CreateBox(`opsChairBack_${dz}`, { width: 0.45, height: 0.5, depth: 0.06 }, scene);
+    chairBack.position.set(cx - 3.2 + (dz < 0 ? -0.2 : 0.2), 0.5, cz + dz);
+    chairBack.rotation.y = Math.PI / 2;
+    chairBack.material = woodMat;
+    chairBack.isPickable = false;
   }
 
   // Comms set: a boxy radio on a crate + a whip antenna.
@@ -3285,16 +3397,32 @@ function buildOpsArea(scene: Scene, cx: number, cz: number): void {
   radio.position.set(cx - 3.4, 0.85, cz - 2.2);
   radio.material = metalMat;
   radio.isPickable = false;
+  const radioDial = MeshBuilder.CreateCylinder("opsRadioDial", { diameter: 0.12, height: 0.04 }, scene);
+  radioDial.rotation.x = Math.PI / 2;
+  radioDial.position.set(cx - 3.15, 0.9, cz - 1.98);
+  radioDial.material = laptopScreenMat;
+  radioDial.isPickable = false;
   const antenna = MeshBuilder.CreateCylinder("opsAntenna", { diameter: 0.03, height: 2.4 }, scene);
   antenna.position.set(cx - 3.4, 2.0, cz - 2.2);
   antenna.material = metalMat;
   antenna.isPickable = false;
 
-  // Stacked equipment crates.
+  // A second, smaller table with map cases and a document tray — storage, not just crates.
+  const sideTable = MeshBuilder.CreateBox("opsSideTable", { width: 1.4, height: 0.7, depth: 0.7 }, scene);
+  sideTable.position.set(cx - 1.2, 0.35, cz - 2.4);
+  sideTable.material = woodMat;
+  sideTable.checkCollisions = true;
+  const tray = MeshBuilder.CreateBox("opsTray", { width: 0.9, height: 0.06, depth: 0.5 }, scene);
+  tray.position.set(cx - 1.2, 0.73, cz - 2.4);
+  tray.material = metalMat;
+  tray.isPickable = false;
+
+  // Stacked equipment/supply crates.
   const crateSpots: Array<[number, number, number]> = [
     [cx - 4.4, 0.4, cz + 2.2],
     [cx - 3.5, 0.4, cz + 2.4],
     [cx - 4.4, 1.2, cz + 2.2],
+    [cx - 2.6, 0.4, cz + 2.6],
   ];
   crateSpots.forEach(([x, y, z], i) => {
     const c = MeshBuilder.CreateBox(`opsEquipCrate_${i}`, { width: 0.8, height: 0.8, depth: 0.8 }, scene);
@@ -3302,6 +3430,44 @@ function buildOpsArea(scene: Scene, cx: number, cz: number): void {
     c.material = crateMat;
     c.checkCollisions = true;
   });
+}
+
+/** Whiteboard texture: grid lines, a scrawled operational sketch, and grease-pencil annotations. */
+function createWhiteboardTexture(scene: Scene): DynamicTexture {
+  const size = 256;
+  const tex = new DynamicTexture("opsWhiteboardTex", { width: size, height: size }, scene, false);
+  const ctx = tex.getContext() as CanvasRenderingContext2D;
+  ctx.fillStyle = "#e8e8e0";
+  ctx.fillRect(0, 0, size, size);
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.lineWidth = 6;
+  ctx.strokeRect(3, 3, size - 6, size - 6);
+
+  ctx.strokeStyle = "#c0392b";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(30, 60); ctx.lineTo(90, 40); ctx.lineTo(150, 70); ctx.lineTo(210, 50);
+  ctx.stroke();
+  ctx.strokeStyle = "#2255aa";
+  ctx.beginPath();
+  ctx.moveTo(40, 140); ctx.rect(40, 120, 50, 40); ctx.stroke();
+  ctx.beginPath();
+  ctx.rect(140, 110, 60, 50);
+  ctx.stroke();
+  ctx.strokeStyle = "#1f5c33";
+  ctx.beginPath();
+  ctx.moveTo(90, 140); ctx.lineTo(140, 135);
+  ctx.stroke();
+
+  ctx.fillStyle = "#222";
+  ctx.font = "bold 16px sans-serif";
+  ctx.fillText("OPFOR AXES", 30, 30);
+  ctx.font = "12px sans-serif";
+  ctx.fillText("W1-4 DEFENCE", 30, 190);
+  ctx.fillText("W5-9 HOLD", 30, 208);
+  ctx.fillText("W10+ COUNTER", 30, 226);
+  tex.update();
+  return tex;
 }
 
 /** A simple top-down "map" texture (grid + coastline + a marked route) for the ops boards. */
@@ -3332,6 +3498,120 @@ function createOpsMapTexture(scene: Scene): DynamicTexture {
   ctx.fillText("SECTOR 7", 20, 30);
   tex.update();
   return tex;
+}
+
+/** Anchor point for the medical-tent first aid pickup — read by MedicalStation so its interact zone matches the physical tent. */
+export const MEDICAL_TENT_POSITION = new Vector3(CAMP_POSITION.x + 2, 0, CAMP_POSITION.z - 6);
+
+/**
+ * A dedicated medical tent beside the command tent: beds, a supply shelf, a
+ * red-cross sign, and a first aid supply crate the player can draw from
+ * before heading out (see MedicalStation for the pickup logic).
+ */
+function buildMedicalTent(scene: Scene, cx: number, cz: number): void {
+  const { canvas, floor } = getTentMats(scene);
+  const L = 7;
+  const W = 4.5;
+  const wallH = 2.4;
+
+  const root = new TransformNode("medTent_root", scene);
+  root.position.set(cx, 0, cz);
+
+  const fl = MeshBuilder.CreateBox("medTent_floor", { width: L, height: 0.06, depth: W }, scene);
+  fl.position.set(0, 0.03, 0);
+  fl.material = floor;
+  fl.parent = root;
+  fl.isPickable = false;
+
+  const back = MeshBuilder.CreateBox("medTent_back", { width: 0.08, height: wallH, depth: W }, scene);
+  back.position.set(-L / 2, wallH / 2, 0);
+  back.material = canvas;
+  back.parent = root;
+  back.checkCollisions = true;
+
+  for (const side of [-1, 1]) {
+    const wall = MeshBuilder.CreateBox(`medTent_side_${side}`, { width: L, height: wallH, depth: 0.08 }, scene);
+    wall.position.set(0, wallH / 2, (side * W) / 2);
+    wall.material = canvas;
+    wall.parent = root;
+    wall.checkCollisions = true;
+  }
+  const roof = MeshBuilder.CreateBox("medTent_roof", { width: L + 0.3, height: 0.08, depth: W + 0.3 }, scene);
+  roof.position.set(0, wallH + 0.04, 0);
+  roof.material = canvas;
+  roof.parent = root;
+  roof.checkCollisions = true;
+
+  // Red cross sign over the open front.
+  const crossMat = solidMat(scene, "medCrossMat", new Color3(0.85, 0.85, 0.85));
+  const crossBarMat = solidMat(scene, "medCrossBarMat", new Color3(0.75, 0.1, 0.1));
+  const crossBoard = MeshBuilder.CreateBox("medCrossBoard", { width: 0.06, height: 0.9, depth: 0.9 }, scene);
+  crossBoard.position.set(cx + L / 2 + 0.1, wallH + 0.2, cz);
+  crossBoard.material = crossMat;
+  crossBoard.isPickable = false;
+  const crossV = MeshBuilder.CreateBox("medCrossV", { width: 0.1, height: 0.6, depth: 0.16 }, scene);
+  crossV.position.set(cx + L / 2 + 0.13, wallH + 0.2, cz);
+  crossV.material = crossBarMat;
+  crossV.isPickable = false;
+  const crossH = MeshBuilder.CreateBox("medCrossH", { width: 0.1, height: 0.16, depth: 0.6 }, scene);
+  crossH.position.set(cx + L / 2 + 0.13, wallH + 0.2, cz);
+  crossH.material = crossBarMat;
+  crossH.isPickable = false;
+
+  // Two medical beds along the back wall.
+  const bedFrameMat = solidMat(scene, "medBedFrameMat", new Color3(0.55, 0.56, 0.58));
+  const bedMatMat = solidMat(scene, "medBedMatMat", new Color3(0.82, 0.84, 0.86));
+  for (const bz of [-1.3, 1.3]) {
+    const frame = MeshBuilder.CreateBox(`medBedFrame_${bz}`, { width: 1.9, height: 0.35, depth: 0.9 }, scene);
+    frame.position.set(cx - L / 2 + 1.2, 0.18, cz + bz);
+    frame.material = bedFrameMat;
+    frame.checkCollisions = true;
+    const mat = MeshBuilder.CreateBox(`medBedMat_${bz}`, { width: 1.7, height: 0.15, depth: 0.75 }, scene);
+    mat.position.set(cx - L / 2 + 1.2, 0.43, cz + bz);
+    mat.material = bedMatMat;
+    mat.isPickable = false;
+    const pillow = MeshBuilder.CreateBox(`medBedPillow_${bz}`, { width: 0.35, height: 0.12, depth: 0.6 }, scene);
+    pillow.position.set(cx - L / 2 + 0.5, 0.56, cz + bz);
+    pillow.material = solidMat(scene, `medPillowMat_${bz}`, new Color3(0.9, 0.9, 0.92));
+    pillow.isPickable = false;
+  }
+
+  // Supply shelf with folded bandage stacks + bottles.
+  const shelfMat = solidMat(scene, "medShelfMat", new Color3(0.5, 0.48, 0.44));
+  for (let level = 0; level < 3; level++) {
+    const shelf = MeshBuilder.CreateBox(`medShelf_${level}`, { width: 0.35, height: 0.04, depth: 1.6 }, scene);
+    shelf.position.set(cx + L / 2 - 0.3, 0.5 + level * 0.55, cz);
+    shelf.material = shelfMat;
+    shelf.checkCollisions = level === 0;
+  }
+  const bottleMat = solidMat(scene, "medBottleMat", new Color3(0.75, 0.85, 0.8));
+  const boxMat = solidMat(scene, "medBoxMat", new Color3(0.9, 0.9, 0.85));
+  for (let i = 0; i < 5; i++) {
+    const z = cz - 0.7 + i * 0.35;
+    const bottle = MeshBuilder.CreateCylinder(`medBottle_${i}`, { diameter: 0.12, height: 0.22 }, scene);
+    bottle.position.set(cx + L / 2 - 0.3, 0.71, z);
+    bottle.material = bottleMat;
+    bottle.isPickable = false;
+    const box = MeshBuilder.CreateBox(`medBox_${i}`, { width: 0.18, height: 0.12, depth: 0.16 }, scene);
+    box.position.set(cx + L / 2 - 0.3, 1.26, z);
+    box.material = boxMat;
+    box.isPickable = false;
+  }
+
+  // First aid supply crate — the pickup point (see MedicalStation).
+  const kitCrateMat = solidMat(scene, "medKitCrateMat", new Color3(0.85, 0.85, 0.82));
+  const kitCrate = MeshBuilder.CreateBox("medKitCrate", { width: 0.7, height: 0.5, depth: 0.5 }, scene);
+  kitCrate.position.set(cx - 0.5, 0.25, cz);
+  kitCrate.material = kitCrateMat;
+  kitCrate.checkCollisions = true;
+  const kitCrossV = MeshBuilder.CreateBox("medKitCrossV", { width: 0.06, height: 0.28, depth: 0.08 }, scene);
+  kitCrossV.position.set(cx - 0.5, 0.52, cz);
+  kitCrossV.material = crossBarMat;
+  kitCrossV.isPickable = false;
+  const kitCrossH = MeshBuilder.CreateBox("medKitCrossH", { width: 0.06, height: 0.08, depth: 0.28 }, scene);
+  kitCrossH.position.set(cx - 0.5, 0.52, cz);
+  kitCrossH.material = crossBarMat;
+  kitCrossH.isPickable = false;
 }
 
 /**

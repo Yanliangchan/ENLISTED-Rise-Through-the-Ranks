@@ -25,6 +25,9 @@ export class HUD {
   private root: HTMLDivElement;
   private healthBar: HTMLDivElement;
   private armourBar: HTMLDivElement;
+  private bottyBar: HTMLDivElement;
+  private bottyWrap: HTMLDivElement;
+  private bottyCommandEl: HTMLDivElement;
   private ammoEl: HTMLDivElement;
   private weaponNameEl: HTMLDivElement;
   private throwableEl: HTMLDivElement;
@@ -111,33 +114,55 @@ export class HUD {
       border: 2px solid #ff5533;
     `);
 
-    const bottomLeft = el("div", "position:absolute; bottom:20px; left:24px; width:220px;");
+    const bottomLeft = el("div", `
+      position:absolute; bottom:20px; left:20px; width:230px; padding:12px 14px;
+      background: linear-gradient(135deg, rgba(10,16,10,0.72), rgba(8,12,8,0.55));
+      border: 1px solid rgba(159,199,138,0.28); border-left: 3px solid #4a7a3c;
+      border-radius: 3px; backdrop-filter: blur(2px);
+    `);
     this.healthBar = makeBar("#c0392b");
     this.armourBar = makeBar("#5b8dd6");
     bottomLeft.appendChild(labeled("HP", this.healthBar));
     bottomLeft.appendChild(labeled("ARM", this.armourBar));
 
+    this.bottyBar = makeBar("#3aa0c8");
+    this.bottyWrap = labeled("BOTTY", this.bottyBar);
+    this.bottyWrap.style.display = "none";
+    this.bottyCommandEl = el("div", "font-size:11px; color:#8fc7e0; margin-top:-4px; margin-bottom:6px; text-shadow:1px 1px 2px rgba(0,0,0,0.9);");
+    this.bottyWrap.appendChild(this.bottyCommandEl);
+    bottomLeft.appendChild(this.bottyWrap);
+
     const bottomRight = el("div", `
-      position:absolute; bottom:20px; right:24px; text-align:right; font-size:16px;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.9); line-height:1.4;
+      position:absolute; bottom:20px; right:20px; text-align:right; font-size:15px;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.9); line-height:1.45; min-width:200px;
+      padding:12px 14px;
+      background: linear-gradient(225deg, rgba(10,16,10,0.72), rgba(8,12,8,0.55));
+      border: 1px solid rgba(159,199,138,0.28); border-right: 3px solid #4a7a3c;
+      border-radius: 3px; backdrop-filter: blur(2px);
     `);
-    this.ammoEl = el("div", "font-size:26px; font-weight:bold;");
-    this.weaponNameEl = el("div", "");
-    this.throwableEl = el("div", "");
-    this.specialEl = el("div", "color:#e0a15a;");
+    this.ammoEl = el("div", "font-size:28px; font-weight:bold; letter-spacing:1px; color:#eef5e8;");
+    this.weaponNameEl = el("div", "font-size:13px; color:#9fc78a; text-transform:uppercase; letter-spacing:0.5px; margin-top:2px;");
+    this.throwableEl = el("div", "font-size:13px; color:#c9d8bf; margin-top:6px;");
+    this.specialEl = el("div", "font-size:13px; color:#e0a15a; margin-top:2px;");
     bottomRight.appendChild(this.ammoEl);
     bottomRight.appendChild(this.weaponNameEl);
     bottomRight.appendChild(this.throwableEl);
     bottomRight.appendChild(this.specialEl);
 
+    // Grouped with the top-centre radar (positioned just to its left) rather
+    // than the far top-left corner, so wave/objective info reads as one
+    // cluster with the minimap instead of a separate HUD element.
     const topLeft = el("div", `
-      position:absolute; top:20px; left:24px; font-size:15px;
+      position:absolute; top:22px; right:calc(50% + 96px); text-align:right; font-size:13px;
       text-shadow: 1px 1px 2px rgba(0,0,0,0.9); line-height:1.5;
+      padding:10px 14px;
+      background: linear-gradient(135deg, rgba(10,16,10,0.6), rgba(8,12,8,0.4));
+      border: 1px solid rgba(159,199,138,0.22); border-radius: 3px;
     `);
-    this.waveEl = el("div", "font-size:18px; font-weight:bold; letter-spacing:1px;");
-    this.creditsEl = el("div", "");
-    this.uavEl = el("div", "color:#7fd0ff; font-size:14px;");
-    this.medkitEl = el("div", "color:#8fd68f; font-size:14px;");
+    this.waveEl = el("div", "font-size:15px; font-weight:bold; letter-spacing:1px; color:#eef5e8; text-transform:uppercase;");
+    this.creditsEl = el("div", "color:#e0c15a; margin-top:2px;");
+    this.uavEl = el("div", "color:#7fd0ff; font-size:13px; margin-top:4px;");
+    this.medkitEl = el("div", "color:#8fd68f; font-size:13px;");
     topLeft.appendChild(this.waveEl);
     topLeft.appendChild(this.creditsEl);
     topLeft.appendChild(this.uavEl);
@@ -183,8 +208,8 @@ export class HUD {
     this.radarCanvas.height = 140;
     this.radarCanvas.style.cssText = `
       position:absolute; top:20px; left: 50%; transform: translateX(-50%);
-      background: rgba(10,20,10,0.45); border: 1px solid rgba(255,255,255,0.25);
-      border-radius: 50%;
+      background: rgba(10,20,10,0.55); border: 2px solid rgba(159,199,138,0.4);
+      border-radius: 50%; box-shadow: 0 0 12px rgba(0,0,0,0.5);
     `;
     this.radarCtx = this.radarCanvas.getContext("2d")!;
 
@@ -221,6 +246,29 @@ export class HUD {
   /** Hide/show the whole combat HUD — used while a different full-screen mode (e.g. the Training Range) owns the view. */
   setVisible(visible: boolean): void {
     this.root.style.display = visible ? "" : "none";
+  }
+
+  private static readonly COMMAND_LABELS: Record<string, string> = {
+    default: "Standing by",
+    followMe: "Follow Me",
+    goDark: "Go Dark",
+    coverMe: "Cover Me",
+    engage: "Engage",
+    retreat: "Retreat",
+  };
+
+  /** Reflect BOTTY's health + active command — hidden entirely if not deployed. */
+  updateBotty(status: { health: number; maxHealth: number; command: string; isDown: boolean } | null): void {
+    if (!status) {
+      this.bottyWrap.style.display = "none";
+      return;
+    }
+    this.bottyWrap.style.display = "block";
+    this.bottyBar.style.width = `${Math.max(0, (status.health / status.maxHealth) * 100)}%`;
+    this.bottyBar.style.background = status.isDown ? "#5a5a5a" : "#3aa0c8";
+    this.bottyCommandEl.textContent = status.isDown
+      ? "DOWN — needs a First Aid Kit"
+      : HUD.COMMAND_LABELS[status.command] ?? status.command;
   }
 
   /** Reflect carried first aid kit count. */
@@ -472,12 +520,12 @@ function makeBar(color: string): HTMLDivElement {
 
 function labeled(label: string, bar: HTMLDivElement): HTMLDivElement {
   const wrap = document.createElement("div");
-  wrap.style.cssText = "margin-bottom:6px;";
+  wrap.style.cssText = "margin-bottom:8px;";
   const labelEl = document.createElement("div");
   labelEl.textContent = label;
-  labelEl.style.cssText = "font-size:11px; margin-bottom:2px; text-shadow:1px 1px 2px rgba(0,0,0,0.9);";
+  labelEl.style.cssText = "font-size:10px; font-weight:bold; letter-spacing:1.5px; color:#9fc78a; margin-bottom:3px; text-shadow:1px 1px 2px rgba(0,0,0,0.9);";
   const track = document.createElement("div");
-  track.style.cssText = "width:100%; height:10px; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.2);";
+  track.style.cssText = "width:100%; height:8px; background:rgba(0,0,0,0.55); border:1px solid rgba(255,255,255,0.18); border-radius:1px; overflow:hidden;";
   track.appendChild(bar);
   wrap.appendChild(labelEl);
   wrap.appendChild(track);

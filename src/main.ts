@@ -34,6 +34,10 @@ import { buildTrainingRange, RANGE_FIRING_LINE, RANGE_DISTANCES_M } from "@/worl
 import { RangeTargetController } from "@/world/RangeTarget";
 import { TrainingRangeUI, type RangeWeaponOption } from "@/ui/TrainingRangeUI";
 import { WEAPONS } from "@/data/weapons";
+import { armAdminTrigger } from "@/core/AdminMode";
+import { MedicalStation } from "@/world/MedicalStation";
+import { BottyController, BOTTY_MAX_HEALTH } from "@/companion/Botty";
+import { CommandWheel } from "@/ui/CommandWheel";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -102,6 +106,7 @@ async function boot(): Promise<void> {
   // immediately rather than waiting for the first natural mutation.
   if (backend && backend.profile.save === null) backend.saveGameState(gameState.data);
   if (backend && backend.profile.settings === null) backend.saveSettings(settings.data);
+  armAdminTrigger(gameState);
 
   const audio = new AudioManager();
   audio.setVolume(settings.data.volume);
@@ -141,11 +146,6 @@ async function boot(): Promise<void> {
         armoury.show();
       } else {
         armoury.hide();
-      }
-      if (phase === "intro") {
-        controlsOverlay.show();
-      } else if (phase === "combat") {
-        controlsOverlay.hide();
       }
       if (phase === "gameover") {
         gameOverScreen.show(waveManager.wave);
@@ -231,6 +231,11 @@ async function boot(): Promise<void> {
   function beginDeployment(): void {
     stats.beginRun();
     resupplyOnSpawn();
+    if (botty) {
+      botty.heal(BOTTY_MAX_HEALTH);
+      botty.root.position = player.position.add(new Vector3(-1.6, 0, -1.2));
+      botty.setCommand("default");
+    }
   }
 
   gameOverScreen.onRestart = () => {
@@ -245,6 +250,51 @@ async function boot(): Promise<void> {
     onFullHealth: () => hud.showCenterMessage("ALREADY AT FULL HEALTH", 1500),
   });
   const supplyCrates = new SupplyCrateManager(game.scene, player, weaponController, input, audio, medKit);
+  const medicalStation = new MedicalStation(player, input, audio, medKit);
+
+  // ---- BOTTY (purchasable AI squadmate) ---------------------------------
+  let botty: BottyController | null = null;
+  const BOTTY_HEAL_RADIUS = 3;
+  const BOTTY_HEAL_FRACTION = 0.5; // one kit restores half of BOTTY's max health, matching the player's medkit
+
+  function spawnBotty(): void {
+    if (botty) return;
+    const offset = new Vector3(-1.6, 0, -1.2);
+    botty = new BottyController(game.scene, player.position.add(offset), waveManager.enemyManager, audio);
+  }
+
+  if (gameState.data.hasBotty) spawnBotty();
+
+  armoury.onBuyBotty = () => spawnBotty();
+
+  const commandWheel = new CommandWheel(uiRoot);
+  commandWheel.onSelect = (command) => {
+    botty?.setCommand(command);
+  };
+  commandWheel.onClose = () => input.lockPointer();
+
+  /** Press F near a wounded/downed BOTTY to spend one First Aid Kit healing him. */
+  function bottyHealPrompt(): string | null {
+    if (!botty || botty.health >= botty.maxHealth) return null;
+    if (Vector3.Distance(player.position, botty.position) > BOTTY_HEAL_RADIUS) return null;
+    return botty.isDown ? "Press F — revive BOTTY (uses 1 First Aid Kit)" : "Press F — heal BOTTY (uses 1 First Aid Kit)";
+  }
+
+  function updateBottyHeal(): void {
+    const prompt = bottyHealPrompt();
+    if (!prompt) return;
+    if (!input.wasPressed("KeyF")) return;
+    if (medKit.count <= 0) {
+      hud.showCenterMessage("NO FIRST AID KITS REMAINING", 1500);
+      return;
+    }
+    const wasDown = botty!.isDown;
+    gameState.data.medkitCount -= 1;
+    gameState.save();
+    botty!.heal(BOTTY_MAX_HEALTH * BOTTY_HEAL_FRACTION);
+    audio.medkit();
+    hud.showCenterMessage(wasDown ? "BOTTY REVIVED" : "BOTTY HEALED", 1500);
+  }
 
   const ambience = new Ambience(game.scene, audio, player);
   const safeZone = new SafeZoneManager(player);
@@ -371,6 +421,16 @@ async function boot(): Promise<void> {
       armoury.visible ? armoury.hide() : armoury.show();
       if (!armoury.visible) input.lockPointer();
     }
+    if (
+      e.code === "KeyQ" &&
+      botty &&
+      !landingPage.visible &&
+      !rangeActive &&
+      waveManager.phase !== "gameover" &&
+      !armoury.visible
+    ) {
+      commandWheel.toggle();
+    }
   });
 
   // Persist any pending account writes when the player leaves/hides the tab.
@@ -383,7 +443,12 @@ async function boot(): Promise<void> {
   game.onUpdate((deltaSeconds) => {
     const dt = Math.min(deltaSeconds, 0.05);
     const paused =
-      pauseMenu.visible || armoury.visible || gameOverScreen.visible || landingPage.visible || tacticalMap.visible;
+      pauseMenu.visible ||
+      armoury.visible ||
+      gameOverScreen.visible ||
+      landingPage.visible ||
+      tacticalMap.visible ||
+      commandWheel.visible;
 
     if (!paused) {
       if (rangeActive) {
@@ -401,8 +466,13 @@ async function boot(): Promise<void> {
         throwableController.update(dt);
         waveManager.update(dt);
         supplyCrates.update(dt);
+        medicalStation.update(dt);
         uav.update(dt);
         medKit.update(dt);
+        if (botty) {
+          botty.update(dt, player);
+          updateBottyHeal();
+        }
         if (waveManager.phase === "combat") stats.addPlaytime(dt);
       }
     }
@@ -413,9 +483,12 @@ async function boot(): Promise<void> {
 
     damageNumbers.update(game.scene);
     if (!rangeActive) {
-      hud.update(input.isPointerLocked, waveManager.enemyManager.livePositions(), supplyCrates.promptText);
+      hud.update(input.isPointerLocked, waveManager.enemyManager.livePositions(), bottyHealPrompt() ?? medicalStation.promptText ?? supplyCrates.promptText);
       hud.updateUAV(uav.active, uav.secondsRemaining, uav.chargesRemaining, uav.cooldownRemaining);
       hud.updateMedkit(medKit.count);
+      hud.updateBotty(
+        botty ? { health: botty.health, maxHealth: botty.maxHealth, command: botty.command, isDown: botty.isDown } : null
+      );
     }
     input.resetFrame();
   });
@@ -455,6 +528,7 @@ async function boot(): Promise<void> {
       exitTrainingRangeToMenu,
       weaponController,
       input,
+      botty: () => botty,
       /** Test helper: current player physics state (grounded/moving/aiming). */
       debugPlayerState: () => ({
         grounded: player.grounded,

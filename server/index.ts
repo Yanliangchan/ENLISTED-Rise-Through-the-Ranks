@@ -9,6 +9,7 @@ import { profileRouter } from "./routes/profile.js";
 import { saveRouter } from "./routes/save.js";
 import { matchesRouter } from "./routes/matches.js";
 import { leaderboardRouter } from "./routes/leaderboard.js";
+import { adminRouter } from "./routes/admin.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -23,6 +24,7 @@ app.use("/api", profileRouter);
 app.use("/api", saveRouter);
 app.use("/api", matchesRouter);
 app.use("/api", leaderboardRouter);
+app.use("/api/admin", adminRouter);
 
 // Centralised error handler — any thrown/rejected error in a route above lands
 // here instead of taking the process down or hanging the request.

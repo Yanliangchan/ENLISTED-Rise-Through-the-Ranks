@@ -22,6 +22,7 @@ export interface SaveData {
   loadout: Loadout;
   highestWaveCleared: number;
   medkitCount: number;
+  hasBotty: boolean;
 }
 
 const SAVE_KEY = "sentinelShield.save.v1";
@@ -55,6 +56,7 @@ export function defaultSave(): SaveData {
     loadout: { ...STARTER_LOADOUT },
     highestWaveCleared: 0,
     medkitCount: STARTING_MEDKITS,
+    hasBotty: false,
   };
 }
 
@@ -160,6 +162,14 @@ export class GameState {
     if (!throwable || this.ownsThrowable(id)) return false;
     if (!this.spendCredits(throwable.price)) return false;
     this.data.ownedThrowables.push(id);
+    this.save();
+    return true;
+  }
+
+  buyBotty(price: number): boolean {
+    if (this.data.hasBotty) return false;
+    if (!this.spendCredits(price)) return false;
+    this.data.hasBotty = true;
     this.save();
     return true;
   }

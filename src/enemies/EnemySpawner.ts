@@ -91,6 +91,11 @@ export class EnemyManager {
       .map((e) => ({ x: e.root.position.x, z: e.root.position.z }));
   }
 
+  /** Live enemy instances — read by BOTTY for targeting (position + the Damageable interface to fire on). */
+  getAliveEnemies(): EnemyInstance[] {
+    return this.enemies.filter((e) => !e.isDead);
+  }
+
   /**
    * Tactical-map intel — always the *live* positions of real, living enemies,
    * so every marker on the map corresponds to an enemy standing at exactly that
