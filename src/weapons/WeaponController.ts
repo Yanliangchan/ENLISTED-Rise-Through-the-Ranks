@@ -484,16 +484,24 @@ export class WeaponController {
 
   private spawnMuzzleFlash(): void {
     if (this.effective.suppressed || !this.activeViewmodel) return;
-    const flash = MeshBuilder.CreateDisc("muzzleFlash", { radius: 0.06, tessellation: 6 }, this.scene);
+    // No flash at all once the scope lens has taken over the view — nothing may
+    // intrude on the magnified sight picture.
+    if (this.isScopedIn) return;
+    // Small and brief, and smaller still while aimed: at ADS the muzzle sits
+    // just under the sightline, so the flash must never balloon over the optic
+    // or wash out the reticle.
+    const radius = 0.034 * (1 - 0.55 * this.adsBlend);
+    const flash = MeshBuilder.CreateDisc("muzzleFlash", { radius, tessellation: 6 }, this.scene);
     flash.parent = this.activeViewmodel.muzzle;
-    flash.position = Vector3.Zero();
+    // Nudged slightly down/forward of the bore so it blooms below the optic axis.
+    flash.position = new Vector3(0, -0.01 * this.adsBlend, 0.01);
     flash.billboardMode = 7; // BILLBOARDMODE_ALL
     flash.isPickable = false;
     const mat = new StandardMaterial("muzzleFlashMat", this.scene);
     mat.emissiveColor = new Color3(1, 0.75, 0.3);
     mat.disableLighting = true;
     flash.material = mat;
-    setTimeout(() => flash.dispose(), 45);
+    setTimeout(() => flash.dispose(), 28);
   }
 
   private drawTracer(from: Vector3, to: Vector3): void {

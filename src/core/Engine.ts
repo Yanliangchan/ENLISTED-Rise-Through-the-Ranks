@@ -16,6 +16,10 @@ export class GameEngine {
       antialias: true,
     });
     this.scene = new Scene(this.engine);
+    // The game never uses hover picking (all shooting is explicit rays), so
+    // skip the per-pointer-move scene pick — measurable CPU savings in a
+    // scene with thousands of pickable meshes.
+    this.scene.skipPointerMovePicking = true;
 
     window.addEventListener("resize", () => this.engine.resize());
   }

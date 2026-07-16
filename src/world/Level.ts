@@ -13,6 +13,7 @@ import {
   TransformNode,
   VertexData,
 } from "@babylonjs/core";
+import { SkyMaterial } from "@babylonjs/materials";
 import { loadGlbContainerOrNull } from "@/core/ModelLoader";
 
 /** Deterministic PRNG so the map layout is identical on every load. */
@@ -254,10 +255,13 @@ export function buildLevel(scene: Scene): void {
   ground.material = groundMat;
   ground.checkCollisions = true;
 
+  buildSkybox(scene);
+
   const layout = generateBuildingLayout();
   buildRoads(scene);
   buildIntersectionDressing(scene, layout);
   buildStreetGrid(scene, layout);
+  buildStrongpoints(scene, layout);
   // Optional: swap procedural buildings for real .glb models where present.
   // Fire-and-forget — a no-op with no assets, so buildLevel stays synchronous.
   void upgradeBuildingsWithModels(scene, layout);
@@ -292,6 +296,120 @@ export function buildLevel(scene: Scene): void {
     wall.checkCollisions = true;
     wall.isVisible = false; // invisible playspace boundary
   });
+}
+
+/**
+ * Physically-plausible procedural sky (Preetham model via SkyMaterial) in place
+ * of the flat clear-colour: a bright sun disc/halo, blue zenith falling to a
+ * warm hazy horizon that the linear fog blends into. One box, no textures.
+ */
+function buildSkybox(scene: Scene): void {
+  const sky = new SkyMaterial("skyMat", scene);
+  sky.backFaceCulling = false;
+  sky.turbidity = 6.5; // light tropical haze
+  sky.luminance = 1.02;
+  sky.rayleigh = 2.1;
+  sky.mieCoefficient = 0.006;
+  sky.mieDirectionalG = 0.8;
+  sky.useSunPosition = true;
+  // Opposite of the sun DirectionalLight's direction (-0.5, -1, 0.3).
+  sky.sunPosition = new Vector3(50, 100, -30);
+
+  const box = MeshBuilder.CreateBox("skyBox", { size: 900 }, scene);
+  box.material = sky;
+  box.isPickable = false;
+  box.infiniteDistance = true;
+  box.applyFog = false;
+}
+
+/**
+ * Three enterable two-storey strongpoints on vacant lots nearest the plaza —
+ * modern-FPS anchor pieces that each combat area routes around: a ground floor
+ * with two door openings and all-round firing slits (hard cover with
+ * sightlines), plus an external ramp to a parapeted rooftop (high ground).
+ * Placed only on grid intersections with no building, so they never clip
+ * roads, reserved districts, or other blocks.
+ */
+function buildStrongpoints(scene: Scene, layout: BuildingFootprint[]): void {
+  const candidates: Array<{ x: number; z: number; d: number }> = [];
+  for (const gx of GRID_LINES) {
+    for (const gz of GRID_LINES) {
+      if (inGardenDistrict(gx, gz, 10) || inMbsZone(gx, gz, 4) || inCargoZone(gx, gz, 3) || inCarparkZone(gx, gz, 2)) continue;
+      if (overlapsAnyBuilding(gx, gz, 7, layout)) continue;
+      candidates.push({ x: gx, z: gz, d: Math.hypot(gx, gz) });
+    }
+  }
+  candidates.sort((a, b) => a.d - b.d);
+  candidates.slice(0, 3).forEach((c, i) => buildStrongpoint(scene, c.x, c.z, i));
+  // Register footprints so cover/vehicle scattering treats them like buildings.
+  for (const c of candidates.slice(0, 3)) {
+    layout.push({ x: c.x, z: c.z, size: 10, height: 4, type: "industrial" });
+  }
+}
+
+function buildStrongpoint(scene: Scene, cx: number, cz: number, index: number): void {
+  const mat = solidMat(scene, `strongpointMat_${index}`, new Color3(0.52, 0.5, 0.46));
+  const slabMat = solidMat(scene, `strongpointSlabMat_${index}`, new Color3(0.42, 0.42, 0.4));
+  const half = 5;
+  const wallH = 2.9;
+  const t = 0.32; // wall thickness
+
+  const wall = (name: string, w: number, h: number, d: number, x: number, y: number, z: number) => {
+    const m = MeshBuilder.CreateBox(`${name}_${index}`, { width: w, height: h, depth: d }, scene);
+    m.position.set(cx + x, y, cz + z);
+    m.material = mat;
+    m.checkCollisions = true;
+    return m;
+  };
+
+  // Front/back walls (±Z): door gap in the middle, lintel above.
+  for (const side of [-1, 1]) {
+    const segW = (half * 2 - 1.7) / 2;
+    wall("spWall", segW, wallH, t, -(1.7 / 2 + segW / 2), wallH / 2, side * half);
+    wall("spWall", segW, wallH, t, 1.7 / 2 + segW / 2, wallH / 2, side * half);
+    wall("spLintel", 1.7, wallH - 2.15, t, 0, 2.15 + (wallH - 2.15) / 2, side * half);
+  }
+  // Side walls (±X): low wall + upper band leaving a continuous firing slit.
+  for (const side of [-1, 1]) {
+    wall("spLow", t, 1.35, half * 2, side * half, 1.35 / 2, 0);
+    wall("spBand", t, wallH - 1.95, half * 2, side * half, 1.95 + (wallH - 1.95) / 2, 0);
+  }
+
+  // Walkable roof slab + parapet (gap on the ramp edge).
+  const roof = MeshBuilder.CreateBox(`spRoof_${index}`, { width: half * 2 + 0.4, height: 0.25, depth: half * 2 + 0.4 }, scene);
+  roof.position.set(cx, wallH + 0.13, cz);
+  roof.material = slabMat;
+  roof.checkCollisions = true;
+  const parapetH = 0.85;
+  const pY = wallH + 0.25 + parapetH / 2;
+  wall("spParapet", half * 2 + 0.4, parapetH, 0.2, 0, pY, half);
+  wall("spParapet", half * 2 + 0.4, parapetH, 0.2, 0, pY, -half);
+  wall("spParapet", 0.2, parapetH, half * 2 + 0.4, -half, pY, 0);
+  // Ramp-side parapet only covers half, leaving the arrival gap.
+  wall("spParapet", 0.2, parapetH, half, half, pY, -half / 2);
+
+  // External ramp up the +X face to the roof — the high-ground route.
+  const rampLen = 7.5;
+  const ramp = MeshBuilder.CreateBox(`spRamp_${index}`, { width: 1.6, height: 0.2, depth: rampLen }, scene);
+  const rise = wallH + 0.25;
+  ramp.position.set(cx + half + 0.9, rise / 2, cz + half - rampLen / 2 + 1.2);
+  ramp.rotation.x = -Math.atan2(rise, rampLen);
+  ramp.material = slabMat;
+  ramp.checkCollisions = true;
+  // Kick plate along the ramp's outer edge so you don't slide off mid-climb.
+  const kick = MeshBuilder.CreateBox(`spRampKick_${index}`, { width: 0.12, height: 0.5, depth: rampLen }, scene);
+  kick.position.set(cx + half + 1.72, rise / 2 + 0.2, cz + half - rampLen / 2 + 1.2);
+  kick.rotation.x = ramp.rotation.x;
+  kick.material = slabMat;
+  kick.checkCollisions = true;
+
+  // Interior soft cover: a couple of crates.
+  for (const [ox, oz, s] of [[-2.2, -1.6, 1.0], [1.8, 2.0, 0.8]] as Array<[number, number, number]>) {
+    const crate = MeshBuilder.CreateBox(`spCrate_${index}_${ox}`, { size: s }, scene);
+    crate.position.set(cx + ox, s / 2, cz + oz);
+    crate.material = solidMat(scene, `spCrateMat_${index}_${ox}`, new Color3(0.4, 0.35, 0.25));
+    crate.checkCollisions = true;
+  }
 }
 
 /** Road surface texture with lane markings baked in — a dashed/solid centre line and edge lines, tiled along the road's length. Far cheaper than per-dash meshes. */
@@ -790,19 +908,46 @@ function poleGrayMat(scene: Scene, name: string): StandardMaterial {
 
 /** Tiled concrete-slab texture, reused for the ground and (in a lighter shade) sidewalks. */
 function createPavementTexture(scene: Scene, name: string, base: string): DynamicTexture {
-  const size = 128;
+  // 256px with speckle, tonal blotches, hairline cracks and expansion joints —
+  // reads as worn concrete at ground level instead of a flat grey wash.
+  const size = 256;
   const tex = new DynamicTexture(name, { width: size, height: size }, scene, false);
   const ctx = tex.getContext() as CanvasRenderingContext2D;
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, size, size);
 
   const rand = mulberry32(55);
-  for (let i = 0; i < 400; i++) {
-    const shade = 20 + Math.floor(rand() * 30);
-    ctx.fillStyle = `rgba(${shade},${shade + 2},${shade - 2},0.35)`;
-    ctx.fillRect(rand() * size, rand() * size, 1.5, 1.5);
+  // Large soft tonal blotches (weathering/staining).
+  for (let i = 0; i < 26; i++) {
+    const shade = 30 + Math.floor(rand() * 40);
+    ctx.fillStyle = `rgba(${shade},${shade + 2},${shade - 2},0.1)`;
+    ctx.beginPath();
+    ctx.ellipse(rand() * size, rand() * size, 12 + rand() * 30, 8 + rand() * 22, rand() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
   }
-  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  // Fine aggregate speckle.
+  for (let i = 0; i < 1400; i++) {
+    const shade = 20 + Math.floor(rand() * 34);
+    ctx.fillStyle = `rgba(${shade},${shade + 2},${shade - 2},0.35)`;
+    ctx.fillRect(rand() * size, rand() * size, 1.4, 1.4);
+  }
+  // Hairline cracks: short random polylines.
+  ctx.strokeStyle = "rgba(0,0,0,0.28)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 7; i++) {
+    let cx = rand() * size;
+    let cy = rand() * size;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    for (let s = 0; s < 5; s++) {
+      cx += (rand() - 0.5) * 34;
+      cy += (rand() - 0.5) * 34;
+      ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
+  }
+  // Expansion joints on the tile border (tiles into a paving grid).
+  ctx.strokeStyle = "rgba(0,0,0,0.3)";
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, size - 2, size - 2);
 
@@ -889,7 +1034,9 @@ function buildCover(scene: Scene, layout: BuildingFootprint[]): void {
   const rand = mulberry32(909);
   let placed = 0;
   let attempts = 0;
-  const target = 46;
+  // Denser battlefield: ~55% more scattered cover than the previous pass, so
+  // there's always a piece of hard or soft cover within a short sprint.
+  const target = 72;
 
   while (placed < target && attempts < target * 12) {
     attempts++;
@@ -902,7 +1049,7 @@ function buildCover(scene: Scene, layout: BuildingFootprint[]): void {
     const z = onXRoad ? alongOtherAxis : line + jitter;
 
     if (inGardenDistrict(x, z, 8)) continue;
-    if (Math.abs(x) < 10 && Math.abs(z) < 10) continue; // keep the plaza centre clear
+    if (Math.abs(x) < 8 && Math.abs(z) < 8) continue; // keep the plaza's very centre clear
     if (overlapsAnyBuilding(x, z, 1.2, layout)) continue;
     if (distanceToNearestRoad(x, z) < 1.6) continue; // stay off the carriageway (fixes cover blocking traffic lanes)
 
@@ -910,6 +1057,31 @@ function buildCover(scene: Scene, layout: BuildingFootprint[]): void {
     const rot = rand() * Math.PI * 2;
     placeCover(scene, type, x, z, rot, mats, placed);
     placed++;
+  }
+
+  // Deliberate chokepoints: barricade lines thrown across the four avenue
+  // approaches into the plaza. Each line blocks most of the carriageway with
+  // Jersey barriers + a sandbag position but leaves a ~3m gap at one end — a
+  // covered funnel both sides have to fight through, instead of a long open
+  // avenue sightline straight into the plaza.
+  const chokes: Array<{ x: number; z: number; acrossX: boolean }> = [
+    { x: 0, z: 30, acrossX: true },
+    { x: 0, z: -30, acrossX: true },
+    { x: 30, z: 0, acrossX: false },
+    { x: -30, z: 0, acrossX: false },
+  ];
+  for (const c of chokes) {
+    const rot = c.acrossX ? 0 : Math.PI / 2; // barrier length lies across the road
+    const offsets = [-3.9, -1.3, 1.3]; // gap left open on the +ve side
+    for (const off of offsets) {
+      const x = c.acrossX ? c.x + off : c.x;
+      const z = c.acrossX ? c.z : c.z + off;
+      placeCover(scene, "jerseyBarrier", x, z, rot, mats, placed++);
+    }
+    // Sandbag fighting position guarding the gap.
+    const gx = c.acrossX ? c.x + 4.6 : c.x + 2.2;
+    const gz = c.acrossX ? c.z + 2.2 : c.z + 4.6;
+    placeCover(scene, "sandbags", gx, gz, rot, mats, placed++);
   }
 }
 

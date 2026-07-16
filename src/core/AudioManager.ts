@@ -122,4 +122,48 @@ export class AudioManager {
   impact(): void {
     this.noiseBurst(0.05, 0.25, 900);
   }
+
+  /** Rolling thunder: a long, deep filtered-noise swell. */
+  thunder(): void {
+    this.noiseBurst(2.2, 0.5, 220);
+    this.tone(45, 1.4, "sine", 0.25);
+  }
+
+  /** Far-off ordnance: soft low rumble, no crack. */
+  distantExplosion(): void {
+    this.noiseBurst(1.1, 0.22, 160);
+    this.tone(50, 0.8, "sine", 0.12);
+  }
+
+  private rainNode: { source: AudioBufferSourceNode; gain: GainNode } | null = null;
+
+  /** Start/stop a looping rain bed (soft high-passed noise). Safe to call repeatedly. */
+  setRain(on: boolean): void {
+    if (on && !this.rainNode) {
+      const ctx = this.ensureContext();
+      const seconds = 2;
+      const buffer = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.value = 2400;
+      filter.Q.value = 0.4;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 2);
+      source.connect(filter).connect(gain).connect(this.masterGain!);
+      source.start();
+      this.rainNode = { source, gain };
+    } else if (!on && this.rainNode) {
+      const ctx = this.ensureContext();
+      const node = this.rainNode;
+      this.rainNode = null;
+      node.gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.5);
+      setTimeout(() => node.source.stop(), 1600);
+    }
+  }
 }

@@ -2,8 +2,10 @@ import {
   Scene,
   Camera,
   Color4,
+  ColorCurves,
   DefaultRenderingPipeline,
   ImageProcessingConfiguration,
+  SSAO2RenderingPipeline,
 } from "@babylonjs/core";
 
 /**
@@ -39,12 +41,39 @@ export function attachCinematicPipeline(scene: Scene, camera: Camera): DefaultRe
   ip.vignetteWeight = 1.3;
   ip.vignetteColor = new Color4(0, 0, 0, 0);
 
+  // Colour grading: gently teal-shifted shadows + warm highlights — the classic
+  // military-FPS grade — with a touch of global saturation so the orange
+  // enemies/props pop against the muted city.
+  const curves = new ColorCurves();
+  curves.globalSaturation = 12;
+  curves.shadowsHue = 210;
+  curves.shadowsDensity = 14;
+  curves.highlightsHue = 40;
+  curves.highlightsDensity = 12;
+  ip.colorCurvesEnabled = true;
+  ip.colorCurves = curves;
+
   pipeline.sharpenEnabled = true;
   pipeline.sharpen.edgeAmount = 0.16;
 
   pipeline.grainEnabled = true;
   pipeline.grain.intensity = 5;
   pipeline.grain.animated = true;
+
+  // SSAO: soft contact shading in corners/under props — the single biggest
+  // "grounded, not floating" cue. Runs at half resolution with a small sample
+  // count so it's cheap; requires WebGL2 (silently skipped otherwise).
+  try {
+    if (scene.getEngine().getCaps().drawBuffersExtension) {
+      const ssao = new SSAO2RenderingPipeline("ssao", scene, 0.5, [camera]);
+      ssao.samples = 8;
+      ssao.radius = 1.6;
+      ssao.totalStrength = 0.9;
+      ssao.expensiveBlur = false;
+    }
+  } catch {
+    // Prerequisites missing (depth renderer/WebGL2) — AO is a polish layer, skip.
+  }
 
   return pipeline;
 }

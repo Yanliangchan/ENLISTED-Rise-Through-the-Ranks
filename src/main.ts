@@ -22,6 +22,7 @@ import { ScopeOverlay } from "@/ui/ScopeOverlay";
 import { TacticalMap } from "@/ui/TacticalMap";
 import { SafeZoneManager } from "@/world/SafeZone";
 import { UAVSupport } from "@/world/UAVSupport";
+import { Ambience } from "@/world/Ambience";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -145,6 +146,7 @@ gameOverScreen.onRestart = () => {
 const controlsOverlay = new ControlsOverlay(uiRoot);
 const supplyCrates = new SupplyCrateManager(game.scene, player, weaponController, input, audio);
 
+const ambience = new Ambience(game.scene, audio, player);
 const safeZone = new SafeZoneManager(player);
 safeZone.onEnter = () => hud.showCenterMessage("SAFE ZONE — protected", 2000);
 safeZone.onExit = () => hud.showCenterMessage("LEAVING SAFE ZONE", 2200);
@@ -194,6 +196,7 @@ game.onUpdate((deltaSeconds) => {
 
   if (!paused) {
     player.update(dt);
+    ambience.update(dt);
     safeZone.update(dt);
     loadout.update();
     weaponController.update(dt);
