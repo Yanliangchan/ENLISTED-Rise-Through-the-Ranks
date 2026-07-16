@@ -13,7 +13,7 @@ export class Settings {
    * given the account's `settings` object plus a `persist` hook, which routes
    * saves into the AccountManager's IndexedDB record instead.
    */
-  constructor(initial?: SettingsData, private readonly persist?: (data: SettingsData) => void) {
+  constructor(initial?: SettingsData | null, private readonly persist?: (data: SettingsData) => void) {
     this.data = initial ?? this.load() ?? { sensitivity: 1, volume: 0.6 };
   }
 

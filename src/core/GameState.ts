@@ -63,16 +63,20 @@ export class GameState {
    * With no args, behaves as before (loads/saves its own localStorage slot).
    * When an account backs it, pass the account's `save` object (or null for a
    * fresh account) plus a `persist` hook — GameState then mutates that shared
-   * object in place and calls `persist` on every save, so the AccountManager
-   * writes it to IndexedDB. The old localStorage save is migrated once on a
-   * brand-new (null) account so existing players keep their progress.
+   * object in place and calls `persist` on every save, so the caller (the
+   * backend API client) writes it through to Postgres. The old localStorage
+   * save is migrated once on a brand-new (null) account so existing players
+   * keep their progress.
+   *
+   * A loaded save is shallow-merged over a fresh `defaultSave()` rather than
+   * used as-is: if a future update adds a new SaveData field, an old stored
+   * blob that predates it still gets a sane default for that field instead of
+   * `undefined` crashing whatever reads it first — the save schema can grow
+   * without a migration.
    */
   constructor(initial?: SaveData | null, private readonly persist?: (data: SaveData) => void) {
-    if (persist) {
-      this.data = initial ?? this.load() ?? defaultSave();
-    } else {
-      this.data = this.load() ?? defaultSave();
-    }
+    const loaded = persist ? initial ?? this.load() : this.load();
+    this.data = loaded ? { ...defaultSave(), ...loaded } : defaultSave();
   }
 
   private load(): SaveData | null {

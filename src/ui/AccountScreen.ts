@@ -1,9 +1,11 @@
-import { AccountManager, validateUsername, type AccountRecord } from "@/core/AccountManager";
+import { Backend, validateUsername } from "@/core/Backend";
 
 /**
- * First-launch / login screen. Lets the player create a new operator (username)
- * or pick an existing one; resolves to the logged-in account record. Duplicate
- * usernames are rejected by the AccountManager and surfaced inline.
+ * First-launch / login screen. Username-only — the server finds-or-creates
+ * the account (see server/routes/auth.ts), so one field covers both "I'm
+ * new" and "I'm returning but this browser lost its remembered session".
+ * Returning players with a valid stored token never see this screen at all
+ * (see Backend.tryResume in main.ts).
  */
 export class AccountScreen {
   private root: HTMLDivElement;
@@ -18,11 +20,9 @@ export class AccountScreen {
     `;
   }
 
-  /** Show the screen and resolve once the player has created or selected an operator. */
-  resolve(accounts: AccountManager): Promise<AccountRecord> {
-    return new Promise(async (resolvePromise) => {
-      const existing = await accounts.listUsernames();
-
+  /** Show the screen and resolve once the player has logged in (new or existing operator). */
+  resolve(): Promise<Backend> {
+    return new Promise((resolvePromise) => {
       const panel = document.createElement("div");
       panel.style.cssText = `
         width: min(440px, 92vw); background: rgba(10,18,12,0.95);
@@ -38,35 +38,11 @@ export class AccountScreen {
       panel.appendChild(title);
       panel.appendChild(sub);
 
-      // Existing operators — quick login buttons.
-      if (existing.length) {
-        const label = document.createElement("div");
-        label.textContent = "RESUME AS";
-        label.style.cssText = "font-size:12px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;";
-        panel.appendChild(label);
-        for (const name of existing) {
-          const b = document.createElement("button");
-          b.textContent = name;
-          b.style.cssText = this.btn("#20351d");
-          b.onclick = async () => {
-            const rec = await accounts.get(name.toLowerCase());
-            if (rec) {
-              this.hide();
-              resolvePromise(rec);
-            }
-          };
-          panel.appendChild(b);
-        }
-        const div = document.createElement("div");
-        div.textContent = "— or create a new operator —";
-        div.style.cssText = "text-align:center; color:#6f8566; font-size:12px; margin:18px 0 12px;";
-        panel.appendChild(div);
-      } else {
-        const welcome = document.createElement("div");
-        welcome.textContent = "Choose a callsign to begin. Your progress, stats and settings save automatically.";
-        welcome.style.cssText = "font-size:13px; color:#9db392; line-height:1.5; margin-bottom:16px;";
-        panel.appendChild(welcome);
-      }
+      const welcome = document.createElement("div");
+      welcome.textContent =
+        "Enter your callsign. New names create an operator automatically; existing ones resume where you left off.";
+      welcome.style.cssText = "font-size:13px; color:#9db392; line-height:1.5; margin-bottom:16px;";
+      panel.appendChild(welcome);
 
       const input = document.createElement("input");
       input.type = "text";
@@ -83,30 +59,36 @@ export class AccountScreen {
       error.style.cssText = "color:#e08a6a; font-size:12px; min-height:16px; margin-bottom:12px;";
       panel.appendChild(error);
 
-      const create = document.createElement("button");
-      create.textContent = "CREATE OPERATOR";
-      create.style.cssText = this.btn("#3c6b32", true);
+      const submitBtn = document.createElement("button");
+      submitBtn.textContent = "DEPLOY";
+      submitBtn.style.cssText = this.btn("#3c6b32", true);
+      let submitting = false;
       const submit = async () => {
+        if (submitting) return;
         const name = input.value.trim();
         const invalid = validateUsername(name);
         if (invalid) {
           error.textContent = invalid;
           return;
         }
+        submitting = true;
+        submitBtn.textContent = "CONNECTING…";
         try {
-          const rec = await accounts.create(name);
+          const backend = await Backend.login(name);
           this.hide();
-          resolvePromise(rec);
+          resolvePromise(backend);
         } catch (e) {
-          error.textContent = (e as Error).message;
+          error.textContent = (e as Error).message || "Could not reach the server. Try again.";
+          submitting = false;
+          submitBtn.textContent = "DEPLOY";
         }
       };
-      create.onclick = submit;
+      submitBtn.onclick = submit;
       input.onkeydown = (e) => {
-        if (e.key === "Enter") submit();
+        if (e.key === "Enter") void submit();
         error.textContent = "";
       };
-      panel.appendChild(create);
+      panel.appendChild(submitBtn);
 
       this.root.appendChild(panel);
       this.container.appendChild(this.root);

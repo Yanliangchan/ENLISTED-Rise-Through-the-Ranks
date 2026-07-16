@@ -40,6 +40,7 @@ export class LandingPage {
 
   visible = true;
   onDeploy?: () => void;
+  onProfile?: () => void;
 
   private targetMx = 0;
   private targetMy = 0;
@@ -79,6 +80,7 @@ export class LandingPage {
 
     this.hud = new HudDecor(this.zoomWrap);
     this.buildAudioToggle();
+    this.buildProfileButton();
     this.buildContent(breathe);
 
     this.fxLayer = document.createElement("div");
@@ -252,6 +254,20 @@ export class LandingPage {
     const sync = () => { if (!this.audio.muted) btn.textContent = "AUDIO: ON"; };
     window.addEventListener("pointerdown", sync, { once: true });
     window.addEventListener("keydown", sync, { once: true });
+  }
+
+  private buildProfileButton(): void {
+    const btn = document.createElement("button");
+    btn.className = "lp-audio-toggle lp-interactive";
+    btn.style.right = "auto";
+    btn.style.left = "24px";
+    btn.textContent = "OPERATOR PROFILE";
+    btn.setAttribute("aria-label", "Open operator profile");
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.onProfile?.();
+    });
+    this.zoomWrap.appendChild(btn);
   }
 
   private animateHeroIn(): void {

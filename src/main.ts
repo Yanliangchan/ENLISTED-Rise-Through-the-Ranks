@@ -4,9 +4,10 @@ import { InputManager } from "@/core/InputManager";
 import { GameState } from "@/core/GameState";
 import { Settings } from "@/core/Settings";
 import { AudioManager } from "@/core/AudioManager";
-import { AccountManager, type AccountRecord } from "@/core/AccountManager";
-import { PlayerStats, defaultStats } from "@/core/PlayerStats";
+import { Backend } from "@/core/Backend";
+import { PlayerStats, emptyStats } from "@/core/PlayerStats";
 import { AccountScreen } from "@/ui/AccountScreen";
+import { ProfilePage } from "@/ui/ProfilePage";
 import { PlayerController } from "@/player/PlayerController";
 import { applyGearToPlayer, maxThrowableCapacity } from "@/player/Gear";
 import { buildLevel, applyWaveArcLighting, generateBuildingLayout, CAMP_POSITION } from "@/world/Level";
@@ -42,42 +43,33 @@ const STORY_BEATS: Array<[number, string]> = [
 const DEBUG = new URLSearchParams(location.search).has("debug");
 
 /**
- * Resolve the active account before building the game: auto-login the remembered
- * operator, otherwise show the create/select screen. Falls back to a
- * localStorage-backed anonymous session if IndexedDB is unavailable, so the game
- * never fails to start.
+ * Resolve the logged-in operator before building the game: auto-login via a
+ * remembered token, otherwise show the create/login screen. Debug/headless
+ * runs skip straight to a throwaway "Debug" operator. Returns null only if
+ * the backend is genuinely unreachable, in which case the game still runs
+ * with in-memory-only progress rather than failing to start.
  */
-async function resolveAccount(): Promise<{ accounts: AccountManager | null; account: AccountRecord | null }> {
-  let accounts: AccountManager;
-  try {
-    accounts = await AccountManager.open();
-  } catch {
-    return { accounts: null, account: null }; // no DB — anonymous mode
-  }
+async function resolveBackend(): Promise<Backend | null> {
+  const resumed = await Backend.tryResume();
+  if (resumed) return resumed;
 
-  // Headless/debug: skip the login screen with a throwaway operator.
   if (DEBUG) {
-    const existing = await accounts.get("debug");
-    const account = existing ?? (await accounts.create("Debug"));
-    await accounts.login(account);
-    return { accounts, account };
-  }
-
-  const remembered = accounts.getRememberedUsername();
-  if (remembered) {
-    const account = await accounts.get(remembered);
-    if (account) {
-      await accounts.login(account);
-      return { accounts, account };
+    try {
+      return await Backend.login("Debug");
+    } catch {
+      return null;
     }
   }
-  const account = await new AccountScreen(uiRoot).resolve(accounts);
-  await accounts.login(account);
-  return { accounts, account };
+
+  try {
+    return await new AccountScreen(uiRoot).resolve();
+  } catch {
+    return null;
+  }
 }
 
 async function boot(): Promise<void> {
-  const { accounts, account } = await resolveAccount();
+  const backend = await resolveBackend();
 
   const game = new GameEngine(canvas);
   game.scene.collisionsEnabled = true;
@@ -87,30 +79,22 @@ async function boot(): Promise<void> {
 
   const input = new InputManager(canvas);
 
-  // Account-backed persistence when we have a live account, else the classic
-  // standalone localStorage behaviour.
-  const persist = () => accounts?.persistActive();
-  const gameState = account
-    ? new GameState(account.save, (data) => {
-        account.save = data;
-        persist();
-      })
+  // Postgres-backed persistence when the login succeeded; otherwise the
+  // classic standalone localStorage behaviour, so a backend outage degrades
+  // to "progress doesn't survive a refresh" instead of "game won't load".
+  const gameState = backend
+    ? new GameState(backend.profile.save, (data) => backend.saveGameState(data))
     : new GameState();
-  const settings = account
-    ? new Settings(account.settings, (data) => {
-        account.settings = data;
-        persist();
-      })
+  const settings = backend
+    ? new Settings(backend.profile.settings, (data) => backend.saveSettings(data))
     : new Settings();
-  const stats = account
-    ? new PlayerStats(account.stats, () => persist())
-    : new PlayerStats(defaultStats(), () => {}); // anonymous session — stats aren't persisted
-  // A brand-new account starts with a null save; capture GameState's seeded
-  // defaults (or migrated legacy localStorage save) into the record right away.
-  if (account && account.save === null) {
-    account.save = gameState.data;
-    accounts?.persistActive();
-  }
+  const stats = new PlayerStats(backend?.profile.stats ?? emptyStats());
+
+  // A brand-new account has save/settings = null server-side; push GameState's
+  // freshly-seeded defaults (or a migrated legacy localStorage save) back
+  // immediately rather than waiting for the first natural mutation.
+  if (backend && backend.profile.save === null) backend.saveGameState(gameState.data);
+  if (backend && backend.profile.settings === null) backend.saveSettings(settings.data);
 
   const audio = new AudioManager();
   audio.setVolume(settings.data.volume);
@@ -155,10 +139,18 @@ async function boot(): Promise<void> {
         gameOverScreen.show(waveManager.wave);
       }
     },
-    onGameOver: () => {
+    onGameOver: (waveReached) => {
       audio.explosion();
-      stats.recordDeath();
-      stats.flush();
+      const match = stats.endRun(waveReached);
+      if (backend) {
+        void backend
+          .submitMatch(match)
+          .then((resp) => {
+            stats.applyServerProfile(resp.profile.stats);
+            gameOverScreen.showMatchResult(resp.xpGained, resp.rankUp, resp.newBadges);
+          })
+          .catch(() => gameOverScreen.showSyncError());
+      }
     },
   });
 
@@ -182,7 +174,7 @@ async function boot(): Promise<void> {
         hud.notifyHit();
         stats.recordHit(headshot);
       },
-      onKill: () => stats.recordKill(),
+      onKill: (_targetId, weaponClass) => stats.recordKill(weaponClass),
       onDamageNumber: (pos, amount, zone) => damageNumbers.add(pos, amount, zone),
     },
     scopeOverlay
@@ -207,7 +199,7 @@ async function boot(): Promise<void> {
     input.lockPointer();
   };
 
-  const pauseMenu = new PauseMenu(uiRoot, settings, audio, player, gameState, account?.username, stats);
+  const pauseMenu = new PauseMenu(uiRoot, settings, audio, player, gameState, backend?.profile.username, stats);
   const gameOverScreen = new GameOverScreen(uiRoot, gameState);
 
   /** Full resupply on every spawn/redeploy — mags, reserve ammo, and throwables all come back to full. */
@@ -218,10 +210,16 @@ async function boot(): Promise<void> {
     gameState.save();
   }
 
+  /** Called at the start of every fresh deployment — first ever, and every redeploy after death. */
+  function beginDeployment(): void {
+    stats.beginRun();
+    resupplyOnSpawn();
+  }
+
   gameOverScreen.onRestart = () => {
     gameOverScreen.hide();
     waveManager.restartRun(SPAWN_POINT);
-    resupplyOnSpawn();
+    beginDeployment();
   };
   const controlsOverlay = new ControlsOverlay(uiRoot);
   const supplyCrates = new SupplyCrateManager(game.scene, player, weaponController, input, audio);
@@ -237,9 +235,13 @@ async function boot(): Promise<void> {
   landingPage.onDeploy = () => {
     hud.showCenterMessage("OPERATION SENTINEL SHIELD — Scout the sector before OPFOR forms up", 4000);
     waveManager.beginIntro();
-    resupplyOnSpawn();
+    beginDeployment();
     input.lockPointer();
   };
+  if (backend) {
+    const profilePage = new ProfilePage(uiRoot, backend);
+    landingPage.onProfile = () => profilePage.show();
+  }
 
   const tacticalMap = new TacticalMap(uiRoot, buildingLayout);
 
@@ -270,10 +272,7 @@ async function boot(): Promise<void> {
   });
 
   // Persist any pending account writes when the player leaves/hides the tab.
-  const flushAll = () => {
-    stats.flush();
-    accounts?.flush();
-  };
+  const flushAll = () => backend?.flush();
   window.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flushAll();
   });
@@ -320,6 +319,7 @@ async function boot(): Promise<void> {
       waveManager,
       game,
       stats,
+      backend,
     };
   }
 }

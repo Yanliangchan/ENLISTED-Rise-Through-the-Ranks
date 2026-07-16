@@ -1,99 +1,117 @@
-export interface PlayerStatsData {
-  kills: number;
-  headshots: number;
-  shotsFired: number;
-  shotsHit: number;
-  wavesCleared: number;
-  highestWave: number;
-  deaths: number;
-  creditsEarned: number;
-  playtimeSec: number;
-}
+import type { ProfileStats } from "@/core/Backend";
 
-export function defaultStats(): PlayerStatsData {
+/** Lifetime totals shown for display, hydrated from the server profile — never written to directly by gameplay. */
+export function emptyStats(): ProfileStats {
   return {
+    gamesPlayed: 0,
     kills: 0,
     headshots: 0,
     shotsFired: 0,
     shotsHit: 0,
     wavesCleared: 0,
     highestWave: 0,
+    bestGameKills: 0,
     deaths: 0,
     creditsEarned: 0,
     playtimeSec: 0,
   };
 }
 
+export interface RunResult {
+  waveReached: number;
+  kills: number;
+  headshots: number;
+  shotsFired: number;
+  shotsHit: number;
+  creditsEarned: number;
+  durationSec: number;
+  killsByClass: Record<string, number>;
+}
+
 /**
- * Lifetime player statistics for the logged-in account. Mutated through small
- * record* helpers from the gameplay callbacks and persisted (debounced) via the
- * injected `persist` hook — the same account record the AccountManager stores
- * in IndexedDB, so the object reference is shared and writes are cheap.
+ * Tracks the CURRENT deployment's combat counters (reset every `beginRun`)
+ * and mirrors the server's lifetime totals for instant display (pause menu /
+ * profile) between network round trips. The server's `player_stats` table is
+ * the single source of truth for lifetime numbers — this class never
+ * persists anything itself; `endRun()` hands the caller a summary to POST to
+ * `/api/matches`, and `applyServerProfile()` re-syncs `data` from the
+ * authoritative response.
  */
 export class PlayerStats {
-  constructor(
-    readonly data: PlayerStatsData,
-    private readonly persist: () => void
-  ) {}
+  data: ProfileStats;
 
-  private dirty = false;
-  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  constructor(initial: ProfileStats) {
+    this.data = initial;
+  }
 
-  /** Coalesce rapid stat changes into one write ~1s later. */
-  private markDirty(): void {
-    this.dirty = true;
-    if (this.saveTimer) return;
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = null;
-      if (this.dirty) {
-        this.dirty = false;
-        this.persist();
-      }
-    }, 1000);
+  private run = {
+    kills: 0,
+    headshots: 0,
+    shotsFired: 0,
+    shotsHit: 0,
+    creditsEarned: 0,
+    killsByClass: {} as Record<string, number>,
+    startedAt: 0,
+  };
+
+  /** Call when a fresh deployment begins (landing page DEPLOY, or redeploy after death). */
+  beginRun(): void {
+    this.run = { kills: 0, headshots: 0, shotsFired: 0, shotsHit: 0, creditsEarned: 0, killsByClass: {}, startedAt: performance.now() };
   }
 
   recordShot(): void {
-    this.data.shotsFired++;
-    this.markDirty();
+    this.run.shotsFired++;
+    this.data.shotsFired++; // optimistic mirror bump; corrected by the next server sync
   }
+
   recordHit(headshot: boolean): void {
+    this.run.shotsHit++;
     this.data.shotsHit++;
-    if (headshot) this.data.headshots++;
-    this.markDirty();
+    if (headshot) {
+      this.run.headshots++;
+      this.data.headshots++;
+    }
   }
-  recordKill(): void {
+
+  recordKill(weaponClass: string): void {
+    this.run.kills++;
     this.data.kills++;
-    this.markDirty();
+    this.run.killsByClass[weaponClass] = (this.run.killsByClass[weaponClass] ?? 0) + 1;
   }
+
+  recordCredits(amount: number): void {
+    if (amount <= 0) return;
+    this.run.creditsEarned += amount;
+    this.data.creditsEarned += amount;
+  }
+
+  /** Optimistic instant-feedback bump; the server recomputes the true value from wave-reached on match save. */
   recordWaveCleared(wave: number): void {
     this.data.wavesCleared++;
     this.data.highestWave = Math.max(this.data.highestWave, wave);
-    this.markDirty();
-  }
-  recordDeath(): void {
-    this.data.deaths++;
-    this.markDirty();
-  }
-  recordCredits(amount: number): void {
-    if (amount > 0) this.data.creditsEarned += amount;
-    this.markDirty();
-  }
-  addPlaytime(seconds: number): void {
-    this.data.playtimeSec += seconds;
-    // Persisted lazily on the next other change / flush; don't thrash on every tick.
-    this.dirty = true;
   }
 
-  /** Force any pending write out now (e.g. on tab hide). */
-  flush(): void {
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
-    if (this.dirty) {
-      this.dirty = false;
-      this.persist();
-    }
+  addPlaytime(seconds: number): void {
+    this.data.playtimeSec += seconds;
+  }
+
+  /** Finalize the run into a payload for POST /api/matches. Does not reset — call `beginRun()` for the next deployment. */
+  endRun(waveReached: number): RunResult {
+    return {
+      waveReached,
+      kills: this.run.kills,
+      headshots: this.run.headshots,
+      shotsFired: this.run.shotsFired,
+      shotsHit: this.run.shotsHit,
+      creditsEarned: this.run.creditsEarned,
+      durationSec: Math.round((performance.now() - this.run.startedAt) / 1000),
+      killsByClass: this.run.killsByClass,
+    };
+  }
+
+  /** Re-sync the display mirror from an authoritative server profile (after login or a match save). */
+  applyServerProfile(stats: ProfileStats): void {
+    this.data = stats;
   }
 
   get accuracyPct(): number {

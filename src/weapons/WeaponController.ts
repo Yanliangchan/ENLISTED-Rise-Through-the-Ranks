@@ -25,7 +25,7 @@ interface AmmoState {
 export interface WeaponControllerCallbacks {
   onFire?: (weapon: Weapon) => void;
   onHit?: (damage: number, isHeadshot: boolean) => void;
-  onKill?: (targetId: string) => void;
+  onKill?: (targetId: string, weaponClass: string) => void;
   onReloadStart?: (weapon: Weapon) => void;
   onReloadEnd?: (weapon: Weapon) => void;
   onEmptyClick?: () => void;
@@ -465,7 +465,7 @@ export class WeaponController {
         if (isHeadshot) this.audio.headshot();
         this.callbacks.onHit?.(finalDmg, isHeadshot);
         this.callbacks.onDamageNumber?.(pick.pickedPoint.clone(), finalDmg, zone);
-        if (meta.damageable.isDead) this.callbacks.onKill?.(meta.damageable.id);
+        if (meta.damageable.isDead) this.callbacks.onKill?.(meta.damageable.id, this.weapon.class);
         this.spawnImpactEffect(pick.pickedPoint, true);
       } else {
         this.audio.impact();

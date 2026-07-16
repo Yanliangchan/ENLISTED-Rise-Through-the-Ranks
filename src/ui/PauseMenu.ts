@@ -124,11 +124,12 @@ export class PauseMenu {
       `<div style="display:flex; justify-content:space-between;"><span style="color:#8fa585;">${k}</span><span>${v}</span></div>`;
     const mins = Math.floor(s.playtimeSec / 60);
     this.statsBody.innerHTML =
+      row("Deployments", String(s.gamesPlayed)) +
       row("Kills", String(s.kills)) +
       row("Headshots", String(s.headshots)) +
       row("Accuracy", `${this.stats.accuracyPct}%`) +
       row("Highest wave", String(s.highestWave)) +
-      row("Waves cleared", String(s.wavesCleared)) +
+      row("Best game kills", String(s.bestGameKills)) +
       row("Deaths", String(s.deaths)) +
       row("Credits earned", String(s.creditsEarned)) +
       row("Time in sector", `${mins} min`);

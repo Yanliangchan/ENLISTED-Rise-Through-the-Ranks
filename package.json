@@ -5,16 +5,31 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:server": "tsx watch server/index.ts",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "tsx server/index.ts",
+    "migrate": "tsx server/migrate.ts",
+    "typecheck:server": "tsc -p server/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@babylonjs/core": "^7.35.2",
     "@babylonjs/loaders": "^7.54.3",
-    "@babylonjs/materials": "^7.35.2"
+    "@babylonjs/materials": "^7.35.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@babylonjs/serializers": "^7.54.3",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.5.4",
     "vite": "^5.4.10"
   }
