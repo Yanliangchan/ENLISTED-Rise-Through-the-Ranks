@@ -2097,11 +2097,56 @@ function buildRoadsideTrees(scene: Scene, layout: BuildingFootprint[]): void {
   }
 }
 
-/** Park/forest district: grass patch, a lake, a canal, dense trees, bushes, flowers, benches, a playground, and the camp clearing. */
+/**
+ * Jungle floor: dark humus base with leaf-litter speckle, dappled
+ * light-through-canopy patches, and root-shadow blotches — reads as forest
+ * floor underfoot instead of a flat mown lawn. Same DynamicTexture recipe as
+ * the pavement/road textures elsewhere in this file.
+ */
+function createJungleFloorTexture(scene: Scene): DynamicTexture {
+  const size = 256;
+  const tex = new DynamicTexture("jungleFloorTex", { width: size, height: size }, scene, false);
+  const ctx = tex.getContext() as CanvasRenderingContext2D;
+  ctx.fillStyle = "#1e2414";
+  ctx.fillRect(0, 0, size, size);
+
+  const rand = mulberry32(4488);
+  // Soft dappled-light patches (sun breaking through canopy gaps).
+  for (let i = 0; i < 40; i++) {
+    const shade = 40 + Math.floor(rand() * 30);
+    ctx.fillStyle = `rgba(${shade + 30},${shade + 45},${shade + 10},0.14)`;
+    ctx.beginPath();
+    ctx.ellipse(rand() * size, rand() * size, 10 + rand() * 26, 8 + rand() * 20, rand() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Dark root/shadow blotches.
+  for (let i = 0; i < 26; i++) {
+    ctx.fillStyle = "rgba(8,10,5,0.22)";
+    ctx.beginPath();
+    ctx.ellipse(rand() * size, rand() * size, 8 + rand() * 20, 6 + rand() * 14, rand() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Leaf-litter speckle.
+  for (let i = 0; i < 2200; i++) {
+    const g = 20 + Math.floor(rand() * 40);
+    const brown = rand() < 0.4;
+    ctx.fillStyle = brown ? `rgba(${g + 30},${g + 15},${g - 5},0.5)` : `rgba(${g},${g + 22},${g - 4},0.5)`;
+    ctx.fillRect(rand() * size, rand() * size, 1.6, 1.6);
+  }
+  tex.update();
+  tex.hasAlpha = false;
+  return tex;
+}
+
+/** Park/forest district: jungle floor, a lake, a canal, dense layered tropical canopy, undergrowth, fallen logs, benches, a playground, and the camp clearing. */
 function buildGardenDistrict(scene: Scene): void {
-  const grassMat = new StandardMaterial("grassMat", scene);
-  grassMat.diffuseColor = new Color3(0.24, 0.38, 0.2);
-  grassMat.specularColor = Color3.Black();
+  const floorMat = new StandardMaterial("jungleFloorMat", scene);
+  floorMat.diffuseColor = new Color3(0.36, 0.4, 0.3); // multiplies the texture; kept light so the texture reads, not muddy black
+  floorMat.specularColor = Color3.Black();
+  const floorTex = createJungleFloorTexture(scene);
+  floorTex.uScale = 22;
+  floorTex.vScale = 22;
+  floorMat.diffuseTexture = floorTex;
 
   const centerX = (GARDEN_BOUNDS.minX + GARDEN_BOUNDS.maxX) / 2;
   const centerZ = (GARDEN_BOUNDS.minZ + GARDEN_BOUNDS.maxZ) / 2;
@@ -2110,13 +2155,14 @@ function buildGardenDistrict(scene: Scene): void {
 
   const grass = MeshBuilder.CreateGround("gardenGrass", { width, height: depth }, scene);
   grass.position.set(centerX, 0.02, centerZ);
-  grass.material = grassMat;
+  grass.material = floorMat;
   grass.isPickable = false;
 
   buildLake(scene, centerX + 8, centerZ - 6, 14);
   buildCanal(scene);
   buildTrees(scene, centerX, centerZ, width, depth);
-  buildBushesAndFlowers(scene, centerX, centerZ, width, depth);
+  buildUndergrowth(scene, centerX, centerZ, width, depth);
+  buildFallenLogs(scene, centerX, centerZ, width, depth);
   buildBenches(scene, centerX, centerZ);
   buildPlayground(scene, centerX - 12, centerZ + 14);
   buildCamp(scene);
@@ -2325,50 +2371,118 @@ function buildDrainageCanal(scene: Scene): void {
   }
 }
 
+/**
+ * Dense layered tropical canopy — the single biggest "jungle, not garden"
+ * cue. Two tiers: tall emergent trees poking through with big multi-lobed
+ * crowns, and a shorter, denser understory tier packed in beneath/between
+ * them, so looking up shows overlapping canopy layers rather than a lawn
+ * dotted with single pine-cone trees. Crowns are built from several
+ * overlapping flattened spheres (not a cone) for a rounded tropical-broadleaf
+ * silhouette, and a fraction of emergents trail a hanging vine.
+ */
 function buildTrees(scene: Scene, centerX: number, centerZ: number, width: number, depth: number): void {
   const rand = mulberry32(99);
   const trunkMat = new StandardMaterial("trunkMat", scene);
-  trunkMat.diffuseColor = new Color3(0.32, 0.22, 0.14);
+  trunkMat.diffuseColor = new Color3(0.28, 0.2, 0.13);
   trunkMat.specularColor = Color3.Black();
-  const canopyMats = [new Color3(0.18, 0.4, 0.16), new Color3(0.22, 0.45, 0.18), new Color3(0.16, 0.36, 0.2)].map((c, i) => {
+  const vineMat = new StandardMaterial("vineMat", scene);
+  vineMat.diffuseColor = new Color3(0.15, 0.28, 0.13);
+  vineMat.specularColor = Color3.Black();
+
+  const canopyPalette = [
+    new Color3(0.13, 0.32, 0.13),
+    new Color3(0.17, 0.38, 0.15),
+    new Color3(0.11, 0.28, 0.17),
+    new Color3(0.2, 0.4, 0.14),
+    new Color3(0.14, 0.34, 0.22),
+  ];
+  const canopyMats = canopyPalette.map((c, i) => {
     const mat = new StandardMaterial(`canopyMat_${i}`, scene);
     mat.diffuseColor = c;
     mat.specularColor = Color3.Black();
     return mat;
   });
 
-  for (let i = 0; i < 55; i++) {
-    const x = centerX - width / 2 + rand() * width;
-    const z = centerZ - depth / 2 + rand() * depth;
-    if (Vector3.Distance(new Vector3(x, 0, z), new Vector3(centerX + 8, 0, centerZ - 6)) < 10) continue; // avoid the lake
-    if (Vector3.Distance(new Vector3(x, 0, z), CAMP_POSITION) < CAMP_CLEARING_RADIUS) continue; // keep the camp clearing open
-    if (x > GARDEN_BOUNDS.maxX - 5) continue; // keep the canal bank clear
+  const lakeCenter = new Vector3(centerX + 8, 0, centerZ - 6);
 
-    const trunk = MeshBuilder.CreateCylinder(`tree_${i}_trunk`, { diameter: 0.35, height: 2.2 }, scene);
-    trunk.position.set(x, 1.1, z);
+  /** One tropical-broadleaf tree: tapered trunk + a cluster of overlapping lobes forming a rounded crown. */
+  function placeTree(x: number, z: number, index: number, trunkH: number, crownR: number, emergent: boolean): void {
+    const trunk = MeshBuilder.CreateCylinder(
+      `tree_${index}_trunk`,
+      { diameterTop: 0.28 + crownR * 0.05, diameterBottom: 0.4 + crownR * 0.09, height: trunkH, tessellation: 7 },
+      scene
+    );
+    trunk.position.set(x, trunkH / 2, z);
     trunk.material = trunkMat;
     trunk.checkCollisions = true;
 
-    const canopy = MeshBuilder.CreateCylinder(`tree_${i}_canopy`, { diameterTop: 0, diameterBottom: 3.2 + rand() * 1.5, height: 3.5 + rand() * 1.5, tessellation: 8 }, scene);
-    canopy.position.set(x, 2.2 + canopy.getBoundingInfo().boundingBox.extendSize.y, z);
-    canopy.material = canopyMats[i % canopyMats.length];
-    canopy.isPickable = false;
+    const crownY = trunkH + crownR * 0.4;
+    const lobes = 3 + Math.floor(rand() * 3); // 3-5 overlapping lobes per crown
+    const mat = canopyMats[index % canopyMats.length];
+    for (let l = 0; l < lobes; l++) {
+      const a = (l / lobes) * Math.PI * 2 + rand() * 0.6;
+      const r = crownR * (0.35 + rand() * 0.3);
+      const lobe = MeshBuilder.CreateSphere(
+        `tree_${index}_lobe_${l}`,
+        { diameterX: crownR * (1.3 + rand() * 0.5), diameterY: crownR * (0.85 + rand() * 0.3), diameterZ: crownR * (1.3 + rand() * 0.5), segments: 6 },
+        scene
+      );
+      lobe.position.set(x + Math.cos(a) * r, crownY + (rand() - 0.3) * crownR * 0.3, z + Math.sin(a) * r);
+      lobe.material = mat;
+      lobe.isPickable = false;
+    }
+
+    // A hanging vine trailing from a fraction of the tall emergents.
+    if (emergent && rand() < 0.35) {
+      const vineLen = trunkH * (0.5 + rand() * 0.4);
+      const vine = MeshBuilder.CreateCylinder(`tree_${index}_vine`, { diameter: 0.04, height: vineLen, tessellation: 4 }, scene);
+      vine.position.set(x + (rand() - 0.5) * crownR * 0.6, trunkH + crownR * 0.3 - vineLen / 2, z + (rand() - 0.5) * crownR * 0.6);
+      vine.material = vineMat;
+      vine.isPickable = false;
+    }
+  }
+
+  const forbidden = (x: number, z: number): boolean =>
+    Vector3.Distance(new Vector3(x, 0, z), lakeCenter) < 10 ||
+    Vector3.Distance(new Vector3(x, 0, z), CAMP_POSITION) < CAMP_CLEARING_RADIUS ||
+    x > GARDEN_BOUNDS.maxX - 5;
+
+  // Tier 1: tall emergent trees — sparser, bigger crowns, poke above the canopy line.
+  let placed = 0;
+  for (let i = 0; i < 70; i++) {
+    const x = centerX - width / 2 + rand() * width;
+    const z = centerZ - depth / 2 + rand() * depth;
+    if (forbidden(x, z)) continue;
+    placeTree(x, z, placed++, 5.5 + rand() * 2.5, 2.6 + rand() * 1.3, true);
+  }
+  // Tier 2: dense understory — shorter, tighter-packed, fills the gaps between emergents.
+  for (let i = 0; i < 130; i++) {
+    const x = centerX - width / 2 + rand() * width;
+    const z = centerZ - depth / 2 + rand() * depth;
+    if (forbidden(x, z)) continue;
+    placeTree(x, z, placed++, 2.6 + rand() * 1.6, 1.5 + rand() * 0.9, false);
   }
 }
 
-/** Low bushes (small trunkless canopies) and clusters of flowers scattered through the forest. */
-function buildBushesAndFlowers(scene: Scene, centerX: number, centerZ: number, width: number, depth: number): void {
+/** Dense jungle undergrowth: packed bushes, low fern clusters, and a few tropical-flower accents. */
+function buildUndergrowth(scene: Scene, centerX: number, centerZ: number, width: number, depth: number): void {
   const rand = mulberry32(212);
-  const bushMat = new StandardMaterial("bushMat", scene);
-  bushMat.diffuseColor = new Color3(0.2, 0.34, 0.17);
-  bushMat.specularColor = Color3.Black();
+  const bushMats = [
+    new Color3(0.16, 0.3, 0.14),
+    new Color3(0.2, 0.34, 0.17),
+    new Color3(0.13, 0.26, 0.16),
+  ].map((c, i) => {
+    const mat = new StandardMaterial(`bushMat_${i}`, scene);
+    mat.diffuseColor = c;
+    mat.specularColor = Color3.Black();
+    return mat;
+  });
+  const fernMat = new StandardMaterial("fernMat", scene);
+  fernMat.diffuseColor = new Color3(0.22, 0.4, 0.18);
+  fernMat.specularColor = Color3.Black();
+  fernMat.backFaceCulling = false;
 
-  const flowerColors = [
-    new Color3(0.85, 0.2, 0.25),
-    new Color3(0.95, 0.8, 0.15),
-    new Color3(0.95, 0.95, 0.9),
-    new Color3(0.8, 0.4, 0.75),
-  ];
+  const flowerColors = [new Color3(0.85, 0.2, 0.25), new Color3(0.95, 0.8, 0.15), new Color3(0.8, 0.4, 0.75)];
   const flowerMats = flowerColors.map((c, i) => {
     const mat = new StandardMaterial(`flowerMat_${i}`, scene);
     mat.diffuseColor = c;
@@ -2377,25 +2491,46 @@ function buildBushesAndFlowers(scene: Scene, centerX: number, centerZ: number, w
     return mat;
   });
 
-  for (let i = 0; i < 34; i++) {
+  const lakeCenter = new Vector3(centerX + 8, 0, centerZ - 6);
+  const forbidden = (x: number, z: number, campMargin: number): boolean =>
+    Vector3.Distance(new Vector3(x, 0, z), lakeCenter) < 9 ||
+    Vector3.Distance(new Vector3(x, 0, z), CAMP_POSITION) < CAMP_CLEARING_RADIUS - campMargin ||
+    x > GARDEN_BOUNDS.maxX - 5;
+
+  // Dense bushes — roughly triple the old count, the jungle floor should read as choked with growth.
+  for (let i = 0; i < 100; i++) {
     const x = centerX - width / 2 + rand() * width;
     const z = centerZ - depth / 2 + rand() * depth;
-    if (Vector3.Distance(new Vector3(x, 0, z), new Vector3(centerX + 8, 0, centerZ - 6)) < 9) continue;
-    if (Vector3.Distance(new Vector3(x, 0, z), CAMP_POSITION) < CAMP_CLEARING_RADIUS - 3) continue;
-    if (x > GARDEN_BOUNDS.maxX - 5) continue;
+    if (forbidden(x, z, 3)) continue;
 
-    const bush = MeshBuilder.CreateSphere(`bush_${i}`, { diameter: 1.1 + rand() * 0.6, segments: 6 }, scene);
-    bush.scaling.y = 0.6;
-    bush.position.set(x, 0.4, z);
-    bush.material = bushMat;
+    const bush = MeshBuilder.CreateSphere(`bush_${i}`, { diameter: 1.0 + rand() * 0.9, segments: 6 }, scene);
+    bush.scaling.y = 0.55 + rand() * 0.25;
+    bush.position.set(x, bush.scaling.y * (0.5 + rand() * 0.15), z);
+    bush.material = bushMats[i % bushMats.length];
     bush.checkCollisions = true;
   }
 
-  for (let cluster = 0; cluster < 16; cluster++) {
+  // Fern clusters: 3-4 flat crossed fronds per clump, low to the ground.
+  for (let cluster = 0; cluster < 90; cluster++) {
     const cx = centerX - width / 2 + rand() * width;
     const cz = centerZ - depth / 2 + rand() * depth;
-    if (Vector3.Distance(new Vector3(cx, 0, cz), CAMP_POSITION) < CAMP_CLEARING_RADIUS - 4) continue;
-    if (cx > GARDEN_BOUNDS.maxX - 5) continue;
+    if (forbidden(cx, cz, 4)) continue;
+    const fronds = 3 + Math.floor(rand() * 2);
+    for (let f = 0; f < fronds; f++) {
+      const frond = MeshBuilder.CreatePlane(`fern_${cluster}_${f}`, { width: 0.15, height: 0.6 + rand() * 0.4 }, scene);
+      frond.position.set(cx + (rand() - 0.5) * 0.5, 0.3, cz + (rand() - 0.5) * 0.5);
+      frond.rotation.y = (f / fronds) * Math.PI * 2;
+      frond.rotation.x = -0.35 - rand() * 0.2;
+      frond.material = fernMat;
+      frond.isPickable = false;
+    }
+  }
+
+  // A scattering of tropical flowers for colour accent — sparse, jungle undergrowth isn't a meadow.
+  for (let cluster = 0; cluster < 10; cluster++) {
+    const cx = centerX - width / 2 + rand() * width;
+    const cz = centerZ - depth / 2 + rand() * depth;
+    if (forbidden(cx, cz, 4)) continue;
     const mat = flowerMats[cluster % flowerMats.length];
     for (let f = 0; f < 5; f++) {
       const fx = cx + (rand() - 0.5) * 1.8;
@@ -2405,6 +2540,33 @@ function buildBushesAndFlowers(scene: Scene, centerX: number, centerZ: number, w
       flower.material = mat;
       flower.isPickable = false;
     }
+  }
+}
+
+/** Fallen tree trunks scattered on the jungle floor — decay/clutter authenticity, doubling as waist-high cover. */
+function buildFallenLogs(scene: Scene, centerX: number, centerZ: number, width: number, depth: number): void {
+  const rand = mulberry32(717);
+  const logMat = new StandardMaterial("fallenLogMat", scene);
+  logMat.diffuseColor = new Color3(0.24, 0.18, 0.11);
+  logMat.specularColor = Color3.Black();
+
+  const lakeCenter = new Vector3(centerX + 8, 0, centerZ - 6);
+  let placed = 0;
+  for (let i = 0; i < 60 && placed < 14; i++) {
+    const x = centerX - width / 2 + rand() * width;
+    const z = centerZ - depth / 2 + rand() * depth;
+    if (Vector3.Distance(new Vector3(x, 0, z), lakeCenter) < 9) continue;
+    if (Vector3.Distance(new Vector3(x, 0, z), CAMP_POSITION) < CAMP_CLEARING_RADIUS + 2) continue;
+    if (x > GARDEN_BOUNDS.maxX - 6) continue;
+
+    const len = 3 + rand() * 2.5;
+    const log = MeshBuilder.CreateCylinder(`fallenLog_${i}`, { diameter: 0.5 + rand() * 0.25, height: len, tessellation: 8 }, scene);
+    log.rotation.z = Math.PI / 2;
+    log.rotation.y = rand() * Math.PI;
+    log.position.set(x, 0.28, z);
+    log.material = logMat;
+    log.checkCollisions = true;
+    placed++;
   }
 }
 
