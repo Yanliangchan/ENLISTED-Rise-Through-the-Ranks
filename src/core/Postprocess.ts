@@ -63,9 +63,10 @@ export function attachCinematicPipeline(scene: Scene, camera: Camera): DefaultRe
   // SSAO: soft contact shading in corners/under props — the single biggest
   // "grounded, not floating" cue. Runs at half resolution with a small sample
   // count so it's cheap; requires WebGL2 (silently skipped otherwise).
+  let ssao: SSAO2RenderingPipeline | null = null;
   try {
     if (scene.getEngine().getCaps().drawBuffersExtension) {
-      const ssao = new SSAO2RenderingPipeline("ssao", scene, 0.5, [camera]);
+      ssao = new SSAO2RenderingPipeline("ssao", scene, 0.5, [camera]);
       ssao.samples = 8;
       ssao.radius = 1.6;
       ssao.totalStrength = 0.9;
@@ -75,5 +76,59 @@ export function attachCinematicPipeline(scene: Scene, camera: Camera): DefaultRe
     // Prerequisites missing (depth renderer/WebGL2) — AO is a polish layer, skip.
   }
 
+  attachAdaptiveQuality(scene, camera, pipeline, ssao);
+
   return pipeline;
+}
+
+/**
+ * Adaptive quality: post-FX are polish, holding frame rate is not. Samples the
+ * engine's moving-average FPS every few seconds and, while it stays under
+ * target, sheds the most expensive effects one step at a time — SSAO first,
+ * then sharpen/grain, then bloom, then renders at reduced internal resolution.
+ * Steps are one-way (no oscillating back and forth on the threshold), so a
+ * weak machine settles at whatever tier it can actually sustain.
+ */
+function attachAdaptiveQuality(
+  scene: Scene,
+  camera: Camera,
+  pipeline: DefaultRenderingPipeline,
+  ssao: SSAO2RenderingPipeline | null
+): void {
+  const engine = scene.getEngine();
+  const TARGET_FPS = 42;
+  let tier = 0;
+  let clockMs = 0;
+  let warmupMs = 6000; // ignore load/shader-compile stutter right after start
+
+  scene.onBeforeRenderObservable.add(() => {
+    const dtMs = engine.getDeltaTime();
+    if (warmupMs > 0) {
+      warmupMs -= dtMs;
+      return;
+    }
+    clockMs += dtMs;
+    if (clockMs < 4000) return;
+    clockMs = 0;
+    if (engine.getFps() >= TARGET_FPS || tier >= 4) return;
+
+    tier++;
+    // Each shed step is best-effort: a failure to remove one effect must never
+    // take down the render loop or stop the remaining tiers from applying.
+    try {
+      if (tier === 1 && ssao) {
+        scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline("ssao", camera);
+      } else if (tier === 2) {
+        pipeline.sharpenEnabled = false;
+        pipeline.grainEnabled = false;
+      } else if (tier === 3) {
+        pipeline.bloomEnabled = false;
+      } else if (tier === 4) {
+        // Last resort: render at ~78% internal resolution (FXAA hides most of it).
+        engine.setHardwareScalingLevel(Math.max(engine.getHardwareScalingLevel(), 1.28));
+      }
+    } catch {
+      // Effect already gone or unsupported on this device — move on.
+    }
+  });
 }

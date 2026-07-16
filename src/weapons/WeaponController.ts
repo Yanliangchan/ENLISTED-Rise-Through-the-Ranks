@@ -469,16 +469,32 @@ export class WeaponController {
     }
   }
 
+  // Shared, created-once FX materials. Building a fresh StandardMaterial for
+  // every shot/impact forced a material-compile check + dirty-flag pass per
+  // bullet — at 600rpm auto fire that shows up as frame hitches. One material
+  // per effect kind, reused by every short-lived FX mesh, removes that cost.
+  private fxMats: { flash?: StandardMaterial; sparkWorld?: StandardMaterial; sparkFlesh?: StandardMaterial } = {};
+
+  private fxMat(kind: "flash" | "sparkWorld" | "sparkFlesh"): StandardMaterial {
+    let mat = this.fxMats[kind];
+    if (!mat) {
+      mat = new StandardMaterial(`fx_${kind}`, this.scene);
+      mat.emissiveColor =
+        kind === "flash" ? new Color3(1, 0.75, 0.3) : kind === "sparkFlesh" ? new Color3(0.6, 0.05, 0.05) : new Color3(0.9, 0.75, 0.4);
+      mat.disableLighting = true;
+      mat.freeze();
+      this.fxMats[kind] = mat;
+    }
+    return mat;
+  }
+
   /** Quick spark/blood-tint flash at the bullet's impact point — world hits vs flesh hits read differently. */
   private spawnImpactEffect(position: Vector3, isFlesh: boolean): void {
     const spark = MeshBuilder.CreateDisc("impactSpark", { radius: 0.05, tessellation: 6 }, this.scene);
     spark.position = position.clone();
     spark.billboardMode = 7; // BILLBOARDMODE_ALL
     spark.isPickable = false;
-    const mat = new StandardMaterial("impactSparkMat", this.scene);
-    mat.emissiveColor = isFlesh ? new Color3(0.6, 0.05, 0.05) : new Color3(0.9, 0.75, 0.4);
-    mat.disableLighting = true;
-    spark.material = mat;
+    spark.material = this.fxMat(isFlesh ? "sparkFlesh" : "sparkWorld");
     setTimeout(() => spark.dispose(), 90);
   }
 
@@ -497,10 +513,7 @@ export class WeaponController {
     flash.position = new Vector3(0, -0.01 * this.adsBlend, 0.01);
     flash.billboardMode = 7; // BILLBOARDMODE_ALL
     flash.isPickable = false;
-    const mat = new StandardMaterial("muzzleFlashMat", this.scene);
-    mat.emissiveColor = new Color3(1, 0.75, 0.3);
-    mat.disableLighting = true;
-    flash.material = mat;
+    flash.material = this.fxMat("flash");
     setTimeout(() => flash.dispose(), 28);
   }
 

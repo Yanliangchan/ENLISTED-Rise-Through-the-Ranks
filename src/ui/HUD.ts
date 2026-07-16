@@ -51,6 +51,16 @@ export class HUD {
   private centerMessageUntil = 0;
   private shotKickUntil = 0;
 
+  // Perf: DOM writes and canvas repaints are throttled — most HUD text only
+  // changes on discrete events, and setting identical innerHTML every frame
+  // still forces the browser to re-parse it. Slow text runs at ~10Hz, the
+  // radar repaints at ~15Hz, and innerHTML fields only write on change.
+  private nextSlowUpdate = 0;
+  private nextRadarUpdate = 0;
+  private lastKillFeedHtml = "";
+  private lastDamageHtml = "";
+  private crosshairLines: HTMLDivElement[] | null = null;
+
   constructor(
     container: HTMLElement,
     private readonly player: PlayerController,
@@ -254,30 +264,35 @@ export class HUD {
     this.ammoEl.textContent = this.weaponController.isReloading
       ? "RELOADING…"
       : `${ammo.mag} / ${ammo.reserve}`;
-    const fitted = this.gameState.getFittedAttachments(this.weaponController.weapon.id);
-    const attachNames = fitted.map((id) => ATTACHMENTS[id]?.name).filter(Boolean).join(", ");
-    this.weaponNameEl.textContent = attachNames
-      ? `${this.weaponController.weapon.name} — ${attachNames}`
-      : this.weaponController.weapon.name;
 
-    const throwableId = this.gameState.data.loadout.throwable;
-    const throwableName = throwableId ? throwableId.toUpperCase() : "—";
-    this.throwableEl.textContent = `${throwableName} ×${this.gameState.data.loadout.throwableCount}`;
+    // Slow-changing text at ~10Hz — none of it changes mid-frame, and writing
+    // identical strings every frame still costs layout/parse time.
+    if (now >= this.nextSlowUpdate) {
+      this.nextSlowUpdate = now + 100;
+      const fitted = this.gameState.getFittedAttachments(this.weaponController.weapon.id);
+      const attachNames = fitted.map((id) => ATTACHMENTS[id]?.name).filter(Boolean).join(", ");
+      this.weaponNameEl.textContent = attachNames
+        ? `${this.weaponController.weapon.name} — ${attachNames}`
+        : this.weaponController.weapon.name;
 
-    // Special-slot launcher (MATADOR): show remaining charges so the player
-    // knows how many shots they're carrying at a glance.
-    const specialId = this.gameState.data.loadout.special;
-    if (specialId) {
-      const charges = this.weaponController.chargesFor(specialId);
-      this.specialEl.textContent = `${specialId.toUpperCase()} ×${charges}`;
-      this.specialEl.style.display = "block";
-    } else {
-      this.specialEl.style.display = "none";
+      const throwableId = this.gameState.data.loadout.throwable;
+      const throwableName = throwableId ? throwableId.toUpperCase() : "—";
+      this.throwableEl.textContent = `${throwableName} ×${this.gameState.data.loadout.throwableCount}`;
+
+      // Special-slot launcher (MATADOR): show remaining charges so the player
+      // knows how many shots they're carrying at a glance.
+      const specialId = this.gameState.data.loadout.special;
+      if (specialId) {
+        const charges = this.weaponController.chargesFor(specialId);
+        this.specialEl.textContent = `${specialId.toUpperCase()} ×${charges}`;
+        this.specialEl.style.display = "block";
+      } else {
+        this.specialEl.style.display = "none";
+      }
+
+      this.creditsEl.textContent = `Credits: ${this.gameState.data.credits}`;
+      this.waveEl.textContent = this.phaseLabel();
     }
-
-    this.creditsEl.textContent = `Credits: ${this.gameState.data.credits}`;
-    const phaseLabel = this.phaseLabel();
-    this.waveEl.textContent = phaseLabel;
 
     this.crosshair.style.display = this.weaponController.isScopedIn ? "none" : "block";
     // Small, sharp, and mostly static — a light touch of dynamic spread (tracking
@@ -307,7 +322,11 @@ export class HUD {
     this.hitmarker.style.opacity = now < this.hitmarkerUntil ? "1" : "0";
 
     this.killFeed = this.killFeed.filter((k) => k.expiresAt > now);
-    this.killFeedEl.innerHTML = this.killFeed.map((k) => `<div>${k.text}</div>`).join("");
+    const killHtml = this.killFeed.map((k) => `<div>${k.text}</div>`).join("");
+    if (killHtml !== this.lastKillFeedHtml) {
+      this.lastKillFeedHtml = killHtml;
+      this.killFeedEl.innerHTML = killHtml;
+    }
 
     this.damageIndicators = this.damageIndicators.filter((d) => d.expiresAt > now);
     this.renderDamageIndicators();
@@ -322,7 +341,12 @@ export class HUD {
     this.centerMessageEl.style.opacity = now < this.centerMessageUntil ? "1" : "0";
     this.lockHintEl.style.display = isPointerLocked ? "none" : "block";
 
-    this.renderRadar(enemyPositions);
+    // Radar repaint at ~15Hz — a full canvas redraw with every building
+    // footprint per frame was pure waste for a minimap.
+    if (now >= this.nextRadarUpdate) {
+      this.nextRadarUpdate = now + 66;
+      this.renderRadar(enemyPositions);
+    }
   }
 
   private phaseLabel(): string {
@@ -337,8 +361,11 @@ export class HUD {
   }
 
   private applyCrosshairSpread(px: number): void {
-    const lines = this.crosshair.querySelectorAll<HTMLDivElement>(".ch-line");
-    const [top, bottom, left, right] = Array.from(lines);
+    // Cache the four line elements — querySelectorAll every frame is waste.
+    if (!this.crosshairLines) {
+      this.crosshairLines = Array.from(this.crosshair.querySelectorAll<HTMLDivElement>(".ch-line"));
+    }
+    const [top, bottom, left, right] = this.crosshairLines;
     if (top) top.style.top = `${-px}px`;
     if (bottom) bottom.style.bottom = `${-px}px`;
     if (left) left.style.left = `${-px}px`;
@@ -347,7 +374,7 @@ export class HUD {
 
   private renderDamageIndicators(): void {
     const yaw = this.player.yaw;
-    this.damageIndicatorEl.innerHTML = this.damageIndicators
+    const html = this.damageIndicators
       .map((d) => {
         const relative = normalizeAngle(d.angleRad - yaw);
         const deg = (relative * 180) / Math.PI;
@@ -357,6 +384,11 @@ export class HUD {
         "><div style="width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:16px solid rgba(255,60,40,0.85);"></div></div>`;
       })
       .join("");
+    // Almost always empty — skip the innerHTML re-parse when nothing changed.
+    if (html !== this.lastDamageHtml) {
+      this.lastDamageHtml = html;
+      this.damageIndicatorEl.innerHTML = html;
+    }
   }
 
   private renderRadar(enemyPositions: Array<{ x: number; z: number }>): void {

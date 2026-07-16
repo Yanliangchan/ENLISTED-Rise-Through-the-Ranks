@@ -296,6 +296,19 @@ export function buildLevel(scene: Scene): void {
     wall.checkCollisions = true;
     wall.isVisible = false; // invisible playspace boundary
   });
+
+  // ---- Static-world performance pass ------------------------------------
+  // Everything built above never moves, rotates, or scales again, so stop
+  // Babylon recomputing thousands of world matrices every frame. Likewise the
+  // level materials never change after construction — freeze them so their
+  // shader defines aren't re-evaluated per frame. Dynamic actors (player,
+  // enemies, viewmodels, particles, ambience) are all created AFTER buildLevel
+  // returns, so nothing frozen here ever needs to move.
+  for (const mesh of scene.meshes) mesh.freezeWorldMatrix();
+  for (const material of scene.materials) {
+    if (material.name === "skyMat") continue; // sky keeps its own update path
+    material.freeze();
+  }
 }
 
 /**

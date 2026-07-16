@@ -158,6 +158,10 @@ export class EnemyInstance implements Damageable {
   private hardStuckTimer = 0;
   // Periodic "am I trapped in geometry / out of bounds?" self-check clock.
   private navCheckTimer = Math.random() * 1.5;
+  // Throttled-perception cache (see update()) — random start staggers enemies.
+  private visionTimer = Math.random() * 0.2;
+  private cachedDetected = false;
+  private cachedContact = false;
 
   onDeath?: (info: EnemyKillInfo) => void;
   onDamagePlayer?: (damage: number, sourcePosition: Vector3) => void;
@@ -366,30 +370,6 @@ export class EnemyInstance implements Damageable {
     return this.type.sightRangeM * factor;
   }
 
-  /**
-   * Strict first-contact detection: the player must be inside the vision cone,
-   * within the stance-scaled spotting range, and in clear line of sight. This
-   * is deliberately hard to satisfy so AI don't magically notice a careful
-   * player simply for being nearby.
-   */
-  private detectsPlayer(player: PlayerController, distToPlayer: number, playerInSafeZone: boolean): boolean {
-    if (playerInSafeZone) return false;
-    if (distToPlayer > this.detectionRange(player)) return false;
-    if (!this.playerInFov(player)) return false;
-    return this.hasLineOfSight(player);
-  }
-
-  /**
-   * Looser "still have eyes on" test for an enemy that is already engaged —
-   * once alerted it tracks the player as long as it has LOS within its full
-   * sight range, regardless of stance. Losing LOS starts the give-up timer.
-   */
-  private hasContact(player: PlayerController, distToPlayer: number, playerInSafeZone: boolean): boolean {
-    if (playerInSafeZone) return false;
-    if (distToPlayer > this.type.sightRangeM) return false;
-    return this.hasLineOfSight(player);
-  }
-
   suppress(durationSec: number): void {
     if (this.state === "dead") return;
     this.engageLimiter?.releaseEngage(this.id);
@@ -497,9 +477,28 @@ export class EnemyInstance implements Damageable {
     const distToPlayer = this.distanceToPlayer(player);
     // Two tiers of perception: strict first-contact detection (respects FOV +
     // stance/stealth) to *become* alerted, and a looser "eyes on" test to keep
-    // tracking a target the enemy is already fighting.
-    const detected = this.detectsPlayer(player, distToPlayer, playerInSafeZone);
-    const contact = this.hasContact(player, distToPlayer, playerInSafeZone);
+    // tracking a target the enemy is already fighting. Both need a
+    // line-of-sight raycast, which was by far the most expensive per-frame AI
+    // work (2 scene raycasts × every enemy × every frame) — so perception now
+    // runs on a short jittered timer (~7Hz per enemy, staggered so enemies
+    // don't all raycast on the same frame) with ONE shared LOS ray, and the
+    // FSM reads the cached result in between. A ~0.15s stale window is
+    // imperceptible against the existing 0.25-0.55s reaction timers.
+    this.visionTimer -= dt;
+    if (this.visionTimer <= 0) {
+      this.visionTimer = 0.12 + Math.random() * 0.08;
+      if (playerInSafeZone || distToPlayer > this.type.sightRangeM) {
+        // Cheap distance/safe-zone gate: no raycast at all when out of range.
+        this.cachedContact = false;
+        this.cachedDetected = false;
+      } else {
+        const los = this.hasLineOfSight(player);
+        this.cachedContact = los;
+        this.cachedDetected = los && distToPlayer <= this.detectionRange(player) && this.playerInFov(player);
+      }
+    }
+    const detected = this.cachedDetected;
+    const contact = this.cachedContact;
     if (contact) {
       this.lastKnownPlayerPos = player.position.clone();
       this.lostContactTimer = 0;
