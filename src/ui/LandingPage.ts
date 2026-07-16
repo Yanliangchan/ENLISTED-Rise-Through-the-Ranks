@@ -16,6 +16,7 @@ const KEY_BINDINGS: Array<[string, string]> = [
   ["Q", "UAV recon (reveals enemies 20s)"],
   ["F / H", "Collect crate / M203"],
   ["1 2 3 4", "Weapon slots"],
+  ["5", "Use first aid kit"],
   ["B / M", "Armoury / Tactical map"],
   ["Tab / Esc", "Controls list / Pause"],
 ];

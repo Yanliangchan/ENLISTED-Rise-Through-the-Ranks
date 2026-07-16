@@ -21,9 +21,15 @@ export interface SaveData {
   fittedAttachments: Record<string, string[]>; // weaponId -> attachment ids
   loadout: Loadout;
   highestWaveCleared: number;
+  medkitCount: number;
 }
 
 const SAVE_KEY = "sentinelShield.save.v1";
+
+/** First aid kits carried at the start of a deployment. */
+export const STARTING_MEDKITS = 2;
+/** Hard cap on carried first aid kits, picked up from health crates. */
+export const MAX_MEDKITS = 5;
 
 /** Fresh default save — exported so a new account can be seeded with it. */
 export function defaultSave(): SaveData {
@@ -48,6 +54,7 @@ export function defaultSave(): SaveData {
     },
     loadout: { ...STARTER_LOADOUT },
     highestWaveCleared: 0,
+    medkitCount: STARTING_MEDKITS,
   };
 }
 

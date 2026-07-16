@@ -111,6 +111,12 @@ export class AudioManager {
     this.tone(880, 0.08, "sine", 0.2);
   }
 
+  /** First aid kit used — a soft two-note "chime" distinct from the purchase blip. */
+  medkit(): void {
+    this.tone(700, 0.1, "sine", 0.22);
+    setTimeout(() => this.tone(1000, 0.14, "sine", 0.2), 90);
+  }
+
   uiClick(): void {
     this.tone(700, 0.03, "square", 0.1);
   }

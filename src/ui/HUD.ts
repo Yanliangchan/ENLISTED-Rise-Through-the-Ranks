@@ -32,6 +32,7 @@ export class HUD {
   private creditsEl: HTMLDivElement;
   private waveEl: HTMLDivElement;
   private uavEl: HTMLDivElement;
+  private medkitEl: HTMLDivElement;
   private crosshair: HTMLDivElement;
   private hitmarker: HTMLDivElement;
   private killFeedEl: HTMLDivElement;
@@ -136,9 +137,11 @@ export class HUD {
     this.waveEl = el("div", "font-size:18px; font-weight:bold; letter-spacing:1px;");
     this.creditsEl = el("div", "");
     this.uavEl = el("div", "color:#7fd0ff; font-size:14px;");
+    this.medkitEl = el("div", "color:#8fd68f; font-size:14px;");
     topLeft.appendChild(this.waveEl);
     topLeft.appendChild(this.creditsEl);
     topLeft.appendChild(this.uavEl);
+    topLeft.appendChild(this.medkitEl);
 
     this.killFeedEl = el("div", `
       position:absolute; top:20px; right:24px; text-align:right; font-size:13px;
@@ -213,6 +216,12 @@ export class HUD {
       this.uavEl.textContent = `UAV ready ×${charges} [Q]`;
       this.uavEl.style.color = charges > 0 ? "#7fd0ff" : "#8a9a84";
     }
+  }
+
+  /** Reflect carried first aid kit count. */
+  updateMedkit(count: number): void {
+    this.medkitEl.textContent = `First Aid ×${count} [5]`;
+    this.medkitEl.style.color = count > 0 ? "#8fd68f" : "#8a9a84";
   }
 
   notifyHit(): void {

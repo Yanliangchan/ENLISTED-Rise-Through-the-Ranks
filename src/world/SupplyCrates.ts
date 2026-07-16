@@ -3,6 +3,7 @@ import type { PlayerController } from "@/player/PlayerController";
 import type { WeaponController } from "@/weapons/WeaponController";
 import type { InputManager } from "@/core/InputManager";
 import type { AudioManager } from "@/core/AudioManager";
+import type { MedKitController } from "@/player/MedKit";
 
 type CrateType = "ammo" | "health";
 
@@ -31,7 +32,8 @@ const CRATE_SPOTS: CrateSpot[] = [
 const INTERACT_RADIUS = 2.3;
 const RESPAWN_SEC = 90;
 const AMMO_AMOUNT = 90;
-const HEAL_AMOUNT = 50;
+const MEDKITS_PER_CRATE = 2;
+const ARMOUR_AMOUNT = 25;
 
 interface Crate {
   mesh: Mesh;
@@ -55,7 +57,8 @@ export class SupplyCrateManager {
     private readonly player: PlayerController,
     private readonly weaponController: WeaponController,
     private readonly input: InputManager,
-    private readonly audio: AudioManager
+    private readonly audio: AudioManager,
+    private readonly medKit: MedKitController
   ) {
     const crateMat = new StandardMaterial("supplyCrateMat", scene);
     crateMat.diffuseColor = new Color3(0.32, 0.28, 0.18);
@@ -111,7 +114,9 @@ export class SupplyCrateManager {
     }
 
     this.promptText =
-      nearest.type === "ammo" ? "Press F — collect Ammo Crate" : "Press F — collect Medical Crate";
+      nearest.type === "ammo"
+        ? "Press F — collect Ammo Crate"
+        : "Press F — collect Medical Crate (2 first aid kits + armour)";
 
     if (this.input.wasPressed("KeyF")) {
       nearest.available = false;
@@ -120,7 +125,8 @@ export class SupplyCrateManager {
       if (nearest.type === "ammo") {
         this.weaponController.resupplyAmmo(AMMO_AMOUNT);
       } else {
-        this.player.heal(HEAL_AMOUNT);
+        this.medKit.add(MEDKITS_PER_CRATE);
+        this.player.armour = Math.min(this.player.maxArmour, this.player.armour + ARMOUR_AMOUNT);
       }
       this.audio.purchase();
       this.promptText = null;

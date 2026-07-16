@@ -1,7 +1,7 @@
 import { GameEngine } from "@/core/Engine";
 import { attachCinematicPipeline } from "@/core/Postprocess";
 import { InputManager } from "@/core/InputManager";
-import { GameState } from "@/core/GameState";
+import { GameState, STARTING_MEDKITS } from "@/core/GameState";
 import { Settings } from "@/core/Settings";
 import { AudioManager } from "@/core/AudioManager";
 import { Backend } from "@/core/Backend";
@@ -27,6 +27,7 @@ import { ScopeOverlay } from "@/ui/ScopeOverlay";
 import { TacticalMap } from "@/ui/TacticalMap";
 import { SafeZoneManager } from "@/world/SafeZone";
 import { UAVSupport } from "@/world/UAVSupport";
+import { MedKitController } from "@/player/MedKit";
 import { Ambience } from "@/world/Ambience";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
@@ -207,6 +208,7 @@ async function boot(): Promise<void> {
     weaponController.resetAllAmmo();
     gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
     uav.reset();
+    gameState.data.medkitCount = STARTING_MEDKITS;
     gameState.save();
   }
 
@@ -222,7 +224,12 @@ async function boot(): Promise<void> {
     beginDeployment();
   };
   const controlsOverlay = new ControlsOverlay(uiRoot);
-  const supplyCrates = new SupplyCrateManager(game.scene, player, weaponController, input, audio);
+  const medKit = new MedKitController(input, audio, gameState, player, {
+    onUse: () => hud.showCenterMessage("FIRST AID KIT USED", 1500),
+    onEmpty: () => hud.showCenterMessage("NO FIRST AID KITS REMAINING", 1500),
+    onFullHealth: () => hud.showCenterMessage("ALREADY AT FULL HEALTH", 1500),
+  });
+  const supplyCrates = new SupplyCrateManager(game.scene, player, weaponController, input, audio, medKit);
 
   const ambience = new Ambience(game.scene, audio, player);
   const safeZone = new SafeZoneManager(player);
@@ -293,6 +300,7 @@ async function boot(): Promise<void> {
       waveManager.update(dt);
       supplyCrates.update(dt);
       uav.update(dt);
+      medKit.update(dt);
       if (waveManager.phase === "combat") stats.addPlaytime(dt);
     }
 
@@ -303,6 +311,7 @@ async function boot(): Promise<void> {
     damageNumbers.update(game.scene);
     hud.update(input.isPointerLocked, waveManager.enemyManager.livePositions(), supplyCrates.promptText);
     hud.updateUAV(uav.active, uav.secondsRemaining, uav.chargesRemaining, uav.cooldownRemaining);
+    hud.updateMedkit(medKit.count);
     input.resetFrame();
   });
 
@@ -320,6 +329,9 @@ async function boot(): Promise<void> {
       game,
       stats,
       backend,
+      medKit,
+      gameState,
+      supplyCrates,
     };
   }
 }
