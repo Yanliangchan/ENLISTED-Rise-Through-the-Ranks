@@ -3,17 +3,22 @@ import {
   HemisphericLight,
   DirectionalLight,
   MeshBuilder,
-  StandardMaterial,
   DynamicTexture,
   Texture,
   Color3,
   Color4,
   Vector3,
   Mesh,
+  AbstractMesh,
+  Material,
   TransformNode,
   VertexData,
+  ShadowGenerator,
+  ReflectionProbe,
+  RenderTargetTexture,
 } from "@babylonjs/core";
 import { SkyMaterial } from "@babylonjs/materials";
+import { WorldMaterial } from "@/world/WorldMaterial";
 import { loadGlbContainerOrNull } from "@/core/ModelLoader";
 
 /** Deterministic PRNG so the map layout is identical on every load. */
@@ -41,7 +46,7 @@ const HDB_COLORS = [
   new Color3(0.88, 0.89, 0.87), // clean white HDB block
   new Color3(0.85, 0.86, 0.84),
 ];
-const HDB_ACCENT = new Color3(0.35, 0.5, 0.62);
+const HDB_ACCENT = new Color3(0.3, 0.42, 0.52);
 const CBD_GLASS_COLORS = [new Color3(0.3, 0.42, 0.5), new Color3(0.35, 0.45, 0.42), new Color3(0.28, 0.38, 0.48)];
 const INDUSTRIAL_COLORS = [new Color3(0.5, 0.42, 0.32), new Color3(0.42, 0.44, 0.46), new Color3(0.46, 0.38, 0.3)];
 
@@ -222,7 +227,14 @@ export function buildLevel(scene: Scene): void {
   hemi.groundColor = new Color3(0.38, 0.35, 0.3);
 
   const sun = new DirectionalLight("sunLight", new Vector3(-0.5, -1, 0.3), scene);
-  sun.intensity = 0.9;
+  // PBR surfaces respond physically to light energy — the sun carries most of
+  // the scene's illumination now that materials are metallic/roughness based.
+  sun.intensity = 1.6;
+  // Shadow-map camera origin: hoisted far back along the light direction so
+  // the tallest towers sit inside the depth frustum (a directional light left
+  // at the default origin clips everything above y≈1 out of the shadow map).
+  sun.position = new Vector3(90, 180, -54);
+  sun.autoCalcShadowZBounds = true;
   // Warm tropical sunlight so lit faces separate from shadowed ones in colour, not just brightness.
   sun.diffuse = new Color3(1.0, 0.95, 0.85);
   sun.specular = new Color3(1.0, 0.97, 0.9);
@@ -243,7 +255,7 @@ export function buildLevel(scene: Scene): void {
   scene.fogEnd = 195;
   scene.fogColor = new Color3(0.5, 0.58, 0.68);
 
-  const groundMat = new StandardMaterial("groundMat", scene);
+  const groundMat = new WorldMaterial("groundMat", scene);
   groundMat.diffuseColor = new Color3(0.3, 0.32, 0.28);
   groundMat.specularColor = Color3.Black();
   const pavementTex = createPavementTexture(scene, "pavementTex", "#4a4d46");
@@ -255,16 +267,31 @@ export function buildLevel(scene: Scene): void {
   ground.material = groundMat;
   ground.checkCollisions = true;
 
-  buildSkybox(scene);
+  const skyBox = buildSkybox(scene);
+
+  // HDR image-based lighting: render the procedural sky into a cube once and
+  // feed it to every PBR material as the environment — sky-blue ambient from
+  // above, warm horizon bounce from the sides, and a real reflection source
+  // for glass towers, car paint, and water.
+  const envProbe = new ReflectionProbe("envProbe", 128, scene);
+  envProbe.renderList!.push(skyBox);
+  envProbe.position.set(0, 40, 0);
+  envProbe.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
+  scene.environmentTexture = envProbe.cubeTexture;
+  scene.environmentIntensity = 1.0;
 
   const layout = generateBuildingLayout();
   buildRoads(scene);
+  buildCurbs(scene);
   buildIntersectionDressing(scene, layout);
   buildStreetGrid(scene, layout);
   buildStrongpoints(scene, layout);
   // Optional: swap procedural buildings for real .glb models where present.
   // Fire-and-forget — a no-op with no assets, so buildLevel stays synchronous.
   void upgradeBuildingsWithModels(scene, layout);
+  buildHawkerCentre(scene, layout);
+  buildPlazaTerrace(scene, layout);
+  buildCoveredWalkways(scene, layout);
   buildCover(scene, layout);
   buildParkedCars(scene, layout);
   buildStreetFurniture(scene, layout);
@@ -276,8 +303,9 @@ export function buildLevel(scene: Scene): void {
   buildDrainageCanal(scene);
   buildMbsLandmark(scene);
   buildMrtViaduct(scene);
+  buildMrtStation(scene);
 
-  const wallMat = new StandardMaterial("wallMat", scene);
+  const wallMat = new WorldMaterial("wallMat", scene);
   wallMat.diffuseColor = new Color3(0.5, 0.5, 0.52);
   wallMat.specularColor = Color3.Black();
 
@@ -298,16 +326,113 @@ export function buildLevel(scene: Scene): void {
   });
 
   // ---- Static-world performance pass ------------------------------------
-  // Everything built above never moves, rotates, or scales again, so stop
-  // Babylon recomputing thousands of world matrices every frame. Likewise the
-  // level materials never change after construction — freeze them so their
-  // shader defines aren't re-evaluated per frame. Dynamic actors (player,
-  // enemies, viewmodels, particles, ambience) are all created AFTER buildLevel
-  // returns, so nothing frozen here ever needs to move.
-  for (const mesh of scene.meshes) mesh.freezeWorldMatrix();
+  // 1) Batch: thousands of small decorative meshes (sandbag courses, tree
+  //    canopy lobes, ferns, curbs, trim bands...) collapse into one mesh per
+  //    material — the draw-call count drops by an order of magnitude while
+  //    the rendered image is identical.
+  mergeStaticDecor(scene);
+
+  // 2) Shadows: one static PCF-filtered shadow map from the sun, rendered a
+  //    single time (the whole city is immobile) — soft real shadows for every
+  //    building/prop at effectively zero per-frame cost.
+  setupStaticShadows(scene, sun, skyBox);
+
+  // 3) Freeze: everything built above never moves, rotates, or scales again,
+  //    so stop Babylon recomputing world matrices every frame; likewise the
+  //    level materials never change after construction. Dynamic actors
+  //    (player, enemies, viewmodels, particles, ambience) are all created
+  //    AFTER buildLevel returns, so nothing frozen here ever needs to move.
+  for (const mesh of scene.meshes) {
+    mesh.freezeWorldMatrix();
+    // Cheap sphere-only culling for the (now mostly merged) static set.
+    mesh.cullingStrategy = AbstractMesh.CULLINGSTRATEGY_BOUNDINGSPHERE_ONLY;
+  }
   for (const material of scene.materials) {
     if (material.name === "skyMat") continue; // sky keeps its own update path
     material.freeze();
+  }
+}
+
+/**
+ * Collapses static, non-interactive decoration into one mesh per material.
+ * Only meshes that can't affect gameplay are merged: no colliders, nothing
+ * pickable (hitscan targets), nothing transparent (draw-order sensitive),
+ * nothing tagged with metadata (the optional .glb upgrade path needs to find
+ * those individually). Vertices are baked in world space, so parenting and
+ * frozen transforms are irrelevant afterwards.
+ */
+function mergeStaticDecor(scene: Scene): void {
+  const groups = new Map<string, { material: Material; meshes: Mesh[] }>();
+  for (const mesh of scene.meshes) {
+    if (!(mesh instanceof Mesh)) continue;
+    if (mesh.checkCollisions || mesh.isPickable) continue;
+    if (!mesh.isVisible || !mesh.isEnabled()) continue;
+    if (mesh.infiniteDistance) continue; // skybox
+    if (mesh.metadata) continue; // glb-upgrade bookkeeping
+    const mat = mesh.material;
+    if (!mat || mat.needAlphaBlending()) continue;
+    if (mesh.getTotalVertices() === 0) continue;
+    // Meshes can only merge when their vertex layouts match — the custom
+    // wedge prisms carry positions+normals but no UVs, unlike built-in boxes.
+    const signature = mesh
+      .getVerticesDataKinds()
+      .sort()
+      .join(",");
+    const key = `${mat.uniqueId}|${signature}`;
+    const group = groups.get(key) ?? { material: mat, meshes: [] };
+    group.meshes.push(mesh);
+    groups.set(key, group);
+  }
+  for (const { material, meshes } of groups.values()) {
+    if (meshes.length < 4) continue; // not worth a merge
+    const merged = Mesh.MergeMeshes(meshes, true, true, undefined, false, false);
+    if (merged) {
+      merged.name = `merged_${material.name}`;
+      merged.isPickable = false;
+    }
+  }
+}
+
+/**
+ * One 2048px PCF shadow map from the sun covering the whole (static) city,
+ * rendered exactly once. Ground planes/decals don't cast; everything receives.
+ */
+function setupStaticShadows(scene: Scene, sun: DirectionalLight, skyBox: Mesh): void {
+  const generator = new ShadowGenerator(2048, sun);
+  generator.usePercentageCloserFiltering = true;
+  generator.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
+  generator.bias = 0.002;
+  generator.normalBias = 0.05;
+
+  const isGroundDecal = (name: string): boolean =>
+    /^(ground|road|sidewalk|boulevard|crosswalk|grass|gardenGrass|campClearing|playgroundMat|drainFloor|drainWater|canal|lake|water)/i.test(
+      name
+    );
+
+  for (const mesh of scene.meshes) {
+    if (mesh === skyBox || mesh.infiniteDistance) continue;
+    if (!mesh.isVisible || !mesh.isEnabled()) continue;
+    if (mesh.material?.needAlphaBlending()) continue;
+    if (!isGroundDecal(mesh.name)) generator.addShadowCaster(mesh, false);
+    mesh.receiveShadows = true;
+  }
+
+  // The city never moves, so the map only needs rendering once — but locking
+  // it on frame 1 bakes an empty map (caster shaders are still compiling on
+  // the first frames and get skipped). Wait until every effect has compiled,
+  // let a few real frames land, then freeze the last fully-rendered map.
+  const map = generator.getShadowMap();
+  if (map) {
+    scene.executeWhenReady(() => {
+      let settleFrames = 5;
+      const observer = scene.onAfterRenderObservable.add(() => {
+        settleFrames--;
+        if (settleFrames <= 0) {
+          map.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
+          scene.onAfterRenderObservable.remove(observer);
+        }
+      });
+    });
   }
 }
 
@@ -316,7 +441,7 @@ export function buildLevel(scene: Scene): void {
  * of the flat clear-colour: a bright sun disc/halo, blue zenith falling to a
  * warm hazy horizon that the linear fog blends into. One box, no textures.
  */
-function buildSkybox(scene: Scene): void {
+function buildSkybox(scene: Scene): Mesh {
   const sky = new SkyMaterial("skyMat", scene);
   sky.backFaceCulling = false;
   sky.turbidity = 6.5; // light tropical haze
@@ -333,6 +458,7 @@ function buildSkybox(scene: Scene): void {
   box.isPickable = false;
   box.infiniteDistance = true;
   box.applyFog = false;
+  return box;
 }
 
 /**
@@ -430,6 +556,316 @@ function buildStrongpoint(scene: Scene, cx: number, cz: number, index: number): 
   }
 }
 
+/**
+ * Hawker centre on the vacant lots by the garden district's north edge — the
+ * quintessential Singapore neighbourhood anchor. An open-sided food hall: a
+ * raised floor slab, perimeter columns, a two-tier roof with clerestory vent,
+ * a row of stall counters along the back, and round tables with stools that
+ * double as scattered soft cover. Open on all sides = multiple entry routes.
+ */
+function buildHawkerCentre(scene: Scene, layout: BuildingFootprint[]): void {
+  const cx = -55;
+  const cz = -11;
+  const W = 17; // along X
+  const D = 13; // along Z
+  const roofH = 3.5;
+
+  const floorMat = solidMat(scene, "hawkerFloorMat", new Color3(0.55, 0.52, 0.46));
+  const columnMat = solidMat(scene, "hawkerColumnMat", new Color3(0.72, 0.7, 0.64));
+  const roofMat = solidMat(scene, "hawkerRoofMat", new Color3(0.45, 0.26, 0.2)); // terracotta
+  const counterMat = solidMat(scene, "hawkerCounterMat", new Color3(0.35, 0.37, 0.4));
+  const tableMat = solidMat(scene, "hawkerTableMat", new Color3(0.75, 0.73, 0.68));
+  const stoolMat = solidMat(scene, "hawkerStoolMat", new Color3(0.65, 0.3, 0.15));
+  const signColors = [new Color3(0.75, 0.2, 0.15), new Color3(0.15, 0.45, 0.6), new Color3(0.7, 0.55, 0.1), new Color3(0.2, 0.5, 0.25)];
+  const signMats = signColors.map((c, i) => {
+    const m = solidMat(scene, `hawkerSignMat_${i}`, c);
+    m.emissiveColor = c.scale(0.25);
+    return m;
+  });
+
+  const floor = MeshBuilder.CreateBox("hawkerFloor", { width: W, height: 0.18, depth: D }, scene);
+  floor.position.set(cx, 0.09, cz);
+  floor.material = floorMat;
+  floor.checkCollisions = true;
+
+  // Perimeter columns.
+  const colXs = [-W / 2 + 0.5, -W / 6, W / 6, W / 2 - 0.5];
+  const colZs = [-D / 2 + 0.5, D / 2 - 0.5];
+  for (const px of colXs) {
+    for (const pz of colZs) {
+      const col = MeshBuilder.CreateBox(`hawkerCol_${px}_${pz}`, { width: 0.4, height: roofH, depth: 0.4 }, scene);
+      col.position.set(cx + px, roofH / 2, cz + pz);
+      col.material = columnMat;
+      col.checkCollisions = true;
+    }
+  }
+
+  // Two-tier roof with a raised clerestory vent band (hot-kitchen airflow).
+  const roofLower = MeshBuilder.CreateBox("hawkerRoofLower", { width: W + 1.6, height: 0.22, depth: D + 1.6 }, scene);
+  roofLower.position.set(cx, roofH, cz);
+  roofLower.material = roofMat;
+  roofLower.checkCollisions = true;
+  const vent = MeshBuilder.CreateBox("hawkerVent", { width: W * 0.55, height: 0.7, depth: D * 0.5 }, scene);
+  vent.position.set(cx, roofH + 0.55, cz);
+  vent.material = columnMat;
+  vent.isPickable = false;
+  const roofUpper = MeshBuilder.CreateBox("hawkerRoofUpper", { width: W * 0.62, height: 0.18, depth: D * 0.56 }, scene);
+  roofUpper.position.set(cx, roofH + 1.0, cz);
+  roofUpper.material = roofMat;
+  roofUpper.isPickable = false;
+
+  // Stall row along the back (-Z): counters + coloured signboards.
+  const stalls = 5;
+  for (let s = 0; s < stalls; s++) {
+    const sx = cx - W / 2 + 2.2 + s * ((W - 3.4) / (stalls - 1));
+    const counter = MeshBuilder.CreateBox(`hawkerStall_${s}`, { width: 2.4, height: 1.1, depth: 1.0 }, scene);
+    counter.position.set(sx, 0.73, cz - D / 2 + 1.3);
+    counter.material = counterMat;
+    counter.checkCollisions = true;
+    const sign = MeshBuilder.CreateBox(`hawkerSign_${s}`, { width: 2.2, height: 0.5, depth: 0.08 }, scene);
+    sign.position.set(sx, 2.6, cz - D / 2 + 1.0);
+    sign.material = signMats[s % signMats.length];
+    sign.isPickable = false;
+  }
+
+  // Round tables + stools — waist-high soft cover through the hall.
+  const rand = mulberry32(2323);
+  for (let t = 0; t < 8; t++) {
+    const tx = cx - W / 2 + 3 + (t % 4) * ((W - 6) / 3) + (rand() - 0.5) * 0.8;
+    const tz = cz + (t < 4 ? -0.6 : 3.2) + (rand() - 0.5) * 0.8;
+    const table = MeshBuilder.CreateCylinder(`hawkerTable_${t}`, { diameter: 1.25, height: 0.78, tessellation: 12 }, scene);
+    table.position.set(tx, 0.57, tz);
+    table.material = tableMat;
+    table.checkCollisions = true;
+    for (let st = 0; st < 4; st++) {
+      const a = (st / 4) * Math.PI * 2 + 0.5;
+      const stool = MeshBuilder.CreateCylinder(`hawkerStool_${t}_${st}`, { diameter: 0.34, height: 0.45, tessellation: 8 }, scene);
+      stool.position.set(tx + Math.cos(a) * 0.95, 0.4, tz + Math.sin(a) * 0.95);
+      stool.material = stoolMat;
+      stool.isPickable = false;
+    }
+  }
+
+  // Register the footprint so scatter/cover systems treat it like a building.
+  layout.push({ x: cx, z: cz, size: Math.max(W, D) + 1, height: roofH + 1, type: "shophouse" });
+}
+
+/**
+ * A raised garden terrace on a vacant lot near the plaza: retaining walls,
+ * a walkable top slab reached by two ramped stairs, perimeter railings and
+ * planters. Adds the high/low-ground beat the flat street grid lacks right
+ * where most fights happen.
+ */
+function buildPlazaTerrace(scene: Scene, layout: BuildingFootprint[]): void {
+  // Nearest vacant lot to the plaza that isn't reserved or built on.
+  let best: { x: number; z: number } | null = null;
+  let bestD = Infinity;
+  for (const gx of GRID_LINES) {
+    for (const gz of GRID_LINES) {
+      if (inGardenDistrict(gx, gz, 10) || inMbsZone(gx, gz, 4) || inCargoZone(gx, gz, 3) || inCarparkZone(gx, gz, 2)) continue;
+      if (overlapsAnyBuilding(gx, gz, 7, layout)) continue;
+      const d = Math.hypot(gx, gz);
+      if (d < bestD) {
+        bestD = d;
+        best = { x: gx, z: gz };
+      }
+    }
+  }
+  if (!best) return;
+  const cx = best.x;
+  const cz = best.z;
+  const S = 10;
+  const H = 1.5;
+
+  const wallMat = solidMat(scene, "terraceWallMat", new Color3(0.52, 0.5, 0.44));
+  const topMat = solidMat(scene, "terraceTopMat", new Color3(0.34, 0.42, 0.26));
+  const railMat = solidMat(scene, "terraceRailMat", new Color3(0.28, 0.3, 0.32));
+  const planterMat = solidMat(scene, "terracePlanterMat", new Color3(0.44, 0.4, 0.34));
+  const plantMat = solidMat(scene, "terracePlantMat", new Color3(0.2, 0.38, 0.18));
+
+  // Retaining walls around the fill, then a walkable top slab.
+  for (const [wx, wz, ww, wd] of [
+    [0, -S / 2, S, 0.4],
+    [0, S / 2, S, 0.4],
+    [-S / 2, 0, 0.4, S],
+    [S / 2, 0, 0.4, S],
+  ] as Array<[number, number, number, number]>) {
+    const wall = MeshBuilder.CreateBox(`terraceWall_${wx}_${wz}`, { width: ww, height: H, depth: wd }, scene);
+    wall.position.set(cx + wx, H / 2, cz + wz);
+    wall.material = wallMat;
+    wall.checkCollisions = true;
+  }
+  const top = MeshBuilder.CreateBox("terraceTop", { width: S, height: 0.25, depth: S }, scene);
+  top.position.set(cx, H + 0.05, cz);
+  top.material = topMat;
+  top.checkCollisions = true;
+
+  // Two ramped stair approaches (opposite corners) with kick walls.
+  for (const side of [-1, 1]) {
+    const rampLen = 4.5;
+    const ramp = MeshBuilder.CreateBox(`terraceRamp_${side}`, { width: 2, height: 0.18, depth: rampLen }, scene);
+    ramp.position.set(cx + side * (S / 4), (H + 0.15) / 2, cz + side * (S / 2 + rampLen / 2 - 0.2));
+    ramp.rotation.x = side * Math.atan2(H + 0.15, rampLen);
+    ramp.material = wallMat;
+    ramp.checkCollisions = true;
+  }
+
+  // Low railings along the two un-ramped edges (crouch cover on high ground).
+  for (const side of [-1, 1]) {
+    const rail = MeshBuilder.CreateBox(`terraceRail_${side}`, { width: 0.15, height: 0.85, depth: S }, scene);
+    rail.position.set(cx + side * (S / 2 - 0.15), H + 0.6, cz);
+    rail.material = railMat;
+    rail.checkCollisions = true;
+  }
+
+  // Planter boxes on top — greenery + broken sightlines on the deck.
+  for (const [px, pz] of [[-2.6, -2.6], [2.6, 2.6], [-2.6, 2.6]] as const) {
+    const planter = MeshBuilder.CreateBox(`terracePlanter_${px}_${pz}`, { width: 1.4, height: 0.5, depth: 1.4 }, scene);
+    planter.position.set(cx + px, H + 0.4, cz + pz);
+    planter.material = planterMat;
+    planter.checkCollisions = true;
+    const green = MeshBuilder.CreateSphere(`terraceGreen_${px}_${pz}`, { diameter: 1.5, segments: 6 }, scene);
+    green.scaling.y = 0.55;
+    green.position.set(cx + px, H + 0.85, cz + pz);
+    green.material = plantMat;
+    green.isPickable = false;
+  }
+
+  layout.push({ x: cx, z: cz, size: S + 1, height: H + 1, type: "shophouse" });
+}
+
+/**
+ * Covered walkways linking nearby HDB blocks — the sheltered pedestrian
+ * spine every Singapore estate has. Thin roofs on slim posts running from
+ * block edge to block edge; purely visual dressing (no collision) so
+ * movement stays smooth underneath.
+ */
+function buildCoveredWalkways(scene: Scene, layout: BuildingFootprint[]): void {
+  const roofMat = solidMat(scene, "walkwayRoofMat", new Color3(0.78, 0.77, 0.72));
+  const postMat = solidMat(scene, "walkwayPostMat", new Color3(0.4, 0.42, 0.44));
+  const hdbs = layout.filter((b) => b.type === "hdb");
+  const used = new Set<number>();
+  let built = 0;
+
+  for (let a = 0; a < hdbs.length && built < 7; a++) {
+    if (used.has(a)) continue;
+    for (let b = a + 1; b < hdbs.length; b++) {
+      if (used.has(b)) continue;
+      const A = hdbs[a];
+      const B = hdbs[b];
+      const dx = B.x - A.x;
+      const dz = B.z - A.z;
+      const dist = Math.hypot(dx, dz);
+      const gap = dist - (A.size + B.size) / 2;
+      if (gap < 6 || gap > 22) continue;
+      const ux = dx / dist;
+      const uz = dz / dist;
+      const sx = A.x + ux * (A.size / 2 + 0.4);
+      const sz = A.z + uz * (A.size / 2 + 0.4);
+      const ex = B.x - ux * (B.size / 2 + 0.4);
+      const ez = B.z - uz * (B.size / 2 + 0.4);
+      const mx = (sx + ex) / 2;
+      const mz = (sz + ez) / 2;
+      if (overlapsAnyBuilding(mx, mz, 1, layout)) continue; // another block in the way
+      const len = Math.hypot(ex - sx, ez - sz);
+      const angle = Math.atan2(ex - sx, ez - sz);
+
+      const roof = MeshBuilder.CreateBox(`walkwayRoof_${built}`, { width: 1.8, height: 0.09, depth: len }, scene);
+      roof.position.set(mx, 2.5, mz);
+      roof.rotation.y = angle;
+      roof.material = roofMat;
+      roof.isPickable = false;
+
+      const posts = Math.max(2, Math.floor(len / 3.2));
+      for (let p = 0; p <= posts; p++) {
+        const t = p / posts;
+        const px = sx + (ex - sx) * t;
+        const pz = sz + (ez - sz) * t;
+        for (const side of [-1, 1]) {
+          const perp = angle + Math.PI / 2;
+          const post = MeshBuilder.CreateCylinder(`walkwayPost_${built}_${p}_${side}`, { diameter: 0.09, height: 2.5 }, scene);
+          post.position.set(px + Math.sin(perp) * side * 0.8, 1.25, pz + Math.cos(perp) * side * 0.8);
+          post.material = postMat;
+          post.isPickable = false;
+        }
+      }
+      used.add(a);
+      used.add(b);
+      built++;
+      break;
+    }
+  }
+}
+
+/**
+ * Elevated MRT station on the viaduct: platform, canopy, a stair/lift core
+ * down to a ground-level entrance, and a stopped three-car train — turns the
+ * bare guideway into a recognisable piece of Singapore transit skyline.
+ */
+function buildMrtStation(scene: Scene): void {
+  const z = 92;
+  const cx = 40;
+  const platformY = 10.4;
+
+  const concrete = solidMat(scene, "mrtConcreteMat", new Color3(0.66, 0.66, 0.62));
+  const canopyMat = solidMat(scene, "mrtCanopyMat", new Color3(0.3, 0.45, 0.4));
+  const coreMat = solidMat(scene, "mrtCoreMat", new Color3(0.58, 0.6, 0.58));
+  const trainBodyMat = solidMat(scene, "mrtTrainMat", new Color3(0.85, 0.86, 0.88));
+  const trainStripeMat = solidMat(scene, "mrtStripeMat", new Color3(0.1, 0.5, 0.3));
+  const trainGlassMat = solidMat(scene, "mrtGlassMat", new Color3(0.12, 0.16, 0.2));
+  trainGlassMat.roughness = 0.25;
+
+  // Side platform south of the guideway.
+  const platform = MeshBuilder.CreateBox("mrtPlatform", { width: 24, height: 0.4, depth: 3.4 }, scene);
+  platform.position.set(cx, platformY, z - 3.6);
+  platform.material = concrete;
+  platform.checkCollisions = true;
+
+  // Canopy over the platform on slim columns.
+  const canopy = MeshBuilder.CreateBox("mrtCanopy", { width: 24.6, height: 0.15, depth: 4.4 }, scene);
+  canopy.position.set(cx, platformY + 3.1, z - 3.6);
+  canopy.material = canopyMat;
+  canopy.isPickable = false;
+  for (const px of [-10, -3.4, 3.4, 10]) {
+    const col = MeshBuilder.CreateCylinder(`mrtCanopyCol_${px}`, { diameter: 0.22, height: 3.1 }, scene);
+    col.position.set(cx + px, platformY + 1.55, z - 3.6);
+    col.material = concrete;
+    col.isPickable = false;
+  }
+
+  // Stair/lift core from the platform down to a street-level entrance box.
+  const core = MeshBuilder.CreateBox("mrtCore", { width: 4, height: platformY + 0.4, depth: 5 }, scene);
+  core.position.set(cx - 14.5, (platformY + 0.4) / 2, z - 4.4);
+  core.material = coreMat;
+  core.checkCollisions = true;
+  const entrance = MeshBuilder.CreateBox("mrtEntrance", { width: 5.4, height: 3, depth: 6.4 }, scene);
+  entrance.position.set(cx - 14.5, 1.5, z - 4.4);
+  entrance.material = concrete;
+  entrance.checkCollisions = true;
+  const entranceSign = MeshBuilder.CreateBox("mrtEntranceSign", { width: 4.6, height: 0.6, depth: 0.1 }, scene);
+  entranceSign.position.set(cx - 14.5, 3.4, z - 7.6);
+  entranceSign.material = trainStripeMat;
+  entranceSign.isPickable = false;
+
+  // Stopped three-car train on the guideway.
+  const trainY = platformY + 1.1;
+  for (let car = 0; car < 3; car++) {
+    const carX = cx - 12 + car * 12.4;
+    const body = MeshBuilder.CreateBox(`mrtCar_${car}`, { width: 12, height: 2.4, depth: 2.6 }, scene);
+    body.position.set(carX, trainY, z);
+    body.material = trainBodyMat;
+    body.isPickable = false;
+    const stripe = MeshBuilder.CreateBox(`mrtCarStripe_${car}`, { width: 12.04, height: 0.35, depth: 2.64 }, scene);
+    stripe.position.set(carX, trainY - 0.75, z);
+    stripe.material = trainStripeMat;
+    stripe.isPickable = false;
+    const windows = MeshBuilder.CreateBox(`mrtCarWin_${car}`, { width: 11.4, height: 0.8, depth: 2.66 }, scene);
+    windows.position.set(carX, trainY + 0.35, z);
+    windows.material = trainGlassMat;
+    windows.isPickable = false;
+  }
+}
+
 /** Road surface texture with lane markings baked in — a dashed/solid centre line and edge lines, tiled along the road's length. Far cheaper than per-dash meshes. */
 function createRoadTexture(scene: Scene, name: string, kind: RoadKind): DynamicTexture {
   const w = 128;
@@ -506,7 +942,7 @@ function sidewalkSegments(): Array<{ start: number; end: number }> {
 
 /** Roads laid out per the avenue/street/service hierarchy, with sidewalks either side. */
 function buildRoads(scene: Scene): void {
-  const roadMats: Record<RoadKind, StandardMaterial> = {
+  const roadMats: Record<RoadKind, WorldMaterial> = {
     avenue: matFromTexture(scene, "avenueMat", createRoadTexture(scene, "roadTexAvenue", "avenue")),
     street: matFromTexture(scene, "streetMat", createRoadTexture(scene, "roadTexStreet", "street")),
     service: matFromTexture(scene, "serviceMat", createRoadTexture(scene, "roadTexService", "service")),
@@ -520,7 +956,7 @@ function buildRoads(scene: Scene): void {
   }
 
   const sidewalkTex = createSidewalkTexture(scene, "sidewalkTex");
-  const sidewalkMat = new StandardMaterial("sidewalkMat", scene);
+  const sidewalkMat = new WorldMaterial("sidewalkMat", scene);
   sidewalkMat.diffuseColor = new Color3(0.62, 0.6, 0.55);
   sidewalkMat.specularColor = Color3.Black();
   sidewalkMat.diffuseTexture = sidewalkTex;
@@ -540,11 +976,30 @@ function buildRoads(scene: Scene): void {
     roadNS.material = mat;
     roadNS.isPickable = false;
 
-    const roadEW = MeshBuilder.CreateGround(`roadEW_${i}`, { width: hw * 2, height: MAP_SPAN }, scene);
-    roadEW.position.set(0, 0.015, m);
-    roadEW.rotation.y = Math.PI / 2;
-    roadEW.material = mat;
-    roadEW.isPickable = false;
+    // The centre east-west avenue runs along the monsoon canal corridor — a
+    // single full-length plane would float flat across the sunken cut. It's
+    // built instead as two half-avenues that stop at the canal's concrete
+    // edges (the canal spans x ±42), with a vScale-matched texture so lane
+    // dashes keep the same spacing as every other road.
+    if (Math.abs(m) < 10.9) {
+      const shortTex = createRoadTexture(scene, `roadTexAvenueShort_${i}`, kind);
+      const shortMat = matFromTexture(scene, `avenueShortMat_${i}`, shortTex);
+      const segLen = MAP_SPAN / 2 - 43;
+      shortTex.vScale = Math.max(2, Math.round((18 * segLen) / MAP_SPAN));
+      for (const side of [-1, 1]) {
+        const half = MeshBuilder.CreateGround(`roadEW_${i}_${side}`, { width: hw * 2, height: segLen }, scene);
+        half.position.set(side * (43 + segLen / 2), 0.015, m);
+        half.rotation.y = Math.PI / 2;
+        half.material = shortMat;
+        half.isPickable = false;
+      }
+    } else {
+      const roadEW = MeshBuilder.CreateGround(`roadEW_${i}`, { width: hw * 2, height: MAP_SPAN }, scene);
+      roadEW.position.set(0, 0.015, m);
+      roadEW.rotation.y = Math.PI / 2;
+      roadEW.material = mat;
+      roadEW.isPickable = false;
+    }
 
     // Segmented rather than one continuous strip, so each sidewalk stops at
     // the edge of every cross street instead of paving straight over it.
@@ -580,7 +1035,7 @@ function buildRoads(scene: Scene): void {
 function buildBoulevards(scene: Scene): void {
   const mat = matFromTexture(scene, "boulevardMat", createRoadTexture(scene, "roadTexBoulevard", "street"));
   (mat.diffuseTexture as Texture).vScale = 14;
-  const sidewalkMat = new StandardMaterial("boulevardSidewalkMat", scene);
+  const sidewalkMat = new WorldMaterial("boulevardSidewalkMat", scene);
   sidewalkMat.diffuseColor = new Color3(0.62, 0.6, 0.55);
   sidewalkMat.specularColor = Color3.Black();
   const sidewalkTex = createSidewalkTexture(scene, "boulevardSidewalkTex");
@@ -620,8 +1075,54 @@ function buildBoulevards(scene: Scene): void {
   });
 }
 
-function matFromTexture(scene: Scene, name: string, tex: DynamicTexture): StandardMaterial {
-  const mat = new StandardMaterial(name, scene);
+/**
+ * Raised concrete curb strips along the road-facing edge of every sidewalk
+ * segment, plus periodic dark drain covers set into them — the street-level
+ * detail that makes a road read as engineered rather than painted on. All
+ * non-collidable (no movement jank) and merged into a couple of draw calls by
+ * the static-decor pass.
+ */
+function buildCurbs(scene: Scene): void {
+  const curbMat = solidMat(scene, "curbMat", new Color3(0.68, 0.67, 0.62));
+  const drainMat = solidMat(scene, "drainCoverMat", new Color3(0.16, 0.17, 0.16));
+  const segments = sidewalkSegments();
+  let i = 0;
+  for (const m of MID_LINES) {
+    const hw = roadHalfWidth(roadKind(m));
+    for (const side of [-1, 1]) {
+      const offset = m + side * (hw + 0.08);
+      for (const seg of segments) {
+        const len = seg.end - seg.start;
+        const mid = (seg.start + seg.end) / 2;
+        const curbNS = MeshBuilder.CreateBox(`curbNS_${i}`, { width: 0.22, height: 0.14, depth: len }, scene);
+        curbNS.position.set(offset, 0.07, mid);
+        curbNS.material = curbMat;
+        curbNS.isPickable = false;
+        const curbEW = MeshBuilder.CreateBox(`curbEW_${i}`, { width: len, height: 0.14, depth: 0.22 }, scene);
+        curbEW.position.set(mid, 0.07, offset);
+        curbEW.material = curbMat;
+        curbEW.isPickable = false;
+        i++;
+        // A storm-drain cover every ~14m along avenue/street curbs.
+        if (roadKind(m) !== "service") {
+          for (let d = seg.start + 7; d < seg.end - 3; d += 14) {
+            const drainNS = MeshBuilder.CreateBox(`drainNS_${i}_${d}`, { width: 0.5, height: 0.03, depth: 0.9 }, scene);
+            drainNS.position.set(m + side * (hw - 0.35), 0.028, d);
+            drainNS.material = drainMat;
+            drainNS.isPickable = false;
+            const drainEW = MeshBuilder.CreateBox(`drainEW_${i}_${d}`, { width: 0.9, height: 0.03, depth: 0.5 }, scene);
+            drainEW.position.set(d, 0.028, m + side * (hw - 0.35));
+            drainEW.material = drainMat;
+            drainEW.isPickable = false;
+          }
+        }
+      }
+    }
+  }
+}
+
+function matFromTexture(scene: Scene, name: string, tex: DynamicTexture): WorldMaterial {
+  const mat = new WorldMaterial(name, scene);
   mat.diffuseTexture = tex;
   mat.specularColor = Color3.Black();
   return mat;
@@ -637,16 +1138,16 @@ function buildIntersectionDressing(scene: Scene, layout: BuildingFootprint[]): v
   for (let x = 4; x < 64; x += 12) cctx.fillRect(x, 0, 6, 64);
   crosswalkTex.update();
   crosswalkTex.hasAlpha = true;
-  const crosswalkMat = new StandardMaterial("crosswalkMat", scene);
+  const crosswalkMat = new WorldMaterial("crosswalkMat", scene);
   crosswalkMat.diffuseTexture = crosswalkTex;
   crosswalkMat.useAlphaFromDiffuseTexture = true;
   crosswalkMat.specularColor = Color3.Black();
   crosswalkMat.backFaceCulling = false;
 
-  const poleMat = new StandardMaterial("trafficPoleMat", scene);
+  const poleMat = new WorldMaterial("trafficPoleMat", scene);
   poleMat.diffuseColor = new Color3(0.14, 0.14, 0.15);
   poleMat.specularColor = Color3.Black();
-  const redMat = new StandardMaterial("trafficRedMat", scene);
+  const redMat = new WorldMaterial("trafficRedMat", scene);
   redMat.diffuseColor = new Color3(0.15, 0.1, 0.1);
   redMat.emissiveColor = new Color3(0.7, 0.1, 0.1);
 
@@ -667,9 +1168,9 @@ function placeIntersectionDressing(
   scene: Scene,
   x: number,
   z: number,
-  crosswalkMat: StandardMaterial,
-  poleMat: StandardMaterial,
-  redMat: StandardMaterial,
+  crosswalkMat: WorldMaterial,
+  poleMat: WorldMaterial,
+  redMat: WorldMaterial,
   layout: BuildingFootprint[],
   index: number
 ): void {
@@ -718,7 +1219,7 @@ function placeIntersectionDressing(
 }
 
 function buildStreetSign(scene: Scene, x: number, z: number, label: string, index: number): void {
-  const poleMat = new StandardMaterial(`signPoleMat_${index}`, scene);
+  const poleMat = new WorldMaterial(`signPoleMat_${index}`, scene);
   poleMat.diffuseColor = new Color3(0.2, 0.35, 0.22);
   const pole = MeshBuilder.CreateCylinder(`signPole_${index}`, { diameter: 0.09, height: 2.4 }, scene);
   pole.position.set(x, 1.2, z);
@@ -739,7 +1240,7 @@ function buildStreetSign(scene: Scene, x: number, z: number, label: string, inde
   ctx.fillText(label, 128, 33);
   tex.update();
 
-  const boardMat = new StandardMaterial(`signBoardMat_${index}`, scene);
+  const boardMat = new WorldMaterial(`signBoardMat_${index}`, scene);
   boardMat.diffuseTexture = tex;
   boardMat.specularColor = Color3.Black();
   boardMat.backFaceCulling = false;
@@ -761,7 +1262,7 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
   // doesn't have, so cloned copies came out blank (that's what made buildings look
   // see-through: the facade texture had no image data).
   const shophouseMats = SHOPHOUSE_COLORS.map((color, i) => {
-    const mat = new StandardMaterial(`shophouseMat_${i}`, scene);
+    const mat = new WorldMaterial(`shophouseMat_${i}`, scene);
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
     // Light wall base: the texture MULTIPLIES diffuseColor, so a dark base here
@@ -774,7 +1275,7 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
     return mat;
   });
   const hdbMats = HDB_COLORS.map((color, i) => {
-    const mat = new StandardMaterial(`hdbMat_${i}`, scene);
+    const mat = new WorldMaterial(`hdbMat_${i}`, scene);
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
     const tex = createWindowTexture(scene, `hdbWindowTex_${i}`, "#9a9791"); // light base — multiplies diffuseColor (see shophouse note)
@@ -785,10 +1286,12 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
     return mat;
   });
   const cbdMats = CBD_GLASS_COLORS.map((color, i) => {
-    const mat = new StandardMaterial(`cbdMat_${i}`, scene);
+    const mat = new WorldMaterial(`cbdMat_${i}`, scene);
     mat.diffuseColor = color;
-    mat.specularColor = new Color3(0.5, 0.55, 0.58);
-    mat.specularPower = 64;
+    // Curtain-wall glass: smooth and semi-metallic so the towers pick up the
+    // sky environment as real reflections instead of a flat painted colour.
+    mat.roughness = 0.22;
+    mat.metallic = 0.6;
     const tex = createWindowTexture(scene, `cbdWindowTex_${i}`, "#5f7079"); // glass-mullion grid, kept darker than HDB but no longer near-black
     tex.uScale = 4;
     tex.vScale = 12;
@@ -797,12 +1300,12 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
     return mat;
   });
   const industrialMats = INDUSTRIAL_COLORS.map((color, i) => {
-    const mat = new StandardMaterial(`industrialMat_${i}`, scene);
+    const mat = new WorldMaterial(`industrialMat_${i}`, scene);
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
     return mat;
   });
-  const hdbAccentMat = new StandardMaterial("hdbAccentMat", scene);
+  const hdbAccentMat = new WorldMaterial("hdbAccentMat", scene);
   hdbAccentMat.diffuseColor = HDB_ACCENT;
   hdbAccentMat.specularColor = Color3.Black();
 
@@ -818,6 +1321,29 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
 
     if (type === "hdb") {
       building.material = hdbMats[i % hdbMats.length];
+      // Void deck: the tower stands on pillars over an open, walk-through
+      // ground floor (the classic HDB undercroft) — hard cover, a shaded
+      // flanking route through the block, and a huge realism cue. The tower
+      // box is squashed upward so the space underneath is genuinely open.
+      const voidH = 3.0;
+      building.scaling.y = (height - voidH) / height;
+      building.position.y = voidH + (height - voidH) / 2;
+      const pillarMat = hdbMats[(i + 2) % hdbMats.length];
+      const pHalf = size / 2 - 0.6;
+      for (const px of [-pHalf, 0, pHalf]) {
+        for (const pz of [-pHalf, 0, pHalf]) {
+          if (px === 0 && pz === 0) continue; // centre taken by the lift core
+          const pillar = MeshBuilder.CreateBox(`hdbPillar_${i}_${px}_${pz}`, { width: 0.55, height: voidH, depth: 0.55 }, scene);
+          pillar.position.set(x + px, voidH / 2, z + pz);
+          pillar.material = pillarMat;
+          pillar.checkCollisions = true;
+        }
+      }
+      // Lift/stair core: solid centre block of the void deck.
+      const core = MeshBuilder.CreateBox(`hdbCore_${i}`, { width: 2.8, height: voidH, depth: 2.8 }, scene);
+      core.position.set(x, voidH / 2, z);
+      core.material = hdbAccentMat;
+      core.checkCollisions = true;
       const bands = 3 + Math.floor(height / 12);
       for (let b = 1; b <= bands; b++) {
         const band = MeshBuilder.CreateBox(`hdbBand_${i}_${b}`, { width: size + 0.3, height: 0.4, depth: size + 0.3 }, scene);
@@ -912,11 +1438,11 @@ async function upgradeBuildingsWithModels(scene: Scene, layout: BuildingFootprin
   }
 }
 
-const poleGrayCache = new Map<string, StandardMaterial>();
-function poleGrayMat(scene: Scene, name: string): StandardMaterial {
+const poleGrayCache = new Map<string, WorldMaterial>();
+function poleGrayMat(scene: Scene, name: string): WorldMaterial {
   let mat = poleGrayCache.get(name);
   if (!mat) {
-    mat = new StandardMaterial(name, scene);
+    mat = new WorldMaterial(name, scene);
     mat.diffuseColor = new Color3(0.55, 0.57, 0.6);
     mat.specularColor = Color3.Black();
     poleGrayCache.set(name, mat);
@@ -1116,8 +1642,8 @@ function buildCover(scene: Scene, layout: BuildingFootprint[]): void {
   }
 }
 
-function solidMat(scene: Scene, name: string, color: Color3): StandardMaterial {
-  const mat = new StandardMaterial(name, scene);
+function solidMat(scene: Scene, name: string, color: Color3): WorldMaterial {
+  const mat = new WorldMaterial(name, scene);
   mat.diffuseColor = color;
   mat.specularColor = Color3.Black();
   return mat;
@@ -1181,7 +1707,7 @@ function placeCover(
   x: number,
   z: number,
   rot: number,
-  mats: Record<string, StandardMaterial>,
+  mats: Record<string, WorldMaterial>,
   index: number
 ): void {
   switch (type) {
@@ -1250,7 +1776,7 @@ function placeCover(
  * unchanged). Rounded, jittered bags read as filled hessian sacks instead of
  * the old single rectangular block with a decorative top row.
  */
-function buildSandbagWall(scene: Scene, x: number, z: number, rotY: number, mat: StandardMaterial, index: number): void {
+function buildSandbagWall(scene: Scene, x: number, z: number, rotY: number, mat: WorldMaterial, index: number): void {
   const wall = MeshBuilder.CreateBox(`sandbagWall_${index}`, { width: 3, height: 1.1, depth: 0.8 }, scene);
   wall.position.set(x, 0.55, z);
   wall.rotation.y = rotY;
@@ -1286,10 +1812,10 @@ function buildConcreteBarrier(
   x: number,
   z: number,
   rotY: number,
-  mat: StandardMaterial,
+  mat: WorldMaterial,
   index: number,
   kind: "barrier" | "roadblock",
-  stripeMat?: StandardMaterial
+  stripeMat?: WorldMaterial
 ): void {
   const base = MeshBuilder.CreateBox(`barrierBase_${index}`, { width: 2.4, height: 0.5, depth: 0.7 }, scene);
   base.position.set(x, 0.25, z);
@@ -1327,7 +1853,7 @@ function buildConcreteBarrier(
 }
 
 /** A low stone or concrete wall — waist-high, good long cover along sidewalks and block edges. */
-function buildLowWall(scene: Scene, x: number, z: number, rotY: number, mat: StandardMaterial, index: number, name: string): void {
+function buildLowWall(scene: Scene, x: number, z: number, rotY: number, mat: WorldMaterial, index: number, name: string): void {
   const wall = MeshBuilder.CreateBox(`${name}_${index}`, { width: 3.2, height: 1, depth: 0.5 }, scene);
   wall.position.set(x, 0.5, z);
   wall.rotation.y = rotY;
@@ -1336,7 +1862,7 @@ function buildLowWall(scene: Scene, x: number, z: number, rotY: number, mat: Sta
 }
 
 /** A trimmed hedge row — dense green cover, shorter than a wall but still blocks line of sight when crouched. */
-function buildHedge(scene: Scene, x: number, z: number, rotY: number, mat: StandardMaterial, index: number): void {
+function buildHedge(scene: Scene, x: number, z: number, rotY: number, mat: WorldMaterial, index: number): void {
   const hedge = MeshBuilder.CreateBox(`hedge_${index}`, { width: 3, height: 0.9, depth: 0.7 }, scene);
   hedge.position.set(x, 0.45, z);
   hedge.rotation.y = rotY;
@@ -1345,7 +1871,7 @@ function buildHedge(scene: Scene, x: number, z: number, rotY: number, mat: Stand
 }
 
 /** Shared builder for metal fences (taller, chest-high) and railings (shorter, knee-high) — a line of thin posts with a top rail. */
-function buildFenceLine(scene: Scene, x: number, z: number, rotY: number, height: number, mat: StandardMaterial, index: number, name: string): void {
+function buildFenceLine(scene: Scene, x: number, z: number, rotY: number, height: number, mat: WorldMaterial, index: number, name: string): void {
   const rail = MeshBuilder.CreateBox(`${name}_${index}`, { width: 3, height: 0.06, depth: 0.06 }, scene);
   rail.position.set(x, height, z);
   rail.rotation.y = rotY;
@@ -1372,8 +1898,8 @@ function buildConstructionBarrier(
   x: number,
   z: number,
   rotY: number,
-  mat: StandardMaterial,
-  stripeMat: StandardMaterial,
+  mat: WorldMaterial,
+  stripeMat: WorldMaterial,
   index: number
 ): void {
   const board = MeshBuilder.CreateBox(`conBarrier_${index}`, { width: 2.2, height: 0.9, depth: 0.12 }, scene);
@@ -1407,12 +1933,12 @@ const CAR_COLORS = [new Color3(0.75, 0.1, 0.1), new Color3(0.1, 0.15, 0.5), new 
 /** Parked vehicles along the sidewalks — a mix of civilian traffic plus military vehicles near the camp/checkpoint, placed in guaranteed-clear road-side gaps so none clip into buildings or the carriageway. */
 function buildParkedCars(scene: Scene, layout: BuildingFootprint[]): void {
   const rand = mulberry32(4242);
-  const wheelMat = new StandardMaterial("wheelMat", scene);
+  const wheelMat = new WorldMaterial("wheelMat", scene);
   wheelMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
   wheelMat.specularColor = Color3.Black();
 
   const carMats = CAR_COLORS.map((color, i) => {
-    const mat = new StandardMaterial(`carMat_${i}`, scene);
+    const mat = new WorldMaterial(`carMat_${i}`, scene);
     mat.diffuseColor = color;
     // Tight glossy highlight so painted panels read as car paint, not matte plastic.
     mat.specularColor = new Color3(0.42, 0.42, 0.45);
@@ -1479,37 +2005,37 @@ const VEHICLE_DIMS: Record<VehicleType, { w: number; h: number; d: number; cabin
 
 /** Generalised vehicle builder — body + optional cabin + wheels, dimensions and colour driven by `type`. */
 interface CarDetailMats {
-  glass: StandardMaterial;
-  headlight: StandardMaterial;
-  tail: StandardMaterial;
-  bumper: StandardMaterial;
-  rim: StandardMaterial;
-  shadow: StandardMaterial;
+  glass: WorldMaterial;
+  headlight: WorldMaterial;
+  tail: WorldMaterial;
+  bumper: WorldMaterial;
+  rim: WorldMaterial;
+  shadow: WorldMaterial;
 }
 const carDetailCache = new WeakMap<Scene, CarDetailMats>();
 /** Shared window/light/bumper/rim/shadow materials for cars — built once per scene. */
 function carDetailMats(scene: Scene): CarDetailMats {
   let m = carDetailCache.get(scene);
   if (!m) {
-    const glass = new StandardMaterial("carGlassMat", scene);
+    const glass = new WorldMaterial("carGlassMat", scene);
     glass.diffuseColor = new Color3(0.1, 0.14, 0.18);
     glass.specularColor = new Color3(0.5, 0.55, 0.6);
     glass.specularPower = 64;
     glass.backFaceCulling = false; // wedge windshields stay visible from any angle
-    const headlight = new StandardMaterial("carHeadlightMat", scene);
+    const headlight = new WorldMaterial("carHeadlightMat", scene);
     headlight.diffuseColor = new Color3(0.9, 0.9, 0.8);
     headlight.emissiveColor = new Color3(0.5, 0.5, 0.42);
-    const tail = new StandardMaterial("carTailMat", scene);
+    const tail = new WorldMaterial("carTailMat", scene);
     tail.diffuseColor = new Color3(0.5, 0.05, 0.05);
     tail.emissiveColor = new Color3(0.4, 0.03, 0.03);
     const bumper = solidMat(scene, "carBumperMat", new Color3(0.12, 0.12, 0.13));
-    const rim = new StandardMaterial("carRimMat", scene);
+    const rim = new WorldMaterial("carRimMat", scene);
     rim.diffuseColor = new Color3(0.45, 0.46, 0.48);
     rim.specularColor = new Color3(0.5, 0.5, 0.5);
     rim.specularPower = 48;
     // Soft dark disc under each vehicle — a cheap contact shadow that grounds
     // the car on the road instead of it looking pasted on.
-    const shadow = new StandardMaterial("vehShadowMat", scene);
+    const shadow = new WorldMaterial("vehShadowMat", scene);
     shadow.diffuseColor = Color3.Black();
     shadow.specularColor = Color3.Black();
     shadow.alpha = 0.32;
@@ -1526,10 +2052,10 @@ function buildVehicle(
   x: number,
   z: number,
   rotationY: number,
-  civMat: StandardMaterial,
-  busMat: StandardMaterial,
-  safMat: StandardMaterial,
-  wheelMat: StandardMaterial,
+  civMat: WorldMaterial,
+  busMat: WorldMaterial,
+  safMat: WorldMaterial,
+  wheelMat: WorldMaterial,
   index: number
 ): void {
   const dims = VEHICLE_DIMS[type];
@@ -1705,17 +2231,17 @@ function buildVehicle(
 
 /** Streetlights, trash bins, and bus stops along the roads/blocks — small set-dressing props, not collidable except the lamp pole. */
 function buildStreetFurniture(scene: Scene, layout: BuildingFootprint[]): void {
-  const poleMat = new StandardMaterial("lampPoleMat", scene);
+  const poleMat = new WorldMaterial("lampPoleMat", scene);
   poleMat.diffuseColor = new Color3(0.12, 0.12, 0.13);
   poleMat.specularColor = Color3.Black();
-  const lampMat = new StandardMaterial("lampHeadMat", scene);
+  const lampMat = new WorldMaterial("lampHeadMat", scene);
   lampMat.diffuseColor = new Color3(0.9, 0.85, 0.6);
   lampMat.emissiveColor = new Color3(0.5, 0.45, 0.25);
 
-  const binMat = new StandardMaterial("binMat", scene);
+  const binMat = new WorldMaterial("binMat", scene);
   binMat.diffuseColor = new Color3(0.15, 0.35, 0.2);
   binMat.specularColor = Color3.Black();
-  const binLidMat = new StandardMaterial("binLidMat", scene);
+  const binLidMat = new WorldMaterial("binLidMat", scene);
   binLidMat.diffuseColor = new Color3(0.1, 0.25, 0.14);
 
   const shelterMat = solidMat(scene, "busShelterMat", new Color3(0.4, 0.45, 0.48));
@@ -1764,7 +2290,7 @@ function buildStreetFurniture(scene: Scene, layout: BuildingFootprint[]): void {
   }
 }
 
-function buildStreetlight(scene: Scene, x: number, z: number, poleMat: StandardMaterial, lampMat: StandardMaterial, index: number): void {
+function buildStreetlight(scene: Scene, x: number, z: number, poleMat: WorldMaterial, lampMat: WorldMaterial, index: number): void {
   const pole = MeshBuilder.CreateCylinder(`lampPole_${index}`, { diameter: 0.18, height: 5.5 }, scene);
   pole.position.set(x, 2.75, z);
   pole.material = poleMat;
@@ -1782,7 +2308,7 @@ function buildStreetlight(scene: Scene, x: number, z: number, poleMat: StandardM
   head.isPickable = false;
 }
 
-function buildTrashBin(scene: Scene, x: number, z: number, binMat: StandardMaterial, lidMat: StandardMaterial, index: number): void {
+function buildTrashBin(scene: Scene, x: number, z: number, binMat: WorldMaterial, lidMat: WorldMaterial, index: number): void {
   const body = MeshBuilder.CreateCylinder(`trashBin_${index}`, { diameter: 0.6, height: 0.9 }, scene);
   body.position.set(x, 0.45, z);
   body.material = binMat;
@@ -1795,7 +2321,7 @@ function buildTrashBin(scene: Scene, x: number, z: number, binMat: StandardMater
 }
 
 /** Simple bus shelter: roof + two posts + a bench, Singapore-style covered waiting area. */
-function buildBusStop(scene: Scene, x: number, z: number, rotY: number, shelterMat: StandardMaterial, benchMat: StandardMaterial, index: number): void {
+function buildBusStop(scene: Scene, x: number, z: number, rotY: number, shelterMat: WorldMaterial, benchMat: WorldMaterial, index: number): void {
   const roof = MeshBuilder.CreateBox(`busStopRoof_${index}`, { width: 2.6, height: 0.1, depth: 1.3 }, scene);
   roof.position.set(x, 2.3, z);
   roof.rotation.y = rotY;
@@ -1970,7 +2496,7 @@ function buildContainerYard(scene: Scene): void {
   beam.isPickable = false;
 
   const poleMat = solidMat(scene, "yardFloodPoleMat", new Color3(0.2, 0.2, 0.22));
-  const lampMat = new StandardMaterial("yardFloodLampMat", scene);
+  const lampMat = new WorldMaterial("yardFloodLampMat", scene);
   lampMat.diffuseColor = new Color3(0.9, 0.88, 0.7);
   lampMat.emissiveColor = new Color3(0.5, 0.48, 0.3);
   for (const [lx, lz] of [[originX - 3, originZ - 3], [originX + perRow * 6.4, originZ - 3]] as const) {
@@ -2140,7 +2666,7 @@ function createJungleFloorTexture(scene: Scene): DynamicTexture {
 
 /** Park/forest district: jungle floor, a lake, a canal, dense layered tropical canopy, undergrowth, fallen logs, benches, a playground, and the camp clearing. */
 function buildGardenDistrict(scene: Scene): void {
-  const floorMat = new StandardMaterial("jungleFloorMat", scene);
+  const floorMat = new WorldMaterial("jungleFloorMat", scene);
   floorMat.diffuseColor = new Color3(0.36, 0.4, 0.3); // multiplies the texture; kept light so the texture reads, not muddy black
   floorMat.specularColor = Color3.Black();
   const floorTex = createJungleFloorTexture(scene);
@@ -2236,10 +2762,10 @@ function buildPlayground(scene: Scene, cx: number, cz: number): void {
 }
 
 function buildLake(scene: Scene, x: number, z: number, diameter: number): void {
-  const waterMat = new StandardMaterial("waterMat", scene);
+  const waterMat = new WorldMaterial("waterMat", scene);
   waterMat.diffuseColor = new Color3(0.15, 0.35, 0.5);
-  waterMat.specularColor = new Color3(0.6, 0.7, 0.75);
-  waterMat.specularPower = 32;
+  // Smooth dielectric: the lake mirrors the sky environment for a real water read.
+  waterMat.roughness = 0.08;
   waterMat.alpha = 0.9;
 
   const water = MeshBuilder.CreateDisc("lake", { radius: diameter / 2, tessellation: 24 }, scene);
@@ -2249,7 +2775,7 @@ function buildLake(scene: Scene, x: number, z: number, diameter: number): void {
   water.isPickable = false;
 
   // Low invisible kerb ring so the player can't walk out onto the water.
-  const kerbMat = new StandardMaterial("kerbMat", scene);
+  const kerbMat = new WorldMaterial("kerbMat", scene);
   kerbMat.diffuseColor = new Color3(0.5, 0.48, 0.42);
   const segments = 16;
   for (let i = 0; i < segments; i++) {
@@ -2265,9 +2791,9 @@ function buildLake(scene: Scene, x: number, z: number, diameter: number): void {
 
 /** A park-connector canal running along the garden district's eastern edge, railed off with metal railings. */
 function buildCanal(scene: Scene): void {
-  const waterMat = new StandardMaterial("canalWaterMat", scene);
+  const waterMat = new WorldMaterial("canalWaterMat", scene);
   waterMat.diffuseColor = new Color3(0.14, 0.3, 0.42);
-  waterMat.specularColor = new Color3(0.4, 0.5, 0.55);
+  waterMat.roughness = 0.12;
   waterMat.alpha = 0.9;
 
   const canalX = GARDEN_BOUNDS.maxX - 3;
@@ -2319,7 +2845,7 @@ function buildDrainageCanal(scene: Scene): void {
   floor.checkCollisions = true;
 
   // Sludge / storm-water strip down the centre of the base (visual only).
-  const waterMat = new StandardMaterial("drainWaterMat", scene);
+  const waterMat = new WorldMaterial("drainWaterMat", scene);
   waterMat.diffuseColor = new Color3(0.16, 0.22, 0.18);
   waterMat.specularColor = new Color3(0.3, 0.35, 0.32);
   waterMat.alpha = 0.85;
@@ -2346,6 +2872,19 @@ function buildDrainageCanal(scene: Scene): void {
     endWall.position.set(side * halfLen, floorY / 2, cz);
     endWall.material = concreteDark;
     endWall.checkCollisions = true;
+  }
+
+  // Culvert bridge decks where north-south roads cross the cut — the road
+  // surface rides on a concrete deck (as real roads bridge monsoon drains)
+  // instead of hovering over the void. The canal becomes trench segments
+  // between crossings, still entered/exited via the embankment slopes.
+  for (const m of MID_LINES) {
+    if (Math.abs(m) > 41) continue;
+    const hw = roadHalfWidth(roadKind(m));
+    const deck = MeshBuilder.CreateBox(`drainCulvert_${m}`, { width: hw * 2 + 1.6, height: 0.6, depth: outerHalfW * 2 + 0.6 }, scene);
+    deck.position.set(m, -0.29, cz);
+    deck.material = concrete;
+    deck.checkCollisions = true;
   }
 
   // Two footbridges over the cut, with railings — keep the halves connected.
@@ -2382,10 +2921,10 @@ function buildDrainageCanal(scene: Scene): void {
  */
 function buildTrees(scene: Scene, centerX: number, centerZ: number, width: number, depth: number): void {
   const rand = mulberry32(99);
-  const trunkMat = new StandardMaterial("trunkMat", scene);
+  const trunkMat = new WorldMaterial("trunkMat", scene);
   trunkMat.diffuseColor = new Color3(0.28, 0.2, 0.13);
   trunkMat.specularColor = Color3.Black();
-  const vineMat = new StandardMaterial("vineMat", scene);
+  const vineMat = new WorldMaterial("vineMat", scene);
   vineMat.diffuseColor = new Color3(0.15, 0.28, 0.13);
   vineMat.specularColor = Color3.Black();
 
@@ -2397,7 +2936,7 @@ function buildTrees(scene: Scene, centerX: number, centerZ: number, width: numbe
     new Color3(0.14, 0.34, 0.22),
   ];
   const canopyMats = canopyPalette.map((c, i) => {
-    const mat = new StandardMaterial(`canopyMat_${i}`, scene);
+    const mat = new WorldMaterial(`canopyMat_${i}`, scene);
     mat.diffuseColor = c;
     mat.specularColor = Color3.Black();
     return mat;
@@ -2472,19 +3011,19 @@ function buildUndergrowth(scene: Scene, centerX: number, centerZ: number, width:
     new Color3(0.2, 0.34, 0.17),
     new Color3(0.13, 0.26, 0.16),
   ].map((c, i) => {
-    const mat = new StandardMaterial(`bushMat_${i}`, scene);
+    const mat = new WorldMaterial(`bushMat_${i}`, scene);
     mat.diffuseColor = c;
     mat.specularColor = Color3.Black();
     return mat;
   });
-  const fernMat = new StandardMaterial("fernMat", scene);
+  const fernMat = new WorldMaterial("fernMat", scene);
   fernMat.diffuseColor = new Color3(0.22, 0.4, 0.18);
   fernMat.specularColor = Color3.Black();
   fernMat.backFaceCulling = false;
 
   const flowerColors = [new Color3(0.85, 0.2, 0.25), new Color3(0.95, 0.8, 0.15), new Color3(0.8, 0.4, 0.75)];
   const flowerMats = flowerColors.map((c, i) => {
-    const mat = new StandardMaterial(`flowerMat_${i}`, scene);
+    const mat = new WorldMaterial(`flowerMat_${i}`, scene);
     mat.diffuseColor = c;
     mat.emissiveColor = c.scale(0.25);
     mat.specularColor = Color3.Black();
@@ -2546,7 +3085,7 @@ function buildUndergrowth(scene: Scene, centerX: number, centerZ: number, width:
 /** Fallen tree trunks scattered on the jungle floor — decay/clutter authenticity, doubling as waist-high cover. */
 function buildFallenLogs(scene: Scene, centerX: number, centerZ: number, width: number, depth: number): void {
   const rand = mulberry32(717);
-  const logMat = new StandardMaterial("fallenLogMat", scene);
+  const logMat = new WorldMaterial("fallenLogMat", scene);
   logMat.diffuseColor = new Color3(0.24, 0.18, 0.11);
   logMat.specularColor = Color3.Black();
 
@@ -2578,7 +3117,7 @@ function buildFallenLogs(scene: Scene, centerX: number, centerZ: number, width: 
  * buildParkedCars) representing the logistics tail for the defence line.
  */
 function buildCamp(scene: Scene): void {
-  const dirtMat = new StandardMaterial("campDirtMat", scene);
+  const dirtMat = new WorldMaterial("campDirtMat", scene);
   dirtMat.diffuseColor = new Color3(0.32, 0.28, 0.2);
   dirtMat.specularColor = Color3.Black();
   const clearing = MeshBuilder.CreateGround("campClearing", { width: 24, height: 24 }, scene);
@@ -2596,14 +3135,14 @@ function buildCamp(scene: Scene): void {
 
   buildCampFence(scene);
 
-  const poleMat = new StandardMaterial("campFlagpoleMat", scene);
+  const poleMat = new WorldMaterial("campFlagpoleMat", scene);
   poleMat.diffuseColor = new Color3(0.15, 0.15, 0.16);
   const pole = MeshBuilder.CreateCylinder("campFlagpole", { diameter: 0.14, height: 5 }, scene);
   pole.position.set(CAMP_POSITION.x + 7, 2.5, CAMP_POSITION.z - 6);
   pole.material = poleMat;
   pole.checkCollisions = true;
 
-  const flagMat = new StandardMaterial("campFlagMat", scene);
+  const flagMat = new WorldMaterial("campFlagMat", scene);
   flagMat.diffuseColor = new Color3(0.85, 0.1, 0.1);
   flagMat.backFaceCulling = false;
   const flag = MeshBuilder.CreatePlane("campFlag", { width: 1.1, height: 0.7 }, scene);
@@ -2613,7 +3152,7 @@ function buildCamp(scene: Scene): void {
   flag.isPickable = false;
 
   // Supply crates + a parked SAF Land Rover to the side of the tent.
-  const crateMat = new StandardMaterial("campCrateMat", scene);
+  const crateMat = new WorldMaterial("campCrateMat", scene);
   crateMat.diffuseColor = new Color3(0.38, 0.33, 0.22);
   crateMat.specularColor = Color3.Black();
   const cratePositions: Array<[number, number]> = [
@@ -2708,7 +3247,7 @@ function buildOpsArea(scene: Scene, cx: number, cz: number): void {
   const metalMat = solidMat(scene, "opsMetalMat", new Color3(0.28, 0.3, 0.3));
   const woodMat = solidMat(scene, "opsWoodMat", new Color3(0.35, 0.28, 0.18));
   const crateMat = solidMat(scene, "opsCrateMat", new Color3(0.4, 0.35, 0.24));
-  const mapMat = new StandardMaterial("opsMapMat", scene);
+  const mapMat = new WorldMaterial("opsMapMat", scene);
   mapMat.diffuseTexture = createOpsMapTexture(scene);
   mapMat.specularColor = Color3.Black();
   mapMat.backFaceCulling = false;
@@ -2803,7 +3342,7 @@ function createOpsMapTexture(scene: Scene): DynamicTexture {
  */
 function buildCampFence(scene: Scene): void {
   const postMat = solidMat(scene, "campFencePostMat", new Color3(0.24, 0.25, 0.23));
-  const meshMat = new StandardMaterial("campFenceMeshMat", scene);
+  const meshMat = new WorldMaterial("campFenceMeshMat", scene);
   meshMat.diffuseColor = new Color3(0.5, 0.52, 0.5);
   meshMat.specularColor = Color3.Black();
   meshMat.alpha = 0.4; // see-through chain-link
@@ -2845,17 +3384,17 @@ function buildCampFence(scene: Scene): void {
   segment(cx + half, cz + gateHalf, cx + half, cz + half);
 }
 
-const tentCanvasMat = new WeakMap<Scene, StandardMaterial>();
-function getTentMats(scene: Scene): { canvas: StandardMaterial; floor: StandardMaterial } {
+const tentCanvasMat = new WeakMap<Scene, WorldMaterial>();
+function getTentMats(scene: Scene): { canvas: WorldMaterial; floor: WorldMaterial } {
   let canvas = tentCanvasMat.get(scene);
   if (!canvas) {
-    canvas = new StandardMaterial("tentCanvasMat", scene);
+    canvas = new WorldMaterial("tentCanvasMat", scene);
     canvas.diffuseColor = new Color3(0.28, 0.32, 0.22); // olive canvas
     canvas.specularColor = Color3.Black();
     canvas.backFaceCulling = false; // visible from inside too
     tentCanvasMat.set(scene, canvas);
   }
-  const floor = new StandardMaterial("tentFloorMat", scene);
+  const floor = new WorldMaterial("tentFloorMat", scene);
   floor.diffuseColor = new Color3(0.2, 0.18, 0.14);
   floor.specularColor = Color3.Black();
   return { canvas, floor };
@@ -2926,7 +3465,7 @@ function buildRidgeTent(
 }
 
 function buildBenches(scene: Scene, centerX: number, centerZ: number): void {
-  const benchMat = new StandardMaterial("benchMat", scene);
+  const benchMat = new WorldMaterial("benchMat", scene);
   benchMat.diffuseColor = new Color3(0.35, 0.28, 0.18);
   benchMat.specularColor = Color3.Black();
 
@@ -2946,11 +3485,11 @@ function buildBenches(scene: Scene, centerX: number, centerZ: number): void {
 
 /** A low-poly Marina-Bay-Sands-inspired landmark: three towers + a "SkyPark" deck. Evocative, not literal. */
 function buildMbsLandmark(scene: Scene): void {
-  const towerMat = new StandardMaterial("mbsTowerMat", scene);
+  const towerMat = new WorldMaterial("mbsTowerMat", scene);
   towerMat.diffuseColor = new Color3(0.35, 0.4, 0.46);
   towerMat.specularColor = new Color3(0.4, 0.45, 0.5);
 
-  const deckMat = new StandardMaterial("mbsDeckMat", scene);
+  const deckMat = new WorldMaterial("mbsDeckMat", scene);
   deckMat.diffuseColor = new Color3(0.2, 0.55, 0.3);
   deckMat.specularColor = new Color3(0.3, 0.3, 0.3);
 
@@ -2968,7 +3507,7 @@ function buildMbsLandmark(scene: Scene): void {
   deck.material = deckMat;
   deck.checkCollisions = true;
 
-  const railMat = new StandardMaterial("mbsRailMat", scene);
+  const railMat = new WorldMaterial("mbsRailMat", scene);
   railMat.diffuseColor = new Color3(0.7, 0.75, 0.7);
   const rail = MeshBuilder.CreateBox("mbsDeckRail", { width: 42, height: 0.4, depth: 12.4 }, scene);
   rail.position.set(34, towerHeight + 2.4, 88);

@@ -33,10 +33,10 @@ export function attachCinematicPipeline(scene: Scene, camera: Camera): DefaultRe
   const ip = pipeline.imageProcessing;
   ip.toneMappingEnabled = true;
   ip.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
-  // ACES crushes shadows hard on flat-lit low-poly scenes, so run it bright
-  // and nearly contrast-neutral — the curve itself supplies the filmic feel.
-  ip.exposure = 1.55;
-  ip.contrast = 1.02;
+  // The world renders PBR with sky IBL + a real sun now, so exposure sits
+  // closer to neutral than the old flat-lit Standard-material tuning did.
+  ip.exposure = 1.15;
+  ip.contrast = 1.08;
   ip.vignetteEnabled = true;
   ip.vignetteWeight = 1.3;
   ip.vignetteColor = new Color4(0, 0, 0, 0);

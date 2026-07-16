@@ -64,6 +64,7 @@ interface OpforAssets {
   helmetMat: StandardMaterial;
   bootMat: StandardMaterial;
   gunMetalMat: StandardMaterial;
+  contactShadowMat: StandardMaterial;
 }
 const opforAssetCache = new WeakMap<Scene, OpforAssets>();
 
@@ -85,6 +86,14 @@ function getOpforAssets(scene: Scene): OpforAssets {
     helmetMat: litMat(scene, "opforHelmetMat", new Color3(0.14, 0.15, 0.11), 0.35),
     bootMat: litMat(scene, "opforBootMat", new Color3(0.08, 0.08, 0.08), 0.3),
     gunMetalMat: litMat(scene, "opforGunMetalMat", new Color3(0.1, 0.1, 0.12), 0.3),
+    contactShadowMat: (() => {
+      const mat = new StandardMaterial("opforShadowMat", scene);
+      mat.diffuseColor = Color3.Black();
+      mat.specularColor = Color3.Black();
+      mat.alpha = 0.34;
+      mat.disableLighting = true;
+      return mat;
+    })(),
   };
   opforAssetCache.set(scene, assets);
   return assets;
@@ -199,6 +208,15 @@ export class EnemyInstance implements Damageable {
     const vr = this.visualRoot;
 
     const assets = getOpforAssets(scene);
+
+    // Soft contact shadow under the feet — grounds the soldier on whatever
+    // surface it stands on (the static sun shadow map only covers the level).
+    const contactShadow = MeshBuilder.CreateDisc(`${this.id}_shadow`, { radius: 0.42, tessellation: 16 }, scene);
+    contactShadow.rotation.x = Math.PI / 2;
+    contactShadow.position.y = 0.04;
+    contactShadow.material = assets.contactShadowMat;
+    contactShadow.parent = vr;
+    contactShadow.isPickable = false;
 
     // Per-enemy uniform material: loud hostile-orange with an emissive floor so
     // the soldier is easy to spot at range and can never render white or black.
@@ -441,6 +459,12 @@ export class EnemyInstance implements Damageable {
     }
 
     this.movingThisFrame = false;
+
+    // Gravity: soldiers walk with moveWithCollisions on the XZ plane, which
+    // holds Y constant — over sunken ground (the monsoon canal, embankments)
+    // they hovered mid-air. A constant downward collision step keeps their
+    // feet planted on whatever surface is actually below them.
+    this.root.moveWithCollisions(new Vector3(0, -6 * dt, 0));
 
     // Safety net against getting trapped in geometry or shoved out of bounds by
     // a blast/knockback: periodically confirm we're on walkable ground and,
