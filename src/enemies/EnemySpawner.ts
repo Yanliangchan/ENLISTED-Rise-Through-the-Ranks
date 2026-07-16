@@ -78,6 +78,9 @@ export class EnemyManager {
     private readonly callbacks: EnemyManagerCallbacks = {}
   ) {}
 
+  /** Set by main.ts so blast/splash hits also pop floating damage numbers. */
+  onEnemyDamaged?: (worldPos: Vector3, amount: number) => void;
+
   get aliveCount(): number {
     return this.enemies.filter((e) => !e.isDead).length;
   }
@@ -250,7 +253,10 @@ export class EnemyManager {
       const dist = Vector3.Distance(enemy.root.position, center);
       if (dist >= radiusM) continue;
       const dmg = blastDamageAtDistance(centreDamage, dist, radiusM);
-      if (dmg > 0) enemy.takeDamage(dmg, false);
+      if (dmg > 0) {
+        enemy.takeDamage(dmg, false);
+        this.onEnemyDamaged?.(enemy.root.position.add(new Vector3(0, 1.1, 0)), dmg);
+      }
     }
   }
 

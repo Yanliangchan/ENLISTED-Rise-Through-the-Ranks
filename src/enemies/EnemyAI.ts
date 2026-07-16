@@ -209,7 +209,7 @@ export class EnemyInstance implements Damageable {
     this.bodyMesh.position.y = 0.98;
     this.bodyMesh.material = this.bodyMat;
     this.bodyMesh.parent = vr;
-    this.bodyMesh.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
+    this.bodyMesh.metadata = { damageable: this, hitZone: "body", isHeadshotMesh: false } satisfies HitMeshMetadata;
 
     // Plate carrier / chest rig with a row of mag pouches.
     const vest = MeshBuilder.CreateBox(`${this.id}_vest`, { width: 0.54, height: 0.58, depth: 0.14 }, scene);
@@ -229,7 +229,7 @@ export class EnemyInstance implements Damageable {
     this.headMesh.position.y = 1.67;
     this.headMesh.material = assets.skinMat;
     this.headMesh.parent = vr;
-    this.headMesh.metadata = { damageable: this, isHeadshotMesh: true } satisfies HitMeshMetadata;
+    this.headMesh.metadata = { damageable: this, hitZone: "head", isHeadshotMesh: true } satisfies HitMeshMetadata;
 
     const helmet = MeshBuilder.CreateSphere(`${this.id}_helmet`, { diameter: 0.33, slice: 0.62 }, scene);
     helmet.position.y = 1.78;
@@ -241,6 +241,8 @@ export class EnemyInstance implements Damageable {
     shoulders.position.y = 1.42;
     shoulders.material = this.bodyMat;
     shoulders.parent = vr;
+    // Non-pickable so a shot here passes through to the torso hitbox behind it
+    // rather than landing on an un-tagged mesh and dealing no damage.
     shoulders.isPickable = false;
 
     // Arms (hittable) with gloves.
@@ -249,7 +251,7 @@ export class EnemyInstance implements Damageable {
       arm.position.set(x, 1.06, 0.02);
       arm.material = this.bodyMat;
       arm.parent = vr;
-      arm.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
+      arm.metadata = { damageable: this, hitZone: "limb", isHeadshotMesh: false } satisfies HitMeshMetadata;
       this.limbMeshes.push(arm);
       const hand = MeshBuilder.CreateBox(`${this.id}_hand_${x}`, { width: 0.13, height: 0.14, depth: 0.15 }, scene);
       hand.position.set(0, -0.39, 0.06);
@@ -263,7 +265,7 @@ export class EnemyInstance implements Damageable {
       leg.position.set(x, 0.42, 0);
       leg.material = this.bodyMat;
       leg.parent = vr;
-      leg.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
+      leg.metadata = { damageable: this, hitZone: "limb", isHeadshotMesh: false } satisfies HitMeshMetadata;
       this.limbMeshes.push(leg);
       this.legMeshes.push(leg);
       const boot = MeshBuilder.CreateBox(`${this.id}_boot_${x}`, { width: 0.22, height: 0.14, depth: 0.34 }, scene);

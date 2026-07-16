@@ -10,7 +10,7 @@ import type { InputManager } from "@/core/InputManager";
 import type { AudioManager } from "@/core/AudioManager";
 import type { GameState } from "@/core/GameState";
 import type { EnemyManager } from "@/enemies/EnemySpawner";
-import type { HitMeshMetadata } from "@/weapons/Damageable";
+import { ZONE_MULTIPLIER, type HitMeshMetadata, type HitZone } from "@/weapons/Damageable";
 import type { ScopeOverlay } from "@/ui/ScopeOverlay";
 
 const BASE_FOV = 1.1;
@@ -30,6 +30,8 @@ export interface WeaponControllerCallbacks {
   onReloadEnd?: (weapon: Weapon) => void;
   onEmptyClick?: () => void;
   onSecondaryFire?: (weapon: Weapon, effective: EffectiveStats) => void;
+  /** Fired for every damaging hit so the HUD can pop a floating damage number. */
+  onDamageNumber?: (worldPos: Vector3, amount: number, zone: HitZone) => void;
 }
 
 /**
@@ -452,12 +454,17 @@ export class WeaponController {
       if (meta?.damageable && !meta.damageable.isDead && !this.player.inSafeZone) {
         const distance = pick.distance;
         const dmg = damageAtRange(this.effective.damage, distance, this.weapon.falloff);
-        const isHeadshot = !!meta.isHeadshotMesh;
-        const finalDmg = isHeadshot ? dmg * this.weapon.headshotMultiplier : dmg;
+        // Zone multipliers: head keeps the weapon's own headshot bonus (>= 2.0×),
+        // body 1.5×, limbs 1.0×. Any hit on an enemy always deals damage.
+        const zone: HitZone = meta.hitZone ?? (meta.isHeadshotMesh ? "head" : "body");
+        const isHeadshot = zone === "head";
+        const zoneMult = zone === "head" ? this.weapon.headshotMultiplier : ZONE_MULTIPLIER[zone];
+        const finalDmg = dmg * zoneMult;
         meta.damageable.takeDamage(finalDmg, isHeadshot, origin);
         this.audio.hitmarker();
         if (isHeadshot) this.audio.headshot();
         this.callbacks.onHit?.(finalDmg, isHeadshot);
+        this.callbacks.onDamageNumber?.(pick.pickedPoint.clone(), finalDmg, zone);
         if (meta.damageable.isDead) this.callbacks.onKill?.(meta.damageable.id);
         this.spawnImpactEffect(pick.pickedPoint, true);
       } else {
@@ -500,12 +507,14 @@ export class WeaponController {
 
   private spawnMuzzleFlash(): void {
     if (this.effective.suppressed || !this.activeViewmodel) return;
-    // No flash at all once the scope lens has taken over the view — nothing may
-    // intrude on the magnified sight picture.
+    // No flash once the sight picture is what matters: fully suppressed through
+    // the scope lens, and skipped entirely once mostly aimed in on ANY optic
+    // (and in any stance, including crouched) so it can never sit over the
+    // reticle/housing. Bullet trajectory is unaffected — the shot rays from the
+    // camera centre regardless of the flash.
     if (this.isScopedIn) return;
-    // Small and brief, and smaller still while aimed: at ADS the muzzle sits
-    // just under the sightline, so the flash must never balloon over the optic
-    // or wash out the reticle.
+    if (this.adsBlend > 0.7) return;
+    // Small and brief, and smaller still while partway into ADS.
     const radius = 0.034 * (1 - 0.55 * this.adsBlend);
     const flash = MeshBuilder.CreateDisc("muzzleFlash", { radius, tessellation: 6 }, this.scene);
     flash.parent = this.activeViewmodel.muzzle;

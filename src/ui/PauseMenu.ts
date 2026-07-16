@@ -2,13 +2,16 @@ import type { Settings } from "@/core/Settings";
 import type { AudioManager } from "@/core/AudioManager";
 import type { PlayerController } from "@/player/PlayerController";
 import type { GameState } from "@/core/GameState";
+import type { PlayerStats } from "@/core/PlayerStats";
 
 /**
- * Escape-triggered pause overlay: sensitivity/volume settings + a reset-save
- * escape hatch. Releases Pointer Lock while open.
+ * Escape-triggered pause overlay: operator identity + lifetime stats,
+ * sensitivity/volume settings, and a reset-save escape hatch. Releases Pointer
+ * Lock while open.
  */
 export class PauseMenu {
   private root: HTMLDivElement;
+  private statsBody: HTMLDivElement | null = null;
   visible = false;
 
   constructor(
@@ -16,7 +19,9 @@ export class PauseMenu {
     private readonly settings: Settings,
     private readonly audio: AudioManager,
     private readonly player: PlayerController,
-    private readonly gameState: GameState
+    private readonly gameState: GameState,
+    private readonly username?: string,
+    private readonly stats?: PlayerStats
   ) {
     this.root = document.createElement("div");
     this.root.style.cssText = `
@@ -32,9 +37,22 @@ export class PauseMenu {
     `;
 
     const title = document.createElement("div");
-    title.textContent = "PAUSED";
+    title.textContent = this.username ? `PAUSED — ${this.username}` : "PAUSED";
     title.style.cssText = "font-size:22px; font-weight:bold; letter-spacing:2px; margin-bottom:18px;";
     panel.appendChild(title);
+
+    if (this.stats) {
+      const statsBox = document.createElement("div");
+      statsBox.style.cssText =
+        "background:#0a120a; border:1px solid #2c3a26; padding:12px 14px; margin-bottom:18px; font-size:13px; line-height:1.7;";
+      const heading = document.createElement("div");
+      heading.textContent = "OPERATOR RECORD";
+      heading.style.cssText = "color:#9fc78a; letter-spacing:2px; font-size:11px; margin-bottom:6px;";
+      statsBox.appendChild(heading);
+      this.statsBody = document.createElement("div");
+      statsBox.appendChild(this.statsBody);
+      panel.appendChild(statsBox);
+    }
 
     panel.appendChild(this.slider("Mouse sensitivity", 0.3, 2.5, 0.05, settings.data.sensitivity, (v) => {
       settings.data.sensitivity = v;
@@ -99,8 +117,26 @@ export class PauseMenu {
     return `background:${bg}; color:#eaf0e6; border:1px solid rgba(255,255,255,0.15); padding:8px 16px; font-family:inherit; font-size:14px; cursor:pointer; width:100%; margin-top:8px;`;
   }
 
+  private renderStats(): void {
+    if (!this.stats || !this.statsBody) return;
+    const s = this.stats.data;
+    const row = (k: string, v: string) =>
+      `<div style="display:flex; justify-content:space-between;"><span style="color:#8fa585;">${k}</span><span>${v}</span></div>`;
+    const mins = Math.floor(s.playtimeSec / 60);
+    this.statsBody.innerHTML =
+      row("Kills", String(s.kills)) +
+      row("Headshots", String(s.headshots)) +
+      row("Accuracy", `${this.stats.accuracyPct}%`) +
+      row("Highest wave", String(s.highestWave)) +
+      row("Waves cleared", String(s.wavesCleared)) +
+      row("Deaths", String(s.deaths)) +
+      row("Credits earned", String(s.creditsEarned)) +
+      row("Time in sector", `${mins} min`);
+  }
+
   show(): void {
     this.visible = true;
+    this.renderStats();
     this.root.style.display = "flex";
     document.exitPointerLock();
   }

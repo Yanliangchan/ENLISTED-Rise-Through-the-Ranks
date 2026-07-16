@@ -353,9 +353,14 @@ function buildStrongpoints(scene: Scene, layout: BuildingFootprint[]): void {
     }
   }
   candidates.sort((a, b) => a.d - b.d);
-  candidates.slice(0, 3).forEach((c, i) => buildStrongpoint(scene, c.x, c.z, i));
+  // More anchor pieces than before (3 -> 6) spread across the inner ring, so
+  // every central approach has an enterable strongpoint with rooftop high
+  // ground to fight around — the map reads as a series of tactical nodes rather
+  // than one open plaza.
+  const chosen = candidates.slice(0, 6);
+  chosen.forEach((c, i) => buildStrongpoint(scene, c.x, c.z, i));
   // Register footprints so cover/vehicle scattering treats them like buildings.
-  for (const c of candidates.slice(0, 3)) {
+  for (const c of chosen) {
     layout.push({ x: c.x, z: c.z, size: 10, height: 4, type: "industrial" });
   }
 }
@@ -1095,6 +1100,19 @@ function buildCover(scene: Scene, layout: BuildingFootprint[]): void {
     const gx = c.acrossX ? c.x + 4.6 : c.x + 2.2;
     const gz = c.acrossX ? c.z + 2.2 : c.z + 4.6;
     placeCover(scene, "sandbags", gx, gz, rot, mats, placed++);
+  }
+
+  // Break up the open plaza itself: a loose ring of fighting positions ~13-16m
+  // out from centre gives cover to hold or cross the middle instead of a bare
+  // killing field. Eight positions of mixed hard cover, angled to face outward.
+  const plazaRing: CoverType[] = ["sandbags", "jerseyBarrier", "lowWallConcrete", "cratePile"];
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + 0.4;
+    const r = 13 + (i % 2) * 3;
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    if (overlapsAnyBuilding(x, z, 1.2, layout) || distanceToNearestRoad(x, z) < 1.6) continue;
+    placeCover(scene, plazaRing[i % plazaRing.length], x, z, a + Math.PI / 2, mats, placed++);
   }
 }
 

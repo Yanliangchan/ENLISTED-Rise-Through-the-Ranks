@@ -8,8 +8,13 @@ const KEY = "sentinelShield.settings.v1";
 export class Settings {
   data: SettingsData;
 
-  constructor() {
-    this.data = this.load() ?? { sensitivity: 1, volume: 0.6 };
+  /**
+   * Standalone (localStorage) when constructed with no args; account-backed when
+   * given the account's `settings` object plus a `persist` hook, which routes
+   * saves into the AccountManager's IndexedDB record instead.
+   */
+  constructor(initial?: SettingsData, private readonly persist?: (data: SettingsData) => void) {
+    this.data = initial ?? this.load() ?? { sensitivity: 1, volume: 0.6 };
   }
 
   private load(): SettingsData | null {
@@ -22,6 +27,10 @@ export class Settings {
   }
 
   save(): void {
+    if (this.persist) {
+      this.persist(this.data);
+      return;
+    }
     try {
       localStorage.setItem(KEY, JSON.stringify(this.data));
     } catch {

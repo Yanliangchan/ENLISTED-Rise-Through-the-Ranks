@@ -25,7 +25,8 @@ export interface SaveData {
 
 const SAVE_KEY = "sentinelShield.save.v1";
 
-function defaultSave(): SaveData {
+/** Fresh default save — exported so a new account can be seeded with it. */
+export function defaultSave(): SaveData {
   return {
     credits: 0,
     wave: 1,
@@ -58,8 +59,20 @@ function defaultSave(): SaveData {
 export class GameState {
   data: SaveData;
 
-  constructor() {
-    this.data = this.load() ?? defaultSave();
+  /**
+   * With no args, behaves as before (loads/saves its own localStorage slot).
+   * When an account backs it, pass the account's `save` object (or null for a
+   * fresh account) plus a `persist` hook — GameState then mutates that shared
+   * object in place and calls `persist` on every save, so the AccountManager
+   * writes it to IndexedDB. The old localStorage save is migrated once on a
+   * brand-new (null) account so existing players keep their progress.
+   */
+  constructor(initial?: SaveData | null, private readonly persist?: (data: SaveData) => void) {
+    if (persist) {
+      this.data = initial ?? this.load() ?? defaultSave();
+    } else {
+      this.data = this.load() ?? defaultSave();
+    }
   }
 
   private load(): SaveData | null {
@@ -73,6 +86,10 @@ export class GameState {
   }
 
   save(): void {
+    if (this.persist) {
+      this.persist(this.data);
+      return;
+    }
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(this.data));
     } catch {
