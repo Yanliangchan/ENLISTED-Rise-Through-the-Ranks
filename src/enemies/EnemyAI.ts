@@ -17,6 +17,7 @@ import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
 import { CAMP_POSITION } from "@/world/Level";
 import { isInSafeZone, isInExclusionZone, steerAroundExclusionZone } from "@/world/SafeZone";
+import { isNavigable, findNearestNavigable, clampToPlayable, PLAYABLE_HALF } from "@/world/Nav";
 
 export type EnemyState =
   | "idle"
@@ -228,6 +229,11 @@ export class EnemyInstance implements Damageable {
   private stuckTimer = 0;
   private escapeDir: Vector3 | null = null;
   private escapeTimer = 0;
+  // Hard-stuck escalation: total time making no real progress. Past a few
+  // seconds the enemy is teleported to the nearest navigable point.
+  private hardStuckTimer = 0;
+  // Periodic "am I trapped in geometry / out of bounds?" self-check clock.
+  private navCheckTimer = Math.random() * 1.5;
 
   onDeath?: (info: EnemyKillInfo) => void;
   onDamagePlayer?: (damage: number, sourcePosition: Vector3) => void;
@@ -290,6 +296,11 @@ export class EnemyInstance implements Damageable {
     this.figurePlane.position.y = 0.92;
     this.figurePlane.isPickable = false; // shots pass through to the hitboxes below
     this.figurePlane.billboardMode = Mesh.BILLBOARDMODE_Y;
+    // Billboards rotate every frame, so their static bounding box can make the
+    // frustum culler wrongly drop them at screen edges — the classic "alive but
+    // invisible enemy". Force it always-active so a living target is ALWAYS
+    // drawn whenever it's in front of the camera, at any distance.
+    this.figurePlane.alwaysSelectAsActiveMesh = true;
 
     // Invisible, pickable hitboxes aligned with the silhouette. Head = headshot
     // multiplier; torso + legs = normal damage. Kept generous so shots that
@@ -474,6 +485,16 @@ export class EnemyInstance implements Damageable {
 
     this.movingThisFrame = false;
 
+    // Safety net against getting trapped in geometry or shoved out of bounds by
+    // a blast/knockback: periodically confirm we're on walkable ground and,
+    // failing that, snap to the nearest navigable point. Runs on a cheap ~1.5s
+    // clock so it's not a per-frame raycast.
+    this.navCheckTimer -= dt;
+    if (this.navCheckTimer <= 0) {
+      this.navCheckTimer = 1.2 + Math.random() * 0.6;
+      if (!isNavigable(this.scene, this.root.position)) this.relocateToNavigable();
+    }
+
     // AI must never occupy the army base: if a knockback/blast or navigation
     // edge case ever lands one inside the exclusion zone, immediately retreat
     // instead of running the normal FSM this frame.
@@ -629,11 +650,19 @@ export class EnemyInstance implements Damageable {
     this.root.rotation.y = Math.atan2(dir.x, dir.z);
     this.movingThisFrame = true;
 
+    // Hard boundary: never allow an enemy to drift outside the playable arena.
+    if (Math.abs(this.root.position.x) > PLAYABLE_HALF || Math.abs(this.root.position.z) > PLAYABLE_HALF) {
+      const clamped = clampToPlayable(this.root.position);
+      this.root.position.x = clamped.x;
+      this.root.position.z = clamped.z;
+    }
+
     // Stuck detection: if we tried to move but barely did, count it; once it
     // persists, sidestep perpendicular for a beat to get around the obstacle.
+    const moved = Vector3.Distance(this.root.position, before);
+    const barelyMoved = moved < speed * dt * 0.35;
     if (this.escapeTimer <= 0) {
-      const moved = Vector3.Distance(this.root.position, before);
-      if (moved < speed * dt * 0.35) {
+      if (barelyMoved) {
         this.stuckTimer += dt;
         if (this.stuckTimer > 0.45) {
           const side = Math.random() < 0.5 ? 1 : -1;
@@ -645,6 +674,26 @@ export class EnemyInstance implements Damageable {
         this.stuckTimer = Math.max(0, this.stuckTimer - dt * 1.5);
       }
     }
+    // Escalation: if sidestepping never restores real progress for several
+    // seconds, the enemy is genuinely wedged — teleport it to the nearest
+    // navigable point so it can never be permanently trapped in geometry.
+    if (barelyMoved) {
+      this.hardStuckTimer += dt;
+      if (this.hardStuckTimer > 3) this.relocateToNavigable();
+    } else {
+      this.hardStuckTimer = Math.max(0, this.hardStuckTimer - dt * 2);
+    }
+  }
+
+  /** Teleport to the nearest walkable ground and clear all stuck state. */
+  private relocateToNavigable(): void {
+    const safe = findNearestNavigable(this.scene, this.root.position, 18);
+    this.root.position.x = safe.x;
+    this.root.position.z = safe.z;
+    this.hardStuckTimer = 0;
+    this.stuckTimer = 0;
+    this.escapeTimer = 0;
+    this.escapeDir = null;
   }
 
   /** Walks straight away from the camp centre until clear of the exclusion zone — the fallback for the rare case an enemy ends up inside it. */

@@ -68,7 +68,7 @@ export class WaveManager {
   startWave(): void {
     this.phase = "combat";
     const isBoss = this.enemyManager.isBossWave(this.wave);
-    this.enemyManager.startWave(this.wave);
+    this.enemyManager.startWave(this.wave, this.player);
     this.audio.waveStart();
     this.callbacks.onPhaseChange?.(this.phase);
     this.callbacks.onWaveStart?.(this.wave, isBoss);

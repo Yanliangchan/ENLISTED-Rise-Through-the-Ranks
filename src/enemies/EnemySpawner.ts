@@ -3,6 +3,7 @@ import { ENEMIES, WAVES } from "@/data/gamedata";
 import { EnemyInstance, type EnemyKillInfo } from "@/enemies/EnemyAI";
 import { blastDamageAtDistance } from "@/weapons/ballistics";
 import { ensureClearOfCamp } from "@/world/SafeZone";
+import { findNearestNavigable } from "@/world/Nav";
 import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
 
@@ -37,11 +38,6 @@ function pickTypeForWave(wave: number): string {
   return "opfor_grunt";
 }
 
-/** Seconds between individual spawns within a wave — long trickle early, tighter later. */
-function spawnStaggerForWave(wave: number): number {
-  return Math.max(0.7, 3.4 - wave * 0.25);
-}
-
 /** How much of a type's base accuracy/fire-rate applies — ramps up to full bite by wave ~7. */
 function difficultyMultForWave(wave: number): number {
   return Math.min(1, 0.35 + wave * 0.09);
@@ -71,14 +67,10 @@ export interface EnemyIntel {
 }
 
 const INTEL_CONFIRM_RANGE = 60; // metres — within this the contact is "confirmed"
-const INTEL_SUSPECT_TTL = 9000; // ms a last-known contact lingers as "suspected"
 
 export class EnemyManager {
   private enemies: EnemyInstance[] = [];
-  private pendingSpawns: Array<{ type: string; delay: number; position: Vector3 }> = [];
-  private spawnClock = 0;
   private engagedIds = new Set<string>();
-  private intelMap = new Map<string, { x: number; z: number; lastConfirmed: number }>();
 
   constructor(
     private readonly scene: Scene,
@@ -97,57 +89,36 @@ export class EnemyManager {
   }
 
   /**
-   * Tactical-map intel. Normal ops give the player a deliberately sparse
-   * picture: at most ONE confirmed contact (the nearest enemy currently within
-   * confirm range) plus up to TWO suspected/last-known contacts from recent
-   * intel — enough to hint at the threat without a full radar. When `revealAll`
-   * is set (UAV overhead), every living enemy is reported as a live confirmed
-   * contact instead.
+   * Tactical-map intel — always the *live* positions of real, living enemies,
+   * so every marker on the map corresponds to an enemy standing at exactly that
+   * spot right now (no stale "last-known" ghosts, no desync). Normal ops still
+   * give a deliberately sparse picture — the nearest confirmed contact plus the
+   * two next-nearest as suspected — while `revealAll` (UAV overhead) reports
+   * every living enemy. Because positions are read fresh each call, markers
+   * track enemies in real time.
    */
   intel(playerPos: Vector3, revealAll = false): EnemyIntel[] {
-    const now = performance.now();
+    const live = this.enemies
+      .filter((e) => !e.isDead)
+      .map((e) => ({
+        x: e.root.position.x,
+        z: e.root.position.z,
+        dist: Math.hypot(e.root.position.x - playerPos.x, e.root.position.z - playerPos.z),
+      }))
+      .sort((a, b) => a.dist - b.dist);
 
     if (revealAll) {
-      const out: EnemyIntel[] = [];
-      for (const e of this.enemies) {
-        if (e.isDead) continue;
-        // Keep the last-known map fresh too, so intel doesn't snap to "unseen"
-        // the instant the UAV expires.
-        this.intelMap.set(e.id, { x: e.root.position.x, z: e.root.position.z, lastConfirmed: now });
-        out.push({ x: e.root.position.x, z: e.root.position.z, status: "confirmed" });
-      }
-      return out;
-    }
-
-    const confirmed: Array<{ x: number; z: number; dist: number }> = [];
-    const suspected: Array<{ x: number; z: number; age: number }> = [];
-    const liveIds = new Set<string>();
-    for (const e of this.enemies) {
-      if (e.isDead) continue;
-      liveIds.add(e.id);
-      const dist = Math.hypot(e.root.position.x - playerPos.x, e.root.position.z - playerPos.z);
-      if (dist < INTEL_CONFIRM_RANGE) {
-        this.intelMap.set(e.id, { x: e.root.position.x, z: e.root.position.z, lastConfirmed: now });
-        confirmed.push({ x: e.root.position.x, z: e.root.position.z, dist });
-      } else {
-        const rec = this.intelMap.get(e.id);
-        if (rec && now - rec.lastConfirmed < INTEL_SUSPECT_TTL) {
-          suspected.push({ x: rec.x, z: rec.z, age: now - rec.lastConfirmed });
-        }
-      }
-    }
-    for (const id of [...this.intelMap.keys()]) {
-      if (!liveIds.has(id)) this.intelMap.delete(id);
+      return live.map((c) => ({ x: c.x, z: c.z, status: "confirmed" as const }));
     }
 
     const out: EnemyIntel[] = [];
-    // 0–1 confirmed contact: only the single closest live sighting.
+    const confirmed = live.filter((c) => c.dist < INTEL_CONFIRM_RANGE);
+    const suspected = live.filter((c) => c.dist >= INTEL_CONFIRM_RANGE);
+    // Nearest confirmed contact (live position).
     if (confirmed.length > 0) {
-      confirmed.sort((a, b) => a.dist - b.dist);
       out.push({ x: confirmed[0].x, z: confirmed[0].z, status: "confirmed" });
     }
-    // up to 2 suspected contacts: the freshest last-known positions.
-    suspected.sort((a, b) => a.age - b.age);
+    // Two next-nearest as suspected — still at their exact current positions.
     for (const s of suspected.slice(0, 2)) {
       out.push({ x: s.x, z: s.z, status: "suspected" });
     }
@@ -155,7 +126,8 @@ export class EnemyManager {
   }
 
   get totalForWaveRemaining(): number {
-    return this.aliveCount + this.pendingSpawns.length;
+    // The whole wave spawns at once, so remaining == still alive.
+    return this.aliveCount;
   }
 
   waveEnemyCount(wave: number): number {
@@ -170,36 +142,61 @@ export class EnemyManager {
     return wave % WAVES.bossEvery === 0;
   }
 
-  startWave(wave: number): void {
+  /**
+   * Spawns the ENTIRE wave at once, in a handful of randomised groups spread
+   * across valid spawn locations. Groups are chosen from the spawn ring but
+   * biased away from wherever the player is currently looking, so enemies never
+   * pop into existence in view, and every candidate is pushed clear of the camp
+   * standoff and snapped onto navigable ground (never inside a building, prop,
+   * vehicle, or outside the arena).
+   */
+  startWave(wave: number, player: PlayerController): void {
     this.enemies = this.enemies.filter((e) => !e.isDead);
     this.engagedIds.clear();
     const count = this.waveEnemyCount(wave);
-    const stagger = spawnStaggerForWave(wave);
-    this.pendingSpawns = [];
+
+    // Rank spawn points by how much they're in the player's forward view; keep
+    // the ones clearly out of view, falling back to the least-visible points if
+    // the player somehow faces every option at once.
+    const ranked = SPAWN_POINTS.map((p) => ({ p, view: this.viewScore(p, player) })).sort(
+      (a, b) => a.view - b.view
+    );
+    const outOfView = ranked.filter((r) => r.view < 0.35).map((r) => r.p);
+    const pool = outOfView.length >= 2 ? outOfView : ranked.slice(0, 3).map((r) => r.p);
+
+    // Pick 2–4 distinct groups and split the wave across them (kept together).
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    const groupCount = Math.max(2, Math.min(shuffled.length, Math.min(4, Math.ceil(count / 4))));
+    const groups = shuffled.slice(0, groupCount);
+
     for (let i = 0; i < count; i++) {
-      const point = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
-      const jitter = new Vector3((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6);
-      const typeId = this.isBossWave(wave) && i < Math.ceil(count * 0.4)
-        ? "opfor_heavy"
-        : pickTypeForWave(wave);
-      // Runtime safeguard on top of the hand-placed points: guarantees no
-      // jittered spawn can ever land inside the camp's minimum standoff.
-      const position = ensureClearOfCamp(point.add(jitter));
-      this.pendingSpawns.push({ type: typeId, delay: i * stagger, position });
+      const group = groups[i % groups.length];
+      const jitter = new Vector3((Math.random() - 0.5) * 9, 0, (Math.random() - 0.5) * 9);
+      const typeId =
+        this.isBossWave(wave) && i < Math.ceil(count * 0.4) ? "opfor_heavy" : pickTypeForWave(wave);
+      // Clear of camp, then snapped onto genuinely walkable ground.
+      let position = ensureClearOfCamp(group.add(jitter));
+      position = ensureClearOfCamp(findNearestNavigable(this.scene, position));
+      this.spawnEnemy(typeId, position, wave);
     }
-    this.spawnClock = 0;
+  }
+
+  /**
+   * 0..1 measure of how squarely a world point sits in the player's forward
+   * view (1 = dead ahead, 0 = to the side, negative folded to 0 = behind).
+   */
+  private viewScore(point: Vector3, player: PlayerController): number {
+    const fwd = player.camera.getDirection(Vector3.Forward());
+    fwd.y = 0;
+    if (fwd.lengthSquared() < 1e-4) return 0;
+    fwd.normalize();
+    const to = new Vector3(point.x - player.position.x, 0, point.z - player.position.z);
+    if (to.lengthSquared() < 1e-4) return 1;
+    to.normalize();
+    return Math.max(0, Vector3.Dot(fwd, to));
   }
 
   update(dt: number, player: PlayerController, wave: number): void {
-    this.spawnClock += dt;
-    this.pendingSpawns = this.pendingSpawns.filter((spawn) => {
-      if (this.spawnClock >= spawn.delay) {
-        this.spawnEnemy(spawn.type, spawn.position, wave);
-        return false;
-      }
-      return true;
-    });
-
     for (const enemy of this.enemies) {
       enemy.update(dt, player, wave);
     }
@@ -280,6 +277,5 @@ export class EnemyManager {
   clearAll(): void {
     for (const enemy of this.enemies) enemy.dispose();
     this.enemies = [];
-    this.pendingSpawns = [];
   }
 }
