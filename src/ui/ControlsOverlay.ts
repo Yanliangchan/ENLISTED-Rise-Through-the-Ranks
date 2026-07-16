@@ -1,7 +1,7 @@
 const BINDINGS: Array<[string, string]> = [
   ["W A S D", "Move"],
   ["Shift", "Sprint"],
-  ["Ctrl", "Crouch (deploy bipod if fitted)"],
+  ["C", "Crouch (deploy bipod if fitted)"],
   ["Space", "Jump"],
   ["Mouse", "Look"],
   ["Left Click", "Fire"],

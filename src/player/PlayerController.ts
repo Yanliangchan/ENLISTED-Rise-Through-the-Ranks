@@ -30,6 +30,9 @@ export class PlayerController {
   private isGrounded = false;
   private isCrouching = false;
   private _isMoving = false;
+  private _isSprinting = false;
+  /** Seconds of elevated visibility left after firing (muzzle flash/report gives the player away). */
+  private noiseTimer = 0;
   private currentEyeHeight = STAND_EYE_HEIGHT;
   health = 100;
   maxHealth = 100;
@@ -77,6 +80,7 @@ export class PlayerController {
 
   update(deltaSeconds: number): void {
     if (deltaSeconds <= 0) return;
+    if (this.noiseTimer > 0) this.noiseTimer = Math.max(0, this.noiseTimer - deltaSeconds);
     this.applyMouseLook();
     this.applyMovement(deltaSeconds);
   }
@@ -92,6 +96,21 @@ export class PlayerController {
 
   get crouching(): boolean {
     return this.isCrouching;
+  }
+
+  /** True while sprinting (loud, wide-open movement — much easier for AI to spot). */
+  get sprinting(): boolean {
+    return this._isSprinting;
+  }
+
+  /** True for a short window after the last shot — firing lights the player up for AI detection. */
+  get firedRecently(): boolean {
+    return this.noiseTimer > 0;
+  }
+
+  /** Called by the weapon system on every shot to spike the player's visibility for a moment. */
+  markFired(seconds = 2.5): void {
+    this.noiseTimer = Math.max(this.noiseTimer, seconds);
   }
 
   get grounded(): boolean {
@@ -129,8 +148,12 @@ export class PlayerController {
 
     const moving = moveX !== 0 || moveZ !== 0;
     this._isMoving = moving;
-    this.isCrouching = this.input.isDown("ControlLeft") || this.input.isDown("ControlRight");
+    // Crouch is held on C (was Ctrl). Ctrl is kept as a secondary so existing
+    // muscle memory still works, but C is the documented bind.
+    this.isCrouching =
+      this.input.isDown("KeyC") || this.input.isDown("ControlLeft") || this.input.isDown("ControlRight");
     const sprinting = this.input.isDown("ShiftLeft") && moveZ > 0 && !this.isCrouching;
+    this._isSprinting = sprinting;
 
     let speed = WALK_SPEED * this.weaponSpeedMult;
     if (sprinting) speed *= SPRINT_MULT;

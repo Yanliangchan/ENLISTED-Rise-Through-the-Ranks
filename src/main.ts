@@ -224,5 +224,7 @@ if (new URLSearchParams(location.search).has("debug")) {
       player.camera.rotation.x = pitch;
     },
     player,
+    waveManager,
+    game,
   };
 }

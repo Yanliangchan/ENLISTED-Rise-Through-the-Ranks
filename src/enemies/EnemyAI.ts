@@ -2,6 +2,7 @@ import {
   Scene,
   MeshBuilder,
   StandardMaterial,
+  Material,
   DynamicTexture,
   Texture,
   Color3,
@@ -28,83 +29,127 @@ export type EnemyState =
 
 let enemyCounter = 0;
 
+// --- Perception tuning -----------------------------------------------------
+// A soldier only spots the player through a forward cone (~120° total), never
+// behind them. cos(60°) = 0.5.
+const FOV_COS_HALF_ANGLE = 0.5;
+// How the player's stance/motion scales the enemy's base sight range. Running
+// or firing makes you easy to see; standing still or crouching in cover makes
+// you very hard to notice until close. These are the core stealth knobs.
+const DETECT_FACTOR = {
+  sprint: 1.0,
+  walk: 0.6,
+  standStill: 0.3,
+  crouchWalk: 0.3,
+  crouchStill: 0.15,
+  firingFloor: 1.2, // firing spikes visibility to at least this, whatever the stance
+};
+// Once actively tracking, an enemy keeps hunting the player's last-known
+// position for this long after losing line of sight before giving up. This is
+// what lets the player break contact by breaking LOS and going quiet.
+const LOSE_CONTACT_SEC = 5;
+
 /**
- * OPFOR are the *invaders*, not the SAF — so they wear a distinct woodland
- * DPM-style camo and darker webbing to read clearly as "the enemy" against
- * the player's SAF kit. The camo texture + all the non-hittable equipment
- * materials are procedural and identical across every combatant, so they're
- * built once per scene and shared by all enemies rather than re-created per
- * spawn (that's what keeps ~20 concurrent soldiers cheap). The per-enemy
- * body material stays separate because it flashes red on hit.
+ * Enemy visual: a Figure 11 target — the standard hunched, charging-rifleman
+ * silhouette used on live-fire ranges (see the reference art). It is a single
+ * billboarded, alpha-tested, *unlit* plane, which is the whole point: the old
+ * multi-mesh soldier occasionally rendered white / material-less under certain
+ * lighting/order conditions, whereas an unlit textured cut-out can never wash
+ * out or lose its material — it looks identical at every distance and in every
+ * light. The silhouette texture is drawn once and shared by every target; each
+ * target still gets its own thin material so it can flash red on hit.
  */
 interface OpforAssets {
-  camoTex: DynamicTexture;
-  helmetMat: StandardMaterial;
-  webbingMat: StandardMaterial;
-  bootMat: StandardMaterial;
-  skinMat: StandardMaterial;
-  gunMetalMat: StandardMaterial;
-  gunFurnitureMat: StandardMaterial;
+  figureTex: DynamicTexture;
 }
 const opforAssetCache = new WeakMap<Scene, OpforAssets>();
 
 function getOpforAssets(scene: Scene): OpforAssets {
   const cached = opforAssetCache.get(scene);
   if (cached) return cached;
-
-  const camoTex = createCamoTexture(scene);
-
-  const helmetMat = new StandardMaterial("opforHelmetMat", scene);
-  helmetMat.diffuseColor = new Color3(0.16, 0.18, 0.13);
-  helmetMat.specularColor = Color3.Black();
-
-  const webbingMat = new StandardMaterial("opforWebbingMat", scene);
-  webbingMat.diffuseColor = new Color3(0.09, 0.1, 0.08);
-  webbingMat.specularColor = Color3.Black();
-
-  const bootMat = new StandardMaterial("opforBootMat", scene);
-  bootMat.diffuseColor = new Color3(0.05, 0.05, 0.05);
-  bootMat.specularColor = new Color3(0.1, 0.1, 0.1);
-
-  const skinMat = new StandardMaterial("opforSkinMat", scene);
-  skinMat.diffuseColor = new Color3(0.5, 0.38, 0.3);
-  skinMat.specularColor = Color3.Black();
-
-  const gunMetalMat = new StandardMaterial("opforGunMetalMat", scene);
-  gunMetalMat.diffuseColor = new Color3(0.09, 0.09, 0.1);
-  gunMetalMat.specularColor = new Color3(0.2, 0.2, 0.2);
-
-  const gunFurnitureMat = new StandardMaterial("opforGunFurnitureMat", scene);
-  gunFurnitureMat.diffuseColor = new Color3(0.28, 0.15, 0.07); // wood-ish AK furniture
-  gunFurnitureMat.specularColor = Color3.Black();
-
-  const assets: OpforAssets = { camoTex, helmetMat, webbingMat, bootMat, skinMat, gunMetalMat, gunFurnitureMat };
+  const assets: OpforAssets = { figureTex: createFigure11Texture(scene) };
   opforAssetCache.set(scene, assets);
   return assets;
 }
 
-/** Procedural blocky woodland camo (olive / khaki / brown / black) for the OPFOR uniform. */
-function createCamoTexture(scene: Scene): DynamicTexture {
-  const size = 64;
-  const tex = new DynamicTexture("opforCamoTex", { width: size, height: size }, scene, false);
+/**
+ * Draws the Figure 11 charging-soldier silhouette (dark cut-out on a
+ * transparent field) with faint concentric aiming rings over centre mass,
+ * matching the reference target. Composed from filled primitives so it reads
+ * as the hunched, rifle-forward figure without needing an image asset.
+ */
+function createFigure11Texture(scene: Scene): DynamicTexture {
+  const W = 160;
+  const H = 320;
+  const tex = new DynamicTexture("figure11Tex", { width: W, height: H }, scene, true);
   const ctx = tex.getContext() as CanvasRenderingContext2D;
-  const palette = ["#3a4029", "#4c5233", "#5f5a3a", "#2b2f1f", "#1c2013"];
-  ctx.fillStyle = palette[0];
-  ctx.fillRect(0, 0, size, size);
-  const rand = mulberry32(20777);
-  // Overlapping soft blobs of each palette colour for a DPM-like mottle.
-  for (let i = 0; i < 90; i++) {
-    ctx.fillStyle = palette[Math.floor(rand() * palette.length)];
-    const bx = rand() * size;
-    const by = rand() * size;
-    const bw = 5 + rand() * 12;
-    const bh = 5 + rand() * 12;
-    ctx.fillRect(bx, by, bw, bh);
+  ctx.clearRect(0, 0, W, H);
+
+  const px = (nx: number) => nx * W;
+  const py = (ny: number) => ny * H;
+  const dark = "#15170f"; // near-black with a faint olive cast — reads as hostile, not paper
+  ctx.fillStyle = dark;
+  ctx.strokeStyle = dark;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  // Helmet + head.
+  ctx.beginPath();
+  ctx.ellipse(px(0.5), py(0.135), px(0.15), py(0.085), 0, Math.PI, 0); // helmet dome
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(px(0.5), py(0.17), px(0.11), py(0.075), 0, 0, Math.PI * 2); // face/jaw
+  ctx.fill();
+  ctx.fillRect(px(0.34), py(0.13), px(0.32), py(0.03)); // helmet brim
+
+  // Hunched torso (leaning forward) — a broad tapering slab.
+  ctx.beginPath();
+  ctx.moveTo(px(0.24), py(0.25));
+  ctx.lineTo(px(0.78), py(0.29));
+  ctx.lineTo(px(0.7), py(0.6));
+  ctx.lineTo(px(0.32), py(0.58));
+  ctx.closePath();
+  ctx.fill();
+
+  // Forward arm across the chest holding the rifle, and the rear arm.
+  ctx.lineWidth = px(0.12);
+  ctx.beginPath();
+  ctx.moveTo(px(0.32), py(0.33));
+  ctx.lineTo(px(0.74), py(0.46));
+  ctx.stroke();
+  // Rifle held across the body (thin barrel + stock line).
+  ctx.lineWidth = px(0.045);
+  ctx.beginPath();
+  ctx.moveTo(px(0.22), py(0.52));
+  ctx.lineTo(px(0.92), py(0.38));
+  ctx.stroke();
+
+  // Legs mid-stride.
+  ctx.lineWidth = px(0.15);
+  ctx.beginPath();
+  ctx.moveTo(px(0.46), py(0.56));
+  ctx.lineTo(px(0.33), py(0.95));
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(px(0.56), py(0.56));
+  ctx.lineTo(px(0.66), py(0.95));
+  ctx.stroke();
+
+  // Faint red concentric aiming rings over centre mass.
+  const cx = px(0.5);
+  const cy = py(0.42);
+  ctx.lineWidth = 2;
+  for (const r of [px(0.18), px(0.12), px(0.06)]) {
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(200,60,50,0.55)";
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
   }
-  tex.update();
-  tex.wrapU = Texture.WRAP_ADDRESSMODE;
-  tex.wrapV = Texture.WRAP_ADDRESSMODE;
-  tex.hasAlpha = false;
+
+  tex.update(true);
+  tex.hasAlpha = true;
+  tex.wrapU = Texture.CLAMP_ADDRESSMODE;
+  tex.wrapV = Texture.CLAMP_ADDRESSMODE;
   return tex;
 }
 
@@ -142,13 +187,15 @@ export class EnemyInstance implements Damageable {
   readonly id: string;
   /** Invisible capsule collider that owns movement/collision; visual meshes ride on it. */
   readonly root: Mesh;
+  // Invisible, pickable hitboxes (head = headshot, torso + legs = body). The
+  // visible Figure 11 plane is non-pickable so shots pass through to these.
   private bodyMesh: Mesh;
   private headMesh: Mesh;
-  private limbMeshes: Mesh[] = [];
-  private legMeshes: Mesh[] = [];
-  private rifleNode!: TransformNode;
+  private legsMesh: Mesh;
+  /** The visible Figure 11 target silhouette (billboarded, unlit). */
+  private figurePlane!: Mesh;
+  private figureMat!: StandardMaterial;
   private visualRoot!: TransformNode;
-  private bodyMat: StandardMaterial;
 
   health: number;
   readonly maxHealth: number;
@@ -157,6 +204,10 @@ export class EnemyInstance implements Damageable {
   disposed = false;
 
   private patrolTarget: Vector3;
+  // Last position the player was actually seen at — chased toward after LOS is
+  // broken, and where a search sweep centres before the enemy gives up.
+  private lastKnownPlayerPos: Vector3 | null = null;
+  private lostContactTimer = 0;
   private stateTimer = 0;
   private fireCooldown = 0;
   private suppressedTimer = 0;
@@ -207,165 +258,59 @@ export class EnemyInstance implements Damageable {
     this.root.ellipsoid = new Vector3(0.3, 0.85, 0.3);
     this.root.ellipsoidOffset = new Vector3(0, 0.85, 0);
 
-    // All visual + hit meshes ride on this node, which is scaled down as one
-    // unit so the whole soldier reads a touch smaller (previously stood taller
-    // than the player). Hit meshes scale with it too, so picking stays aligned;
-    // collision uses the collider's own ellipsoid above, unaffected.
+    // All visual + hit meshes ride on this node. Locomotion bob is applied here.
     this.visualRoot = new TransformNode(`${this.id}_visual`, scene);
     this.visualRoot.parent = this.root;
-    this.visualRoot.scaling.setAll(0.9);
     const vr = this.visualRoot;
 
     const assets = getOpforAssets(scene);
 
-    // Per-enemy camo uniform material — kept per-instance (not shared) only
-    // because it flashes red on hit; the texture underneath is shared. The
-    // base colour is a definite olive so the soldier reads dark-green even if
-    // the camo texture is washed out by bright light/fog (never pale/white).
-    this.bodyMat = new StandardMaterial(`${this.id}_mat`, scene);
-    this.bodyMat.diffuseColor = new Color3(0.34, 0.36, 0.26);
-    this.bodyMat.diffuseTexture = assets.camoTex;
-    this.bodyMat.specularColor = Color3.Black();
+    // Per-enemy material over the shared Figure 11 texture. Fully UNLIT: the
+    // colour comes straight from the texture (emissive) so no lighting setup,
+    // exposure, or render order can ever wash it to white or strip it to a
+    // material-less mesh — the exact failure the old soldier model hit. Alpha
+    // testing keeps the silhouette a clean cut-out without transparency sorting.
+    this.figureMat = new StandardMaterial(`${this.id}_figmat`, scene);
+    this.figureMat.diffuseTexture = assets.figureTex;
+    this.figureMat.emissiveTexture = assets.figureTex;
+    this.figureMat.emissiveColor = new Color3(1, 1, 1);
+    this.figureMat.diffuseColor = Color3.Black();
+    this.figureMat.specularColor = Color3.Black();
+    this.figureMat.disableLighting = true;
+    this.figureMat.useAlphaFromDiffuseTexture = true;
+    this.figureMat.transparencyMode = Material.MATERIAL_ALPHATEST;
+    this.figureMat.alphaCutOff = 0.45;
+    this.figureMat.backFaceCulling = false;
 
-    // Torso — the main hittable mass. Sized a little generously versus the
-    // pure silhouette so shots that clip the edge of a moving target still
-    // register, rather than punishing near-misses that should have counted.
-    this.bodyMesh = MeshBuilder.CreateBox(`${this.id}_body`, { width: 0.56, height: 1.02, depth: 0.38 }, scene);
-    this.bodyMesh.position.y = 0.95;
-    this.bodyMesh.material = this.bodyMat;
-    this.bodyMesh.parent = vr;
-    this.bodyMesh.checkCollisions = false;
-    this.bodyMesh.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
+    // The visible target: one billboarded plane (~1.7 m tall) that always faces
+    // the player around the vertical axis, like a pop-up range target.
+    this.figurePlane = MeshBuilder.CreatePlane(`${this.id}_figure`, { width: 1.05, height: 1.85 }, scene);
+    this.figurePlane.material = this.figureMat;
+    this.figurePlane.parent = vr;
+    this.figurePlane.position.y = 0.92;
+    this.figurePlane.isPickable = false; // shots pass through to the hitboxes below
+    this.figurePlane.billboardMode = Mesh.BILLBOARDMODE_Y;
 
-    // Plate carrier / chest rig over the torso, with a row of magazine pouches.
-    const vest = MeshBuilder.CreateBox(`${this.id}_vest`, { width: 0.54, height: 0.6, depth: 0.14 }, scene);
-    vest.position.set(0, 1.04, 0.19);
-    vest.material = assets.webbingMat;
-    vest.parent = vr;
-    vest.isPickable = false;
-    for (const px of [-0.16, 0, 0.16]) {
-      const pouch = MeshBuilder.CreateBox(`${this.id}_pouch`, { width: 0.12, height: 0.17, depth: 0.1 }, scene);
-      pouch.position.set(px, 0.88, 0.27);
-      pouch.material = assets.webbingMat;
-      pouch.parent = vr;
-      pouch.isPickable = false;
-    }
-
-    // Neck + head. Head is the headshot hitbox; the helmet/skin are visual only.
-    const neck = MeshBuilder.CreateCylinder(`${this.id}_neck`, { diameter: 0.15, height: 0.12 }, scene);
-    neck.position.y = 1.5;
-    neck.material = assets.skinMat;
-    neck.parent = vr;
-    neck.isPickable = false;
-
-    this.headMesh = MeshBuilder.CreateBox(`${this.id}_head`, { width: 0.28, height: 0.32, depth: 0.28 }, scene);
-    this.headMesh.position.y = 1.66;
-    this.headMesh.material = assets.skinMat;
+    // Invisible, pickable hitboxes aligned with the silhouette. Head = headshot
+    // multiplier; torso + legs = normal damage. Kept generous so shots that
+    // clip the moving target still register.
+    this.headMesh = MeshBuilder.CreateBox(`${this.id}_head`, { width: 0.32, height: 0.34, depth: 0.32 }, scene);
+    this.headMesh.position.y = 1.6;
+    this.headMesh.isVisible = false;
     this.headMesh.parent = vr;
     this.headMesh.metadata = { damageable: this, isHeadshotMesh: true } satisfies HitMeshMetadata;
 
-    // Combat helmet: shell dome + a short brim, visual only.
-    const helmet = MeshBuilder.CreateSphere(`${this.id}_helmet`, { diameter: 0.34, slice: 0.62 }, scene);
-    helmet.position.y = 1.77;
-    helmet.material = assets.helmetMat;
-    helmet.parent = vr;
-    helmet.isPickable = false;
-    const brim = MeshBuilder.CreateCylinder(`${this.id}_brim`, { diameter: 0.38, height: 0.03 }, scene);
-    brim.position.y = 1.74;
-    brim.material = assets.helmetMat;
-    brim.parent = vr;
-    brim.isPickable = false;
+    this.bodyMesh = MeshBuilder.CreateBox(`${this.id}_body`, { width: 0.62, height: 0.8, depth: 0.4 }, scene);
+    this.bodyMesh.position.y = 1.02;
+    this.bodyMesh.isVisible = false;
+    this.bodyMesh.parent = vr;
+    this.bodyMesh.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
 
-    const shoulders = MeshBuilder.CreateBox(`${this.id}_shoulders`, { width: 0.68, height: 0.16, depth: 0.4 }, scene);
-    shoulders.position.y = 1.4;
-    shoulders.material = this.bodyMat;
-    shoulders.parent = vr;
-    shoulders.isPickable = false;
-
-    // Arms and legs — hittable (normal damage, no headshot multiplier) so a
-    // limb hit reliably registers instead of silently whiffing through gaps
-    // in the old torso-only hitbox; also fills out the soldier silhouette.
-    const armSpecs: Array<[number, number, number]> = [
-      [-0.37, 1.05, 0.02],
-      [0.37, 1.05, 0.02],
-    ];
-    for (const [x, y, z] of armSpecs) {
-      const arm = MeshBuilder.CreateBox(`${this.id}_arm_${x}`, { width: 0.16, height: 0.68, depth: 0.2 }, scene);
-      arm.position.set(x, y, z);
-      arm.material = this.bodyMat;
-      arm.parent = vr;
-      arm.checkCollisions = false;
-      arm.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
-      this.limbMeshes.push(arm);
-      // Glove at the end of each arm — parented to the arm so it rides with it.
-      const hand = MeshBuilder.CreateBox(`${this.id}_hand_${x}`, { width: 0.13, height: 0.15, depth: 0.15 }, scene);
-      hand.position.set(0, -0.4, 0.06);
-      hand.material = assets.webbingMat;
-      hand.parent = arm;
-      hand.isPickable = false;
-    }
-    const legSpecs: Array<[number, number, number]> = [
-      [-0.15, 0.42, 0],
-      [0.15, 0.42, 0],
-    ];
-    for (const [x, y, z] of legSpecs) {
-      const leg = MeshBuilder.CreateBox(`${this.id}_leg_${x}`, { width: 0.2, height: 0.78, depth: 0.24 }, scene);
-      leg.position.set(x, y, z);
-      leg.material = this.bodyMat;
-      leg.parent = vr;
-      leg.checkCollisions = false;
-      leg.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
-      this.limbMeshes.push(leg);
-      this.legMeshes.push(leg);
-      // Combat boot — parented to the leg so it swings with the walk cycle.
-      const boot = MeshBuilder.CreateBox(`${this.id}_boot_${x}`, { width: 0.22, height: 0.14, depth: 0.34 }, scene);
-      boot.position.set(0, -0.35, 0.06);
-      boot.material = assets.bootMat;
-      boot.parent = leg;
-      boot.isPickable = false;
-    }
-
-    this.buildHeldRifle(assets);
-  }
-
-  /**
-   * A slung AK-pattern rifle held across the chest — visually distinguishes
-   * OPFOR from the SAF player's SAR 21 bullpup. Non-hittable dressing;
-   * parented to the (scaled) visual root so it rides with the soldier.
-   */
-  private buildHeldRifle(assets: OpforAssets): void {
-    // All rifle parts hang off one node so the whole weapon can be lowered/tilted
-    // as a unit for the reload animation.
-    const rifleNode = new TransformNode(`${this.id}_rifle`, this.scene);
-    rifleNode.parent = this.visualRoot;
-    this.rifleNode = rifleNode;
-    const forward = 0.32; // out in front of the chest
-    const y = 0.98;
-    const receiver = MeshBuilder.CreateBox(`${this.id}_gun_body`, { width: 0.05, height: 0.09, depth: 0.5 }, this.scene);
-    receiver.position.set(0.1, y, forward);
-    receiver.material = assets.gunMetalMat;
-    receiver.parent = rifleNode;
-    receiver.isPickable = false;
-
-    const barrel = MeshBuilder.CreateCylinder(`${this.id}_gun_barrel`, { diameter: 0.02, height: 0.28 }, this.scene);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0.1, y + 0.02, forward + 0.36);
-    barrel.material = assets.gunMetalMat;
-    barrel.parent = rifleNode;
-    barrel.isPickable = false;
-
-    const mag = MeshBuilder.CreateBox(`${this.id}_gun_mag`, { width: 0.035, height: 0.16, depth: 0.09 }, this.scene);
-    mag.position.set(0.1, y - 0.11, forward + 0.02);
-    mag.rotation.x = 0.35; // AK banana-mag forward curve
-    mag.material = assets.gunMetalMat;
-    mag.parent = rifleNode;
-    mag.isPickable = false;
-
-    const stock = MeshBuilder.CreateBox(`${this.id}_gun_stock`, { width: 0.04, height: 0.07, depth: 0.24 }, this.scene);
-    stock.position.set(0.1, y, forward - 0.36);
-    stock.material = assets.gunFurnitureMat;
-    stock.parent = rifleNode;
-    stock.isPickable = false;
+    this.legsMesh = MeshBuilder.CreateBox(`${this.id}_legs`, { width: 0.5, height: 0.62, depth: 0.34 }, scene);
+    this.legsMesh.position.y = 0.34;
+    this.legsMesh.isVisible = false;
+    this.legsMesh.parent = vr;
+    this.legsMesh.metadata = { damageable: this, isHeadshotMesh: false } satisfies HitMeshMetadata;
   }
 
   private eyePosition(): Vector3 {
@@ -376,9 +321,21 @@ export class EnemyInstance implements Damageable {
     return Vector3.Distance(this.root.position, player.position);
   }
 
+  /**
+   * True only if nothing solid stands between the enemy's eye and the player.
+   * Vision is blocked by any *collidable* world mesh — buildings, walls,
+   * vehicles, shipping containers, hedges and dense bushes all set
+   * `checkCollisions`, so this single rule stops AI seeing through every kind
+   * of cover. Glass, tree canopies and flat decals are non-collidable, so they
+   * (correctly) don't block sight. The player's own invisible collider capsule
+   * and all combatant hit meshes are excluded so they can never self-block.
+   */
   private hasLineOfSight(player: PlayerController): boolean {
+    // Aim at the player's chest at their *current* eye height so crouching
+    // actually drops them behind waist-high cover.
+    const targetY = player.crouching ? 0.9 : 1.4;
     const from = this.eyePosition();
-    const to = player.position.add(new Vector3(0, 1.4, 0));
+    const to = player.position.add(new Vector3(0, targetY, 0));
     const dir = to.subtract(from);
     const dist = dir.length();
     if (dist <= 0.01) return true;
@@ -386,9 +343,62 @@ export class EnemyInstance implements Damageable {
     const ray = new Ray(from, dir, dist - 0.3);
     const pick = this.scene.pickWithRay(
       ray,
-      (mesh) => mesh.isPickable && mesh !== this.bodyMesh && mesh !== this.headMesh && !mesh.metadata?.damageable
+      (mesh) =>
+        mesh.isPickable &&
+        mesh.checkCollisions &&
+        mesh.name !== "playerCollider" &&
+        !mesh.metadata?.damageable
     );
     return !pick?.hit;
+  }
+
+  /** True if the player lies inside the enemy's forward vision cone (not behind it). */
+  private playerInFov(player: PlayerController): boolean {
+    const yaw = this.root.rotation.y;
+    const forward = new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const to = player.position.subtract(this.root.position);
+    to.y = 0;
+    if (to.lengthSquared() < 0.0001) return true;
+    to.normalize();
+    return Vector3.Dot(forward, to) >= FOV_COS_HALF_ANGLE;
+  }
+
+  /**
+   * Effective spotting range for the player's current stance/motion. Sprinting
+   * or firing lights the player up; standing still or crouching in cover keeps
+   * them hidden until very close.
+   */
+  private detectionRange(player: PlayerController): number {
+    let factor: number;
+    if (player.sprinting) factor = DETECT_FACTOR.sprint;
+    else if (player.crouching) factor = player.isMoving ? DETECT_FACTOR.crouchWalk : DETECT_FACTOR.crouchStill;
+    else factor = player.isMoving ? DETECT_FACTOR.walk : DETECT_FACTOR.standStill;
+    if (player.firedRecently) factor = Math.max(factor, DETECT_FACTOR.firingFloor);
+    return this.type.sightRangeM * factor;
+  }
+
+  /**
+   * Strict first-contact detection: the player must be inside the vision cone,
+   * within the stance-scaled spotting range, and in clear line of sight. This
+   * is deliberately hard to satisfy so AI don't magically notice a careful
+   * player simply for being nearby.
+   */
+  private detectsPlayer(player: PlayerController, distToPlayer: number, playerInSafeZone: boolean): boolean {
+    if (playerInSafeZone) return false;
+    if (distToPlayer > this.detectionRange(player)) return false;
+    if (!this.playerInFov(player)) return false;
+    return this.hasLineOfSight(player);
+  }
+
+  /**
+   * Looser "still have eyes on" test for an enemy that is already engaged —
+   * once alerted it tracks the player as long as it has LOS within its full
+   * sight range, regardless of stance. Losing LOS starts the give-up timer.
+   */
+  private hasContact(player: PlayerController, distToPlayer: number, playerInSafeZone: boolean): boolean {
+    if (playerInSafeZone) return false;
+    if (distToPlayer > this.type.sightRangeM) return false;
+    return this.hasLineOfSight(player);
   }
 
   suppress(durationSec: number): void {
@@ -407,6 +417,9 @@ export class EnemyInstance implements Damageable {
       if (this.state === "idle" || this.state === "patrol") {
         this.state = "alerted";
         this.stateTimer = 0;
+        // A heard shot gives a bearing to investigate even without line of sight.
+        this.lastKnownPlayerPos = position.clone();
+        this.lostContactTimer = 0;
       }
     }
   }
@@ -419,15 +432,21 @@ export class EnemyInstance implements Damageable {
       this.die(_isHeadshot);
       return;
     }
+    // Taking fire always reveals the shooter's rough position — push the enemy
+    // into the hunt even if the player was perfectly stealthed until now.
+    if (_sourcePosition) this.lastKnownPlayerPos = _sourcePosition.clone();
+    this.lostContactTimer = 0;
     if (this.state !== "attack" && this.state !== "chase") {
       this.state = "chase";
     }
   }
 
   private flashHit(): void {
-    this.bodyMat.emissiveColor = new Color3(0.6, 0.05, 0.05);
+    // Tint the whole (unlit) target red for a moment — the emissive colour is
+    // what the texture is multiplied by, so this reddens the silhouette.
+    this.figureMat.emissiveColor = new Color3(1, 0.35, 0.32);
     setTimeout(() => {
-      if (!this.isDead) this.bodyMat.emissiveColor = Color3.Black();
+      if (!this.isDead) this.figureMat.emissiveColor = new Color3(1, 1, 1);
     }, 80);
   }
 
@@ -438,8 +457,11 @@ export class EnemyInstance implements Damageable {
     this.audio.enemyDeath();
     const credits = this.type.creditReward + (headshot ? ECONOMY.headshotBonus : 0);
     this.onDeath?.({ enemy: this, headshot, creditsAwarded: credits });
-    this.root.scaling = new Vector3(1, 0.15, 1);
-    this.root.position.y -= 0.7;
+    // Drop the target like a hinged pop-up: stop billboarding and tip it flat
+    // away from the player, then fade out after a few seconds.
+    this.figurePlane.billboardMode = Mesh.BILLBOARDMODE_NONE;
+    this.figurePlane.rotation.set(-Math.PI / 2.1, 0, 0);
+    this.figurePlane.position.y = 0.06;
     this.deathTimer = 4;
   }
 
@@ -477,7 +499,15 @@ export class EnemyInstance implements Damageable {
     }
 
     const distToPlayer = this.distanceToPlayer(player);
-    const canSeePlayer = !playerInSafeZone && distToPlayer <= this.type.sightRangeM && this.hasLineOfSight(player);
+    // Two tiers of perception: strict first-contact detection (respects FOV +
+    // stance/stealth) to *become* alerted, and a looser "eyes on" test to keep
+    // tracking a target the enemy is already fighting.
+    const detected = this.detectsPlayer(player, distToPlayer, playerInSafeZone);
+    const contact = this.hasContact(player, distToPlayer, playerInSafeZone);
+    if (contact) {
+      this.lastKnownPlayerPos = player.position.clone();
+      this.lostContactTimer = 0;
+    }
 
     switch (this.state) {
       case "idle":
@@ -485,15 +515,22 @@ export class EnemyInstance implements Damageable {
         break;
       case "patrol":
         this.wander(dt);
-        if (canSeePlayer) this.state = "alerted";
+        if (detected) {
+          this.lastKnownPlayerPos = player.position.clone();
+          this.lostContactTimer = 0;
+          this.state = "alerted";
+        }
         break;
       case "alerted":
         if (this.stateTimer > 0.6) this.state = "chase";
         this.facePlayer(player);
         break;
-      case "chase":
-        this.moveToward(player.position, dt);
-        if (canSeePlayer && distToPlayer < this.type.sightRangeM * 0.85) {
+      case "chase": {
+        // Head for where the player actually is if still in contact, otherwise
+        // press toward the last-known position while searching.
+        const goal = contact ? player.position : this.lastKnownPlayerPos ?? player.position;
+        this.moveToward(goal, dt);
+        if (contact && distToPlayer < this.type.sightRangeM * 0.85) {
           // Approaches regardless, but only opens fire once a concurrent-attacker slot frees up.
           if (!this.engageLimiter || this.engageLimiter.requestEngage(this.id, wave)) {
             this.state = "attack";
@@ -501,12 +538,23 @@ export class EnemyInstance implements Damageable {
             // shot. Harder waves react faster; early waves are noticeably slow.
             this.reactionTimer = 0.55 - 0.3 * Math.min(1, this.difficultyMult) + Math.random() * 0.15;
           }
+        } else if (!contact) {
+          // No eyes on the target — count down to giving up and returning to patrol.
+          this.lostContactTimer += dt;
+          if (this.lostContactTimer > LOSE_CONTACT_SEC) {
+            this.state = "patrol";
+            this.patrolTarget = this.lastKnownPlayerPos?.clone() ?? this.root.position.clone();
+            this.lastKnownPlayerPos = null;
+          }
         }
         break;
+      }
       case "attack":
         this.facePlayer(player);
-        if (!canSeePlayer || distToPlayer > this.type.sightRangeM) {
+        if (!contact) {
+          // Lost sight mid-fight — stop shooting and resume the hunt/search.
           this.engageLimiter?.releaseEngage(this.id);
+          this.lostContactTimer = 0;
           this.state = "chase";
           break;
         }
@@ -649,21 +697,19 @@ export class EnemyInstance implements Damageable {
     this.audio.reload();
   }
 
-  /** Advance an in-progress reload and drive the gun-lowered reload animation. */
+  /** Advance an in-progress reload and duck the target briefly (taking cover to reload). */
   private updateReload(dt: number): void {
     if (!this.isReloading) return;
     this.reloadTimer -= dt;
     const dur = this.reloadDuration();
     const progress = 1 - Math.max(0, this.reloadTimer) / dur; // 0 → 1
-    // Dip and tilt the whole rifle down mid-reload, then bring it back up.
+    // Bob the target down and back up to read as "ducking to reload".
     const dip = Math.sin(Math.min(1, progress) * Math.PI);
-    this.rifleNode.position.y = -dip * 0.14;
-    this.rifleNode.rotation.x = dip * 0.55;
+    this.figurePlane.position.y = 0.92 - dip * 0.18;
     if (this.reloadTimer <= 0) {
       this.isReloading = false;
       this.roundsInMag = this.magCapacity;
-      this.rifleNode.position.y = 0;
-      this.rifleNode.rotation.x = 0;
+      this.figurePlane.position.y = 0.92;
       // A fresh mag means re-acquiring the sight picture — small delay before firing.
       this.reactionTimer = Math.max(this.reactionTimer, 0.2);
     }
@@ -673,13 +719,11 @@ export class EnemyInstance implements Damageable {
   private animateLocomotion(dt: number): void {
     if (this.movingThisFrame && this.state !== "dead") {
       this.walkPhase += dt * 9;
-      const swing = Math.sin(this.walkPhase) * 0.5;
-      if (this.legMeshes[0]) this.legMeshes[0].rotation.x = swing;
-      if (this.legMeshes[1]) this.legMeshes[1].rotation.x = -swing;
-      this.visualRoot.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.04;
+      // Subtle vertical bob so a moving Figure 11 reads as advancing on foot
+      // rather than sliding along the ground.
+      this.visualRoot.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.06;
     } else {
       const decay = Math.max(0, 1 - dt * 10);
-      for (const leg of this.legMeshes) leg.rotation.x *= decay;
       this.visualRoot.position.y *= decay;
     }
   }

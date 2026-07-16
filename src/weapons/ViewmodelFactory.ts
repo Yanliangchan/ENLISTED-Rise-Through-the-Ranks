@@ -82,98 +82,117 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
 
   switch (weapon.class) {
     case "rifle": {
-      // Bullpup silhouette matching the SAR 21's real layout: the receiver and
-      // stock sit behind the trigger group (not a separate buttstock sticking
-      // out back), the magazine and pistol grip are roughly centred under the
-      // action rather than at the very rear, and a carry-handle rail bridges
-      // the top over the optic — distinct tapered handguard forward of that.
-      const stock = MeshBuilder.CreateBox("stock", { width: 0.082, height: 0.125, depth: 0.22 }, scene);
-      stock.position.set(0, 0.005, -0.2);
+      // SAR 21 — black-scheme ST Kinetics bullpup, built to the reference photo:
+      // a smooth full-length upper with a raised full-length carry handle that
+      // houses the integral optic, the pistol grip + curved STANAG magazine set
+      // roughly under the middle of the action, a rounded handguard, and a long
+      // thin barrel projecting well forward to a bare muzzle. The whole weapon
+      // is black polymer over black-oxide steel (no tan furniture).
+      polymerMat.diffuseColor = new Color3(0.07, 0.07, 0.078); // black polymer furniture
+      polymerMat.specularColor = new Color3(0.12, 0.12, 0.13);
+      polymerMat.specularPower = 26;
+      mat.diffuseColor = new Color3(0.1, 0.1, 0.11); // black-oxide metal (barrel/muzzle)
+      mat.specularColor = new Color3(0.35, 0.35, 0.4);
+      mat.specularPower = 48;
+
+      // Rear body / cheek-rest section of the bullpup shell (no protruding stock).
+      const stock = MeshBuilder.CreateBox("stock", { width: 0.086, height: 0.14, depth: 0.24 }, scene);
+      stock.position.set(0, 0.0, -0.2);
       stock.material = polymerMat;
-      const buttpad = MeshBuilder.CreateBox("buttpad", { width: 0.078, height: 0.115, depth: 0.02 }, scene);
-      buttpad.position.set(0, 0.005, -0.315);
+      const buttpad = MeshBuilder.CreateBox("buttpad", { width: 0.082, height: 0.15, depth: 0.022 }, scene);
+      buttpad.position.set(0, -0.005, -0.325);
       buttpad.material = housingMat;
-      const receiver = MeshBuilder.CreateBox("receiver", { width: 0.09, height: 0.13, depth: 0.24 }, scene);
-      receiver.position.set(0, 0, 0.02);
+      // Main receiver / body.
+      const receiver = MeshBuilder.CreateBox("receiver", { width: 0.092, height: 0.135, depth: 0.26 }, scene);
+      receiver.position.set(0, 0, 0.03);
       receiver.material = polymerMat;
       // Ejection port: recessed dark plate on the right of the receiver.
-      const ejectionPort = MeshBuilder.CreateBox("ejectionPort", { width: 0.004, height: 0.045, depth: 0.09 }, scene);
-      ejectionPort.position.set(0.046, 0.015, 0.05);
+      const ejectionPort = MeshBuilder.CreateBox("ejectionPort", { width: 0.004, height: 0.045, depth: 0.1 }, scene);
+      ejectionPort.position.set(0.047, 0.02, 0.06);
       ejectionPort.material = housingMat;
-      // Octagonal tapered handguard — rounder, hand-filling profile instead of a slab.
+      // Rounded tapered handguard forward of the action.
       const handguard = MeshBuilder.CreateCylinder(
         "handguard",
-        { diameterTop: 0.068, diameterBottom: 0.086, height: 0.2, tessellation: 8 },
+        { diameterTop: 0.066, diameterBottom: 0.088, height: 0.22, tessellation: 10 },
         scene
       );
       handguard.rotation.x = Math.PI / 2;
-      handguard.position.set(0, -0.01, 0.24);
+      handguard.position.set(0, -0.012, 0.26);
       handguard.material = polymerMat;
-      const barrel = MeshBuilder.CreateCylinder("barrel", { diameter: 0.022, height: 0.16, tessellation: 12 }, scene);
+      // Long thin barrel projecting well forward of the handguard to a bare muzzle.
+      const barrel = MeshBuilder.CreateCylinder("barrel", { diameter: 0.019, height: 0.26, tessellation: 14 }, scene);
       barrel.rotation.x = Math.PI / 2;
-      barrel.position.set(0, 0.01, 0.42);
-      // Slotted flash hider capping the muzzle.
-      const flashHider = MeshBuilder.CreateCylinder("flashHider", { diameter: 0.03, height: 0.05, tessellation: 10 }, scene);
+      barrel.position.set(0, 0.006, 0.5);
+      const flashHider = MeshBuilder.CreateCylinder("flashHider", { diameter: 0.028, height: 0.05, tessellation: 12 }, scene);
       flashHider.rotation.x = Math.PI / 2;
-      flashHider.position.set(0, 0.01, 0.49);
+      flashHider.position.set(0, 0.006, 0.64);
       flashHider.material = housingMat;
-      // Two-segment magazine gives the STANAG's forward curve.
-      const mag = MeshBuilder.CreateBox("mag", { width: 0.045, height: 0.13, depth: 0.075 }, scene);
-      mag.position.set(0, -0.12, 0.075);
+      // Front sight block on the barrel (the SAR 21's folding front post base).
+      const frontBlock = MeshBuilder.CreateBox("frontBlock", { width: 0.024, height: 0.05, depth: 0.03 }, scene);
+      frontBlock.position.set(0, 0.03, 0.42);
+      frontBlock.material = polymerMat;
+      // Two-segment curved STANAG magazine, set under the middle of the action.
+      const mag = MeshBuilder.CreateBox("mag", { width: 0.044, height: 0.13, depth: 0.078 }, scene);
+      mag.position.set(0, -0.12, 0.085);
       mag.rotation.x = -0.06;
       mag.material = polymerMat;
-      const magLower = MeshBuilder.CreateBox("magLower", { width: 0.045, height: 0.13, depth: 0.072 }, scene);
-      magLower.position.set(0, -0.235, 0.095);
-      magLower.rotation.x = -0.24;
+      const magLower = MeshBuilder.CreateBox("magLower", { width: 0.044, height: 0.13, depth: 0.074 }, scene);
+      magLower.position.set(0, -0.235, 0.108);
+      magLower.rotation.x = -0.26;
       magLower.material = polymerMat;
-      const grip = MeshBuilder.CreateBox("grip", { width: 0.048, height: 0.15, depth: 0.055 }, scene);
-      grip.position.set(0, -0.11, 0.17);
+      const grip = MeshBuilder.CreateBox("grip", { width: 0.05, height: 0.155, depth: 0.056 }, scene);
+      grip.position.set(0, -0.115, 0.18);
       grip.rotation.x = 0.15;
       grip.material = polymerMat;
       // Finger grooves on the grip front.
       const gripRibs: Mesh[] = [];
       for (let g = 0; g < 3; g++) {
-        const rib = MeshBuilder.CreateBox(`gripRib_${g}`, { width: 0.05, height: 0.012, depth: 0.008 }, scene);
-        rib.position.set(0, -0.075 - g * 0.032, 0.199 - g * 0.005);
+        const rib = MeshBuilder.CreateBox(`gripRib_${g}`, { width: 0.052, height: 0.012, depth: 0.008 }, scene);
+        rib.position.set(0, -0.078 - g * 0.033, 0.21 - g * 0.005);
         rib.rotation.x = 0.15;
         rib.material = housingMat;
         gripRibs.push(rib);
       }
-      const carryHandle = MeshBuilder.CreateBox("carryHandle", { width: 0.018, height: 0.045, depth: 0.3 }, scene);
-      carryHandle.position.set(0, 0.09, -0.03);
+      // Distinctive SAR 21 full-length raised carry handle running most of the
+      // top of the weapon, with the integral optic faired into its middle.
+      const carryHandle = MeshBuilder.CreateBox("carryHandle", { width: 0.03, height: 0.052, depth: 0.44 }, scene);
+      carryHandle.position.set(0, 0.098, 0.06);
       carryHandle.material = polymerMat;
-      // Picatinny rail ribs along the top of the carry handle.
-      const railRibs: Mesh[] = [];
-      for (let r = 0; r < 6; r++) {
-        const rib = MeshBuilder.CreateBox(`railRib_${r}`, { width: 0.022, height: 0.006, depth: 0.014 }, scene);
-        rib.position.set(0, 0.116, -0.15 + r * 0.048);
-        rib.material = housingMat;
-        railRibs.push(rib);
-      }
+      // Sculpted front and rear tapers of the carry handle so it reads as a
+      // faired rib rather than a plain block.
+      const chFront = MeshBuilder.CreateBox("chFront", { width: 0.028, height: 0.03, depth: 0.06 }, scene);
+      chFront.position.set(0, 0.082, 0.29);
+      chFront.material = polymerMat;
+      const chRear = MeshBuilder.CreateBox("chRear", { width: 0.028, height: 0.03, depth: 0.05 }, scene);
+      chRear.position.set(0, 0.082, -0.155);
+      chRear.material = polymerMat;
       const trigger = MeshBuilder.CreateBox("trigger", { width: 0.012, height: 0.03, depth: 0.01 }, scene);
-      trigger.position.set(0, -0.05, 0.12);
+      trigger.position.set(0, -0.05, 0.13);
       trigger.material = housingMat;
+      const triggerGuard = MeshBuilder.CreateTorus("triggerGuard", { diameter: 0.05, thickness: 0.006, tessellation: 10 }, scene);
+      triggerGuard.rotation.x = Math.PI / 2;
+      triggerGuard.position.set(0, -0.062, 0.13);
+      triggerGuard.material = housingMat;
       parts.push(
-        stock, buttpad, receiver, ejectionPort, handguard, barrel, flashHider,
-        mag, magLower, grip, ...gripRibs, carryHandle, ...railRibs, trigger
+        stock, buttpad, receiver, ejectionPort, handguard, barrel, flashHider, frontBlock,
+        mag, magLower, grip, ...gripRibs, carryHandle, chFront, chRear, trigger, triggerGuard
       );
 
-      // Compact integral scope (matches the SAR 21's real 1.5x integral optic): short
-      // tube + objective/ocular lenses, sitting on the carry handle. Kept small — ADS
-      // brings the sight right up to the camera, so full-size gun-scale geometry here
-      // would loom into frame as a block.
-      sightOffset = new Vector3(0, 0.12, -0.03);
-      const scopeTube = MeshBuilder.CreateCylinder("sightScopeTube", { diameter: 0.013, height: 0.045 }, scene);
+      // Compact integral scope (matches the SAR 21's real 1.5x integral optic),
+      // faired into the middle of the carry handle. Kept small — ADS brings the
+      // sight right up to the camera, so full-scale geometry would loom in frame.
+      sightOffset = new Vector3(0, 0.14, 0.02);
+      const scopeTube = MeshBuilder.CreateCylinder("sightScopeTube", { diameter: 0.026, height: 0.11, tessellation: 12 }, scene);
       scopeTube.rotation.x = Math.PI / 2;
       scopeTube.position.copyFrom(sightOffset);
       scopeTube.material = housingMat;
-      const objective = MeshBuilder.CreateCylinder("sightObjective", { diameter: 0.016, height: 0.004 }, scene);
+      const objective = MeshBuilder.CreateCylinder("sightObjective", { diameter: 0.03, height: 0.006, tessellation: 12 }, scene);
       objective.rotation.x = Math.PI / 2;
-      objective.position.set(sightOffset.x, sightOffset.y, sightOffset.z + 0.023);
+      objective.position.set(sightOffset.x, sightOffset.y, sightOffset.z + 0.056);
       objective.material = lensMaterial(scene, `sightObjectiveLens_${weapon.id}`, new Color3(0.9, 0.2, 0.15));
-      const ocular = MeshBuilder.CreateCylinder("sightOcular", { diameter: 0.012, height: 0.003 }, scene);
+      const ocular = MeshBuilder.CreateCylinder("sightOcular", { diameter: 0.024, height: 0.005, tessellation: 12 }, scene);
       ocular.rotation.x = Math.PI / 2;
-      ocular.position.set(sightOffset.x, sightOffset.y, sightOffset.z - 0.022);
+      ocular.position.set(sightOffset.x, sightOffset.y, sightOffset.z - 0.055);
       ocular.material = lensMaterial(scene, `sightOcularLens_${weapon.id}`, new Color3(0.15, 0.35, 0.5));
       sightParts.push(scopeTube, objective, ocular);
       break;

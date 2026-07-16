@@ -336,21 +336,26 @@ export class WeaponController {
     }
 
     this.player.breakSpawnProtection();
+    this.player.markFired(); // muzzle flash + report gives the player's position away to nearby AI
     this.ammo.mag -= 1;
     this.fireCooldown = 60 / this.weapon.fireRateRpm;
     this.audio.gunshot(this.effective.suppressed);
     this.callbacks.onFire?.(this.weapon);
     this.spawnMuzzleFlash();
-    this.applyRecoil();
 
     const hearingRangeM = this.effective.suppressed ? 15 : 9999;
     this.enemyManager.broadcastGunshot(this.player.camera.globalPosition, hearingRangeM);
 
+    // Fire the shot FIRST, from the exact aim direction, THEN apply recoil — so
+    // the round always leaves through the centre of the optic (the reticle dot)
+    // before the muzzle climbs, rather than a hair above it.
     if (this.weapon.isProjectile) {
       this.fireProjectileFromMuzzle(MATADOR_BLAST, this.weapon.muzzleVelocityMps, this.weapon.effectiveRangeM);
     } else {
       this.raycastShot();
     }
+
+    this.applyRecoil();
   }
 
   private fireProjectileFromMuzzle(
@@ -381,21 +386,25 @@ export class WeaponController {
 
   private computeSpreadRadians(): number {
     const stationary = !this.player.isMoving && this.player.grounded;
+
+    // ADS + fully stationary + grounded = pinpoint accuracy. The shot goes
+    // through the exact centre of the optic (screen centre / the reticle dot)
+    // with ZERO cone, so precision aiming is fully rewarded. Only movement or
+    // leaving the ground opens the group up while aimed in — never a standing
+    // aimed shot.
+    if (this.isAiming && stationary) return 0;
+
     let base: number;
     if (this.isAiming) {
-      // ADS: near-zero when fully stationary — precision aiming should feel
-      // reliable, not just "tighter than hip". Still tight but non-zero while
-      // moving, so strafing while aimed in doesn't feel laser-perfect.
-      base = stationary ? this.effective.spreadAds * 0.05 : this.effective.spreadAds * 0.22;
+      // Aimed but moving: still tight, just not laser-perfect.
+      base = this.effective.spreadAds * 0.22;
     } else {
-      // Hip-fire: one flat, predictable baseline rather than the old stack of
-      // multipliers — worse than ADS, but consistent shot-to-shot instead of
-      // swinging wildly with every movement-state combination.
+      // Hip-fire: one flat, predictable baseline that is clearly worse than ADS
+      // so spread is only ever noticeable from the hip.
       base = this.effective.spreadHip * 0.85;
     }
 
-    // Movement/airborne penalties bite much less while aiming — ADS stays usably
-    // accurate on the move, it just isn't perfect the way standing still is.
+    // Movement adds a little spread; it bites much less while aiming.
     const moveExtra =
       this.player.isMoving && !this.bipodDeployed
         ? this.weapon.spread.movePenalty * (this.isAiming ? 0.3 : 0.8)

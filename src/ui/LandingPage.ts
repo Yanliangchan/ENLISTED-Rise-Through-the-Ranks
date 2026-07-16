@@ -9,7 +9,7 @@ const SUBLINE = "One mission.\nOne chance.";
 
 const KEY_BINDINGS: Array<[string, string]> = [
   ["W A S D", "Move"],
-  ["Shift / Ctrl", "Sprint / Crouch"],
+  ["Shift / C", "Sprint / Crouch"],
   ["Mouse / L-Click", "Look / Fire"],
   ["R-Click", "Aim down sights"],
   ["R / G", "Reload / Throwable"],
