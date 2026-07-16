@@ -1,4 +1,5 @@
 import type { BottyCommand } from "@/companion/Botty";
+import { injectTheme } from "@/ui/theme";
 
 interface WheelEntry {
   command: BottyCommand;
@@ -28,6 +29,7 @@ export class CommandWheel {
   onClose?: () => void;
 
   constructor(container: HTMLElement) {
+    injectTheme();
     this.root = document.createElement("div");
     this.root.style.cssText = `
       position: fixed; inset: 0; display: none; z-index: 25;
@@ -72,20 +74,23 @@ export class CommandWheel {
       wedge.style.cssText = `
         position: absolute; top: 50%; left: 50%;
         transform: translate(calc(-50% + ${x}px), calc(-50% + ${y}px));
-        width: 96px; height: 52px; border-radius: 6px;
+        width: 96px; height: 52px; border-radius: 4px;
         background: rgba(20,28,18,0.92); border: 1px solid #3c4a34; color: #d7e8d0;
         font-family: inherit; font-size: 12px; font-weight: bold; cursor: pointer;
         display: flex; align-items: center; justify-content: center; text-align: center;
-        padding: 4px;
+        padding: 4px; letter-spacing: 0.4px;
+        transition: background 0.1s ease, border-color 0.1s ease, transform 0.1s ease;
       `;
       wedge.onmouseenter = () => {
         wedge.style.background = "#4a7a3c";
         wedge.style.borderColor = "#9fc78a";
+        wedge.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) scale(1.06)`;
         desc.textContent = entry.description;
       };
       wedge.onmouseleave = () => {
         wedge.style.background = "rgba(20,28,18,0.92)";
         wedge.style.borderColor = "#3c4a34";
+        wedge.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
       };
       wedge.onclick = () => {
         this.onSelect?.(entry.command);

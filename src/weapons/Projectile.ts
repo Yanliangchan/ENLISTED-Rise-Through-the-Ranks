@@ -1,4 +1,4 @@
-import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, Ray } from "@babylonjs/core";
+import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, Ray } from "@babylonjs/core";
 import type { EnemyManager } from "@/enemies/EnemySpawner";
 import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";

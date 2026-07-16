@@ -52,6 +52,8 @@ export class HUD {
   private damageIndicators: DamageIndicator[] = [];
   private hitmarkerUntil = 0;
   private flashIntensity = 0;
+  private hurtFlashIntensity = 0;
+  private hurtOverlay: HTMLDivElement;
   private centerMessageUntil = 0;
   private shotKickUntil = 0;
 
@@ -179,6 +181,13 @@ export class HUD {
       position:absolute; inset:0; background:#fff; opacity:0; transition:none;
     `);
 
+    // Red edge vignette for incoming damage — only the screen border tints,
+    // the centre stays clear so aim is never obstructed.
+    this.hurtOverlay = el("div", `
+      position:absolute; inset:0; opacity:0; pointer-events:none;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(190,30,20,0.55) 100%);
+    `);
+
     this.centerMessageEl = el("div", `
       position:absolute; top:38%; left:50%; transform:translate(-50%,-50%);
       font-size:28px; font-weight:bold; text-align:center; letter-spacing:2px;
@@ -221,6 +230,7 @@ export class HUD {
     this.root.appendChild(this.killFeedEl);
     this.root.appendChild(this.damageIndicatorEl);
     this.root.appendChild(this.flashOverlay);
+    this.root.appendChild(this.hurtOverlay);
     this.root.appendChild(this.centerMessageEl);
     this.root.appendChild(this.lockHintEl);
     this.root.appendChild(this.interactPromptEl);
@@ -238,7 +248,7 @@ export class HUD {
       this.uavEl.textContent = `UAV recharging — ${Math.ceil(cooldownRemaining)}s`;
       this.uavEl.style.color = "#8a9a84";
     } else {
-      this.uavEl.textContent = `UAV ready ×${charges} [Q]`;
+      this.uavEl.textContent = `UAV ready ×${charges} [Z]`;
       this.uavEl.style.color = charges > 0 ? "#7fd0ff" : "#8a9a84";
     }
   }
@@ -277,8 +287,18 @@ export class HUD {
     this.medkitEl.style.color = count > 0 ? "#8fd68f" : "#8a9a84";
   }
 
-  notifyHit(): void {
-    this.hitmarkerUntil = performance.now() + 150;
+  notifyHit(headshot = false): void {
+    this.hitmarkerUntil = performance.now() + (headshot ? 220 : 150);
+    // Headshots get a gold, slightly larger marker so lethal hits read
+    // differently from body hits without looking at the damage numbers.
+    this.hitmarker.style.borderColor = headshot ? "#ffd75a" : "#ff5533";
+    this.hitmarker.style.width = headshot ? "20px" : "16px";
+    this.hitmarker.style.height = headshot ? "20px" : "16px";
+  }
+
+  /** Brief red edge vignette when the player takes damage — pain feedback that doesn't block the view. */
+  notifyPlayerHurt(): void {
+    this.hurtFlashIntensity = Math.min(0.55, this.hurtFlashIntensity + 0.35);
   }
 
   /** Brief crosshair kick on every shot — subtle visual feedback, decays fast. */
@@ -400,6 +420,14 @@ export class HUD {
       this.flashOverlay.style.opacity = "0";
     }
 
+    if (this.hurtFlashIntensity > 0.005) {
+      this.hurtOverlay.style.opacity = String(this.hurtFlashIntensity);
+      this.hurtFlashIntensity *= 0.92; // fast exponential fade
+    } else if (this.hurtFlashIntensity !== 0) {
+      this.hurtFlashIntensity = 0;
+      this.hurtOverlay.style.opacity = "0";
+    }
+
     this.centerMessageEl.style.opacity = now < this.centerMessageUntil ? "1" : "0";
     this.lockHintEl.style.display = isPointerLocked ? "none" : "block";
 
@@ -507,7 +535,7 @@ function normalizeAngle(a: number): number {
 }
 
 function el(tag: string, cssText: string): HTMLDivElement {
-  const e = document.createElement("div");
+  const e = document.createElement(tag) as HTMLDivElement;
   e.style.cssText = cssText;
   return e;
 }

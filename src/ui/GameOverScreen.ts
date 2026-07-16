@@ -1,4 +1,5 @@
 import type { GameState } from "@/core/GameState";
+import { injectTheme } from "@/ui/theme";
 
 /** Shown when the player dies: wave reached, credits banked, restart. */
 export class GameOverScreen {
@@ -8,12 +9,10 @@ export class GameOverScreen {
   visible = false;
 
   constructor(container: HTMLElement, private readonly gameState: GameState) {
+    injectTheme();
     this.root = document.createElement("div");
-    this.root.style.cssText = `
-      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-      background: rgba(10,4,4,0.85); font-family: Consolas, "Courier New", monospace; color: #f0e6e0;
-      z-index: 40; text-align: center;
-    `;
+    this.root.className = "mil-overlay";
+    this.root.style.cssText += "background: rgba(12,4,4,0.85); z-index: 40; text-align: center;";
     container.appendChild(this.root);
   }
 
@@ -35,10 +34,8 @@ export class GameOverScreen {
 
     const btn = document.createElement("button");
     btn.textContent = "Redeploy";
-    btn.style.cssText = `
-      background:#3c6b32; color:#eaf0e6; border:1px solid rgba(255,255,255,0.2);
-      padding:12px 28px; font-family:inherit; font-size:16px; cursor:pointer;
-    `;
+    btn.className = "mil-btn mil-btn-primary";
+    btn.style.cssText = "padding:12px 28px; font-size:16px;";
     btn.onclick = () => this.onRestart?.();
 
     const wrap = document.createElement("div");

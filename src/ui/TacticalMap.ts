@@ -2,6 +2,7 @@ import type { PlayerController } from "@/player/PlayerController";
 import type { BuildingFootprint } from "@/world/Level";
 import { CAMP_POSITION } from "@/world/Level";
 import type { EnemyIntel } from "@/enemies/EnemySpawner";
+import { injectTheme } from "@/ui/theme";
 
 const WORLD_SPAN = 200; // map covers roughly ±100m
 
@@ -21,22 +22,20 @@ export class TacticalMap {
     container: HTMLElement,
     private readonly buildingLayout: BuildingFootprint[]
   ) {
+    injectTheme();
     this.root = document.createElement("div");
-    this.root.style.cssText = `
-      position: fixed; inset: 0; z-index: 40; display: none;
-      background: rgba(4,8,6,0.92); align-items: center; justify-content: center;
-      font-family: Consolas, "Courier New", monospace; color: #cfe6c8;
-    `;
+    this.root.className = "mil-overlay";
+    this.root.style.cssText = "background: rgba(4,8,6,0.92); z-index: 40;";
 
     const panel = document.createElement("div");
     panel.style.cssText = "display:flex; flex-direction:column; align-items:center; gap:10px;";
 
     const title = document.createElement("div");
     title.textContent = "TACTICAL MAP";
-    title.style.cssText = "font-size:20px; font-weight:bold; letter-spacing:3px; color:#9fc78a;";
+    title.className = "mil-title";
 
     this.canvas = document.createElement("canvas");
-    this.canvas.style.cssText = "border:1px solid #3c4a34; background:#0c130c;";
+    this.canvas.style.cssText = "border:1px solid #3c4a34; border-top:2px solid #4a7a3c; border-radius:3px; background:#0c130c; box-shadow: 0 8px 40px rgba(0,0,0,0.65); max-width:92vw; max-height:78vh;";
     this.ctx = this.canvas.getContext("2d")!;
 
     const legend = document.createElement("div");

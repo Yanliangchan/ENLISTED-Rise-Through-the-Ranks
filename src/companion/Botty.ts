@@ -64,7 +64,10 @@ export class BottyController {
   private coverOffset = new Vector3(0, 0, 0);
   private wasFiredUpon = false;
   private smokeThrownForRetreat = false;
-  private retreatSmokeCooldown = 0;
+  // Target acquisition runs LOS raycasts across every live enemy — far too
+  // expensive per-frame. Same fix as EnemyAI's throttled perception: refresh
+  // on a short timer and read the cached target in between.
+  private targetTimer = 0;
 
   onCommandChange?: (cmd: BottyCommand) => void;
 
@@ -171,11 +174,31 @@ export class BottyController {
     this.command = cmd;
     this.smokeThrownForRetreat = false;
     this.currentTarget = null;
+    this.targetTimer = 0;
+    // A fresh order resets the "return fire" latch — Go Dark means hold fire
+    // again until BOTTY (or the player) actually draws fire under the new order.
+    this.wasFiredUpon = false;
     this.onCommandChange?.(cmd);
   }
 
   private canFire(): boolean {
     return this.command !== "goDark" || this.wasFiredUpon;
+  }
+
+  /**
+   * Cached target refresh (~5Hz): a dead or vanished target drops instantly,
+   * but the raycast-heavy re-acquisition scan only runs when the timer lapses.
+   */
+  private refreshTarget(dt: number, player: PlayerController, includeOutOfSight = false): void {
+    if (this.currentTarget && (this.currentTarget.isDead || this.currentTarget.disposed)) {
+      this.currentTarget = null;
+      this.targetTimer = 0;
+    }
+    this.targetTimer -= dt;
+    if (this.targetTimer > 0) return;
+    this.targetTimer = 0.18 + Math.random() * 0.08;
+    this.currentTarget = this.acquireTarget(player);
+    if (!this.currentTarget && includeOutOfSight) this.currentTarget = this.nearestAnyDistance();
   }
 
   private acquireTarget(player: PlayerController): EnemyInstance | null {
@@ -304,8 +327,6 @@ export class BottyController {
   update(dt: number, player: PlayerController): void {
     if (this.isDown) return;
 
-    if (this.command !== "retreat") this.retreatSmokeCooldown = 0;
-
     switch (this.command) {
       case "retreat": {
         const threat = this.currentTarget?.root.position ?? null;
@@ -322,21 +343,25 @@ export class BottyController {
       }
 
       case "goDark": {
-        this.currentTarget = this.canFire() ? this.acquireTarget(player) : null;
-        if (this.currentTarget && this.canFire()) this.fireAt(this.currentTarget, dt);
+        if (this.canFire()) {
+          this.refreshTarget(dt, player);
+          if (this.currentTarget) this.fireAt(this.currentTarget, dt);
+        } else {
+          this.currentTarget = null;
+        }
         this.repositionTowardPlayer(dt, 3, 6, true, player);
         break;
       }
 
       case "followMe": {
-        this.currentTarget = this.acquireTarget(player);
+        this.refreshTarget(dt, player);
         if (this.currentTarget) this.fireAt(this.currentTarget, dt);
         this.repositionTowardPlayer(dt, 3, 5, false, player);
         break;
       }
 
       case "coverMe": {
-        this.currentTarget = this.acquireTarget(player);
+        this.refreshTarget(dt, player);
         if (this.currentTarget) {
           this.repositionTimer -= dt;
           if (this.repositionTimer <= 0) {
@@ -352,7 +377,7 @@ export class BottyController {
       }
 
       case "engage": {
-        this.currentTarget = this.acquireTarget(player) ?? this.nearestAnyDistance();
+        this.refreshTarget(dt, player, true);
         if (this.currentTarget) {
           const toTarget = Vector3.Distance(this.position, this.currentTarget.root.position);
           this.repositionTimer -= dt;
@@ -375,7 +400,7 @@ export class BottyController {
       }
 
       default: {
-        this.currentTarget = this.acquireTarget(player);
+        this.refreshTarget(dt, player);
         if (this.currentTarget) this.fireAt(this.currentTarget, dt);
         this.repositionTowardPlayer(dt, 5, 15, false, player);
         break;

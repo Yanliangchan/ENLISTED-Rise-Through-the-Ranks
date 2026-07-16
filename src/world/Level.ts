@@ -286,6 +286,7 @@ export function buildLevel(scene: Scene): void {
   buildCurbs(scene);
   buildIntersectionDressing(scene, layout);
   buildStreetGrid(scene, layout);
+  buildHdbEstateDetail(scene, layout);
   buildStrongpoints(scene, layout);
   // Optional: swap procedural buildings for real .glb models where present.
   // Fire-and-forget — a no-op with no assets, so buildLevel stays synchronous.
@@ -1415,6 +1416,148 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
       decorations.push(awning);
     }
     for (const d of decorations) d.metadata = { decorativeFor: i };
+  });
+}
+
+/**
+ * HDB estate street-level detail: furnishes each void deck as a real communal
+ * space (round stone table + stools, bench, notice board on the lift core,
+ * warm soffit strip light), adds a small sheltered drop-off porch on one side
+ * of the block, and gives every third estate a fitness corner beside it.
+ * Purely additive — nothing about the blocks, roads, or navigation moves.
+ * Placement is deterministic (seeded per block index) and every outdoor prop
+ * is validated against building footprints and the road carriageway.
+ */
+function buildHdbEstateDetail(scene: Scene, layout: BuildingFootprint[]): void {
+  const stoneMat = solidMat(scene, "vdStoneMat", new Color3(0.62, 0.6, 0.56));
+  const seatMat = solidMat(scene, "vdSeatMat", new Color3(0.5, 0.33, 0.2));
+  const boardFrameMat = solidMat(scene, "vdBoardFrameMat", new Color3(0.28, 0.34, 0.3));
+  const boardFaceMat = solidMat(scene, "vdBoardFaceMat", new Color3(0.16, 0.3, 0.22));
+  boardFaceMat.emissiveColor = new Color3(0.05, 0.1, 0.07);
+  const lightMat = new WorldMaterial("vdLightMat", scene);
+  lightMat.diffuseColor = new Color3(1, 0.95, 0.8);
+  lightMat.emissiveColor = new Color3(0.9, 0.85, 0.65);
+  lightMat.disableLighting = true;
+  const canopyMat = solidMat(scene, "vdCanopyMat", HDB_ACCENT);
+  const bollardMat = solidMat(scene, "vdBollardMat", new Color3(0.75, 0.72, 0.2));
+  const barMat = poleGrayMat(scene, "vdBarMat");
+
+  let fitnessBuilt = 0;
+  layout.forEach(({ x, z, size, type }, i) => {
+    if (type !== "hdb") return;
+    const rand = mulberry32(9100 + i);
+    const quarter = size / 4;
+
+    // --- Void deck: round stone table + three stools (the chess table). ---
+    const tx = x + quarter;
+    const tz = z + (rand() < 0.5 ? quarter : -quarter) * 0.6;
+    const table = MeshBuilder.CreateCylinder(`vdTable_${i}`, { diameter: 1.0, height: 0.08 }, scene);
+    table.position.set(tx, 0.78, tz);
+    table.material = stoneMat;
+    table.isPickable = false;
+    const stem = MeshBuilder.CreateCylinder(`vdTableStem_${i}`, { diameter: 0.22, height: 0.78 }, scene);
+    stem.position.set(tx, 0.39, tz);
+    stem.material = stoneMat;
+    stem.checkCollisions = true;
+    for (let s = 0; s < 3; s++) {
+      const a = (s / 3) * Math.PI * 2 + rand();
+      const stool = MeshBuilder.CreateCylinder(`vdStool_${i}_${s}`, { diameter: 0.34, height: 0.46 }, scene);
+      stool.position.set(tx + Math.cos(a) * 0.85, 0.23, tz + Math.sin(a) * 0.85);
+      stool.material = stoneMat;
+      stool.isPickable = false;
+    }
+
+    // --- Void deck bench along the opposite bay. ---
+    const bx = x - quarter;
+    const bench = MeshBuilder.CreateBox(`vdBench_${i}`, { width: 1.8, height: 0.08, depth: 0.42 }, scene);
+    bench.position.set(bx, 0.46, z - quarter * 0.5);
+    bench.material = seatMat;
+    bench.checkCollisions = true;
+    for (const lx of [-0.7, 0.7]) {
+      const leg = MeshBuilder.CreateBox(`vdBenchLeg_${i}_${lx}`, { width: 0.08, height: 0.44, depth: 0.4 }, scene);
+      leg.position.set(bx + lx, 0.22, z - quarter * 0.5);
+      leg.material = boardFrameMat;
+      leg.isPickable = false;
+    }
+
+    // --- Notice board mounted on the lift core (residents' committee). ---
+    const board = MeshBuilder.CreateBox(`vdBoard_${i}`, { width: 1.5, height: 0.9, depth: 0.06 }, scene);
+    board.position.set(x, 1.5, z + 1.44);
+    board.material = boardFrameMat;
+    board.isPickable = false;
+    const face = MeshBuilder.CreateBox(`vdBoardFace_${i}`, { width: 1.34, height: 0.74, depth: 0.03 }, scene);
+    face.position.set(x, 1.5, z + 1.49);
+    face.material = boardFaceMat;
+    face.isPickable = false;
+
+    // --- Soffit strip lights under the tower (warm, always on). ---
+    for (const lx of [-quarter, quarter]) {
+      const strip = MeshBuilder.CreateBox(`vdLight_${i}_${lx}`, { width: 1.4, height: 0.06, depth: 0.18 }, scene);
+      strip.position.set(x + lx, 2.88, z);
+      strip.material = lightMat;
+      strip.isPickable = false;
+    }
+
+    // --- Drop-off porch on the block's +z edge (canopy, posts, bollards). ---
+    const px = x;
+    const pz = z + size / 2 + 1.1;
+    if (!overlapsAnyBuilding(px, pz, 1.2, layout) && distanceToNearestRoad(px, pz) > 2) {
+      const roof = MeshBuilder.CreateBox(`vdPorchRoof_${i}`, { width: 4.2, height: 0.14, depth: 2.4 }, scene);
+      roof.position.set(px, 2.6, pz);
+      roof.material = canopyMat;
+      roof.isPickable = false;
+      for (const ox of [-1.8, 1.8]) {
+        const post = MeshBuilder.CreateCylinder(`vdPorchPost_${i}_${ox}`, { diameter: 0.14, height: 2.6 }, scene);
+        post.position.set(px + ox, 1.3, pz + 0.9);
+        post.material = barMat;
+        post.checkCollisions = true;
+      }
+      for (const ox of [-1.1, 0, 1.1]) {
+        const bollard = MeshBuilder.CreateCylinder(`vdBollard_${i}_${ox}`, { diameter: 0.16, height: 0.8 }, scene);
+        bollard.position.set(px + ox, 0.4, pz + 1.6);
+        bollard.material = bollardMat;
+        bollard.isPickable = false;
+      }
+    }
+
+    // --- Fitness corner beside every third estate. ---
+    if (fitnessBuilt < 5 && i % 3 === 0) {
+      const fx = x + size / 2 + 3.2;
+      const fz = z - size / 2 - 3.2;
+      if (!overlapsAnyBuilding(fx, fz, 2.2, layout) && distanceToNearestRoad(fx, fz) > 3.5) {
+        fitnessBuilt++;
+        // Rubberised pad the equipment stands on.
+        const pad = MeshBuilder.CreateGround(`fitPad_${i}`, { width: 5.4, height: 4.2 }, scene);
+        pad.position.set(fx, 0.02, fz);
+        pad.material = solidMat(scene, `fitPadMat_${i}`, new Color3(0.45, 0.24, 0.2));
+        pad.isPickable = false;
+        // Twin pull-up bars at two heights.
+        for (const [ox, h] of [[-1.4, 2.1], [0.2, 1.7]] as Array<[number, number]>) {
+          for (const oz of [-0.5, 0.5]) {
+            const post = MeshBuilder.CreateCylinder(`fitPost_${i}_${ox}_${oz}`, { diameter: 0.1, height: h }, scene);
+            post.position.set(fx + ox, h / 2, fz + oz);
+            post.material = barMat;
+            post.checkCollisions = true;
+          }
+          const bar = MeshBuilder.CreateCylinder(`fitBar_${i}_${ox}`, { diameter: 0.05, height: 1.0 }, scene);
+          bar.rotation.x = Math.PI / 2;
+          bar.position.set(fx + ox, h - 0.03, fz);
+          bar.material = barMat;
+          bar.isPickable = false;
+        }
+        // Sit-up bench.
+        const sit = MeshBuilder.CreateBox(`fitSit_${i}`, { width: 0.42, height: 0.1, depth: 1.5 }, scene);
+        sit.position.set(fx + 1.6, 0.42, fz);
+        sit.rotation.x = -0.18;
+        sit.material = seatMat;
+        sit.checkCollisions = true;
+        // Low balance beam.
+        const beam = MeshBuilder.CreateBox(`fitBeam_${i}`, { width: 0.16, height: 0.16, depth: 2.2 }, scene);
+        beam.position.set(fx - 0.6, 0.24, fz + 1.5);
+        beam.material = seatMat;
+        beam.isPickable = false;
+      }
+    }
   });
 }
 
@@ -3680,69 +3823,6 @@ function getTentMats(scene: Scene): { canvas: WorldMaterial; floor: WorldMateria
   return { canvas, floor };
 }
 
-/**
- * A-frame ridge tent that actually sits on the ground (base at y = 0) — two
- * sloped canvas panels meeting at a ridge, a triangular back wall, and a
- * groundsheet floor, all parented to a node so the whole thing yaws cleanly.
- * The old version was a bare triangular-prism cylinder floating at y = 1.1.
- * `open` leaves the front unwalled so the player can walk in (spawn tent).
- */
-function buildRidgeTent(
-  scene: Scene,
-  x: number,
-  z: number,
-  rotY: number,
-  length: number,
-  width: number,
-  height: number,
-  name: string
-): void {
-  const { canvas, floor: floorMat } = getTentMats(scene);
-  const hw = width / 2;
-  const theta = Math.atan2(height, hw); // slope angle from horizontal
-  const slope = Math.hypot(hw, height);
-
-  const root = new TransformNode(`${name}_root`, scene);
-  root.position.set(x, 0, z);
-  root.rotation.y = rotY;
-
-  // Groundsheet.
-  const floor = MeshBuilder.CreateBox(`${name}_floor`, { width: length, height: 0.06, depth: width }, scene);
-  floor.position.set(0, 0.03, 0);
-  floor.material = floorMat;
-  floor.parent = root;
-  floor.isPickable = false;
-
-  // Two sloped roof panels meeting at the ridge.
-  const left = MeshBuilder.CreateBox(`${name}_roofL`, { width: length, height: 0.06, depth: slope }, scene);
-  left.position.set(0, height / 2, -hw / 2);
-  left.rotation.x = -theta;
-  left.material = canvas;
-  left.parent = root;
-  left.checkCollisions = true;
-
-  const right = MeshBuilder.CreateBox(`${name}_roofR`, { width: length, height: 0.06, depth: slope }, scene);
-  right.position.set(0, height / 2, hw / 2);
-  right.rotation.x = theta;
-  right.material = canvas;
-  right.parent = root;
-  right.checkCollisions = true;
-
-  // Triangular-ish back wall (a thin box, clipped visually by the roof line).
-  const back = MeshBuilder.CreateBox(`${name}_back`, { width: 0.06, height, depth: width }, scene);
-  back.position.set(-length / 2 + 0.03, height / 2, 0);
-  back.material = canvas;
-  back.parent = root;
-  back.checkCollisions = true;
-
-  // Ridge pole.
-  const ridge = MeshBuilder.CreateCylinder(`${name}_ridge`, { diameter: 0.06, height: length }, scene);
-  ridge.rotation.z = Math.PI / 2;
-  ridge.position.set(0, height, 0);
-  ridge.material = floorMat;
-  ridge.parent = root;
-  ridge.isPickable = false;
-}
 
 function buildBenches(scene: Scene, centerX: number, centerZ: number): void {
   const benchMat = new WorldMaterial("benchMat", scene);

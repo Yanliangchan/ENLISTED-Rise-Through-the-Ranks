@@ -50,6 +50,7 @@ export class WeaponController {
 
   isAiming = false;
   private adsBlend = 0; // 0 = hip, 1 = fully aimed
+  private sprintBlend = 0; // 0 = normal, 1 = full sprint FOV widen
   isReloading = false;
   private reloadTimer = 0;
   private fireCooldown = 0;
@@ -207,7 +208,11 @@ export class WeaponController {
     // view stays undistorted (no lens-disc/fisheye artefacts) and gives a fast,
     // responsive scope-in feel. Scoped optics additionally show the circular
     // vignette + reticle overlay for the "looking through glass" read.
-    const targetFov = BASE_FOV / (1 + (this.effective.zoom - 1) * this.adsBlend);
+    // Sprinting adds a small FOV widen (classic speed cue) that blends out the
+    // moment the player slows or aims, so it never fights the optic zoom.
+    const sprintTarget = this.player.sprinting && !wantsAim ? 1 : 0;
+    this.sprintBlend += (sprintTarget - this.sprintBlend) * Math.min(1, 8 * dt);
+    const targetFov = (BASE_FOV * (1 + 0.05 * this.sprintBlend)) / (1 + (this.effective.zoom - 1) * this.adsBlend);
     this.player.camera.fov = targetFov;
 
     // Higher-power scopes feel less twitchy to aim with, like real optics — scale

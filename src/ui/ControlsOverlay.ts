@@ -25,23 +25,27 @@ const BINDINGS: Array<[string, string]> = [
  * Reference card for the keybindings — auto-shown during the pre-Wave-1
  * intro scouting window, and toggle-able any time with `Tab`.
  */
+import { injectTheme } from "@/ui/theme";
+
 export class ControlsOverlay {
   private root: HTMLDivElement;
   visible = false;
 
   constructor(container: HTMLElement) {
+    injectTheme();
     this.root = document.createElement("div");
+    this.root.className = "mil-panel";
     this.root.style.cssText = `
       position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
       display: none; z-index: 15; pointer-events: none;
-      background: rgba(10,16,10,0.72); border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(12, 18, 11, 0.9); min-width: 320px; max-height: 88vh; overflow-y: auto;
       font-family: Consolas, "Courier New", monospace; color: #d7e8d0;
-      padding: 18px 24px; min-width: 320px;
     `;
 
     const title = document.createElement("div");
     title.textContent = "CONTROLS";
-    title.style.cssText = "font-size:16px; font-weight:bold; letter-spacing:2px; margin-bottom:10px; color:#9fc78a;";
+    title.className = "mil-title";
+    title.style.cssText = "font-size:16px; margin-bottom:10px;";
     this.root.appendChild(title);
 
     const grid = document.createElement("div");

@@ -1,4 +1,4 @@
-import { WEAPONS, type Weapon } from "@/data/weapons";
+import { WEAPONS } from "@/data/weapons";
 import { ATTACHMENTS } from "@/data/attachments";
 import { GEAR, THROWABLES } from "@/data/gamedata";
 import type { GameState } from "@/core/GameState";
@@ -8,6 +8,7 @@ import type { AudioManager } from "@/core/AudioManager";
 import { applyGearToPlayer, maxThrowableCapacity } from "@/player/Gear";
 import { getUnlockedSlots, isAttachmentCompatible } from "@/weapons/attachmentSlots";
 import { BOTTY_PRICE } from "@/companion/Botty";
+import { injectTheme } from "@/ui/theme";
 
 type Tab = "loadout" | "weapons" | "attachments" | "gear" | "throwables" | "support";
 
@@ -35,27 +36,22 @@ export class Armoury {
     private readonly player: PlayerController,
     private readonly audio: AudioManager
   ) {
+    injectTheme();
     this.root = document.createElement("div");
-    this.root.style.cssText = `
-      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-      background: rgba(5,10,5,0.75); font-family: Consolas, "Courier New", monospace; color: #d7e8d0;
-      z-index: 20;
-    `;
+    this.root.className = "mil-overlay";
+    this.root.style.zIndex = "20";
 
     const panel = document.createElement("div");
-    panel.style.cssText = `
-      width: min(900px, 92vw); max-height: 86vh; overflow-y: auto;
-      background: #10160f; border: 1px solid #3c4a34; box-shadow: 0 0 40px rgba(0,0,0,0.6);
-      padding: 20px 24px;
-    `;
+    panel.className = "mil-panel";
+    panel.style.cssText = "width: min(900px, 92vw); max-height: 86vh; overflow-y: auto;";
 
     const header = document.createElement("div");
     header.style.cssText = "display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;";
     const title = document.createElement("div");
     title.textContent = "FIELD ARMOURY CACHE";
-    title.style.cssText = "font-size:20px; font-weight:bold; letter-spacing:2px;";
+    title.className = "mil-title";
     this.creditsLabel = document.createElement("div");
-    this.creditsLabel.style.cssText = "font-size:18px; color:#e0c15a;";
+    this.creditsLabel.style.cssText = "font-size:17px; color:#e0c15a;";
     header.appendChild(title);
     header.appendChild(this.creditsLabel);
 
@@ -194,10 +190,11 @@ export class Armoury {
     allowNone = false
   ): HTMLDivElement {
     const box = document.createElement("div");
-    box.style.cssText = "border:1px solid #2a3324; padding:10px;";
+    box.className = "mil-inset";
+    box.style.cssText = "padding:10px; display:flex; flex-wrap:wrap; gap:6px; align-content:flex-start;";
     const title = document.createElement("div");
     title.textContent = label;
-    title.style.cssText = "font-weight:bold; margin-bottom:8px; color:#9fc78a;";
+    title.style.cssText = "font-weight:bold; margin-bottom:4px; color:#9fc78a; width:100%;";
     box.appendChild(title);
     if (allowNone) {
       const noneBtn = document.createElement("button");
@@ -269,7 +266,7 @@ export class Armoury {
         const owned = this.gameState.ownsAttachment(attachment.id);
         const fitted = this.gameState.getFittedAttachments(weapon.id).includes(attachment.id);
         const row = document.createElement("div");
-        row.style.cssText = "display:flex; align-items:center; gap:10px; padding:6px; border:1px solid #23291f;";
+        row.className = "mil-row";
         const label = document.createElement("div");
         label.style.cssText = "flex:1; min-width:0; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
         const labelText = `${attachment.name} [${attachment.slot}]${locked ? " — locked (needs P-Rail)" : ""}`;
@@ -392,7 +389,7 @@ export class Armoury {
 
   private shopRow(label: string, price: number, owned: boolean, onBuy: () => void): HTMLDivElement {
     const row = document.createElement("div");
-    row.style.cssText = "display:flex; align-items:center; gap:10px; padding:8px; border:1px solid #23291f;";
+    row.className = "mil-row";
     const labelEl = document.createElement("div");
     labelEl.style.cssText = "flex:1; min-width:0; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
     labelEl.title = label;
@@ -414,9 +411,13 @@ export class Armoury {
   }
 }
 
+/**
+ * Maps the legacy colour arguments onto the shared theme classes so every
+ * armoury button gets the same hover/active treatment as the rest of the UI.
+ */
 function styleButton(btn: HTMLButtonElement, bg: string): void {
-  btn.style.cssText = `
-    background:${bg}; color:#eaf0e6; border:1px solid rgba(255,255,255,0.15);
-    padding:6px 12px; font-family:inherit; font-size:13px; cursor:pointer;
-  `;
+  btn.className = "mil-btn";
+  if (bg === "#3c6b32") btn.classList.add("mil-btn-primary");
+  else if (bg === "#4a7a3c") btn.classList.add("mil-btn-active");
+  else if (bg === "#5a3232") btn.classList.add("mil-btn-danger");
 }

@@ -130,6 +130,7 @@ async function boot(): Promise<void> {
     onPlayerDamaged: (_dmg, sourcePos) => {
       const bearing = Math.atan2(sourcePos.x - player.position.x, sourcePos.z - player.position.z);
       hud.notifyDamageFrom(bearing);
+      hud.notifyPlayerHurt();
     },
     onWaveStart: (wave) => {
       applyWaveArcLighting(game.scene, wave);
@@ -187,7 +188,7 @@ async function boot(): Promise<void> {
         }
       },
       onHit: (_dmg, headshot) => {
-        hud.notifyHit();
+        hud.notifyHit(headshot);
         stats.recordHit(headshot);
       },
       onKill: (_targetId, weaponClass) => stats.recordKill(weaponClass),

@@ -3,6 +3,7 @@ import type { AudioManager } from "@/core/AudioManager";
 import type { PlayerController } from "@/player/PlayerController";
 import type { GameState } from "@/core/GameState";
 import type { PlayerStats } from "@/core/PlayerStats";
+import { injectTheme } from "@/ui/theme";
 
 /**
  * Escape-triggered pause overlay: operator identity + lifetime stats,
@@ -23,31 +24,28 @@ export class PauseMenu {
     private readonly username?: string,
     private readonly stats?: PlayerStats
   ) {
+    injectTheme();
     this.root = document.createElement("div");
-    this.root.style.cssText = `
-      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-      background: rgba(5,10,5,0.8); font-family: Consolas, "Courier New", monospace; color: #d7e8d0;
-      z-index: 30;
-    `;
+    this.root.className = "mil-overlay";
+    this.root.style.zIndex = "30";
 
     const panel = document.createElement("div");
-    panel.style.cssText = `
-      width: min(420px, 90vw); background: #10160f; border: 1px solid #3c4a34;
-      padding: 24px; box-shadow: 0 0 40px rgba(0,0,0,0.6);
-    `;
+    panel.className = "mil-panel";
+    panel.style.cssText = "width: min(420px, 90vw); max-height: 88vh; overflow-y: auto;";
 
     const title = document.createElement("div");
     title.textContent = this.username ? `PAUSED — ${this.username}` : "PAUSED";
-    title.style.cssText = "font-size:22px; font-weight:bold; letter-spacing:2px; margin-bottom:18px;";
+    title.className = "mil-title";
+    title.style.marginBottom = "18px";
     panel.appendChild(title);
 
     if (this.stats) {
       const statsBox = document.createElement("div");
-      statsBox.style.cssText =
-        "background:#0a120a; border:1px solid #2c3a26; padding:12px 14px; margin-bottom:18px; font-size:13px; line-height:1.7;";
+      statsBox.className = "mil-inset";
+      statsBox.style.cssText = "margin-bottom:18px; font-size:13px; line-height:1.7;";
       const heading = document.createElement("div");
       heading.textContent = "OPERATOR RECORD";
-      heading.style.cssText = "color:#9fc78a; letter-spacing:2px; font-size:11px; margin-bottom:6px;";
+      heading.className = "mil-kicker";
       statsBox.appendChild(heading);
       this.statsBody = document.createElement("div");
       statsBox.appendChild(this.statsBody);
@@ -68,13 +66,15 @@ export class PauseMenu {
 
     const resumeBtn = document.createElement("button");
     resumeBtn.textContent = "Resume";
-    resumeBtn.style.cssText = this.btnStyle("#3c6b32");
+    resumeBtn.className = "mil-btn mil-btn-primary";
+    resumeBtn.style.cssText = "width:100%; margin-top:8px; padding:10px 16px; font-size:14px;";
     resumeBtn.onclick = () => this.hide();
     panel.appendChild(resumeBtn);
 
     const resetBtn = document.createElement("button");
     resetBtn.textContent = "Reset Save";
-    resetBtn.style.cssText = this.btnStyle("#6b3232");
+    resetBtn.className = "mil-btn mil-btn-danger";
+    resetBtn.style.cssText = "width:100%; margin-top:8px; padding:10px 16px; font-size:14px;";
     resetBtn.onclick = () => {
       if (confirm("Reset all progress (credits, unlocks, loadout)?")) {
         gameState.resetRun();
@@ -106,15 +106,11 @@ export class PauseMenu {
     input.max = String(max);
     input.step = String(step);
     input.value = String(value);
-    input.style.width = "100%";
+    input.className = "mil-slider";
     input.oninput = () => onChange(parseFloat(input.value));
     wrap.appendChild(labelEl);
     wrap.appendChild(input);
     return wrap;
-  }
-
-  private btnStyle(bg: string): string {
-    return `background:${bg}; color:#eaf0e6; border:1px solid rgba(255,255,255,0.15); padding:8px 16px; font-family:inherit; font-size:14px; cursor:pointer; width:100%; margin-top:8px;`;
   }
 
   private renderStats(): void {

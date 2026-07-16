@@ -8,7 +8,7 @@ import {
   TransformNode,
   Ray,
 } from "@babylonjs/core";
-import { ENEMIES, ECONOMY, type EnemyType } from "@/data/gamedata";
+import { ECONOMY, type EnemyType } from "@/data/gamedata";
 import type { Damageable, HitMeshMetadata } from "@/weapons/Damageable";
 import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
