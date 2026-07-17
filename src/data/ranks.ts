@@ -89,13 +89,13 @@ export const RANKS: Rank[] = [
   { id: "oct", name: "Officer Cadet", abbr: "OCT", track: "officer", tier: 0, meritRequired: 1500, creditMultiplier: 1.15, perk: "In training — no command perks yet. Complete OCS to commission." },
   { id: "2lt", name: "Second Lieutenant", abbr: "2LT", track: "officer", tier: 1, meritRequired: 2000, creditMultiplier: 1.25, perk: "COMMISSIONED. Command 1 friendly AI rifleman." },
   { id: "lta", name: "Lieutenant", abbr: "LTA", track: "officer", tier: 2, meritRequired: 3600, creditMultiplier: 1.3, perk: "Command 2 friendly AI. Unlock optics tier." },
-  { id: "cpt", name: "Captain", abbr: "CPT", track: "officer", tier: 3, meritRequired: 5500, creditMultiplier: 1.4, perk: "Call-in: 1 supply drop per wave (ammo/armour)." },
-  { id: "maj", name: "Major", abbr: "MAJ", track: "officer", tier: 4, meritRequired: 8000, creditMultiplier: 1.5, perk: "Call-in: MATADOR resupply. Command 3 friendly AI." },
-  { id: "ltc", name: "Lieutenant-Colonel", abbr: "LTC", track: "officer", tier: 5, meritRequired: 12000, creditMultiplier: 1.6, perk: "Call-in: mortar strike marker (1 per 2 waves)." },
-  { id: "col", name: "Colonel", abbr: "COL", track: "officer", tier: 6, meritRequired: 17000, creditMultiplier: 1.7, perk: "Full command: 4 friendly AI, all call-ins." },
-  { id: "bg", name: "Brigadier-General", abbr: "BG", track: "officer", tier: 7, meritRequired: 24000, creditMultiplier: 1.8, perk: "Flag-officer prestige." },
-  { id: "mg", name: "Major-General", abbr: "MG", track: "officer", tier: 8, meritRequired: 34000, creditMultiplier: 1.9, perk: "Flag-officer prestige." },
-  { id: "lg", name: "Lieutenant-General", abbr: "LG", track: "officer", tier: 9, meritRequired: 48000, creditMultiplier: 2.0, perk: "Apex commissioned rank." },
+  { id: "cpt", name: "Captain", abbr: "CPT", track: "officer", tier: 3, meritRequired: 8000, creditMultiplier: 1.4, perk: "Call-in: 1 supply drop per wave (ammo/armour)." },
+  { id: "maj", name: "Major", abbr: "MAJ", track: "officer", tier: 4, meritRequired: 10000, creditMultiplier: 1.5, perk: "Call-in: MATADOR resupply. Command 3 friendly AI." },
+  { id: "ltc", name: "Lieutenant-Colonel", abbr: "LTC", track: "officer", tier: 5, meritRequired: 18000, creditMultiplier: 1.6, perk: "Call-in: mortar strike marker (1 per 2 waves)." },
+  { id: "col", name: "Colonel", abbr: "COL", track: "officer", tier: 6, meritRequired: 24000, creditMultiplier: 1.7, perk: "Full command: 4 friendly AI, all call-ins." },
+  { id: "bg", name: "Brigadier-General", abbr: "BG", track: "officer", tier: 7, meritRequired: 30000, creditMultiplier: 1.8, perk: "Flag-officer prestige." },
+  { id: "mg", name: "Major-General", abbr: "MG", track: "officer", tier: 8, meritRequired: 40000, creditMultiplier: 1.9, perk: "Flag-officer prestige." },
+  { id: "lg", name: "Lieutenant-General", abbr: "LG", track: "officer", tier: 9, meritRequired: 50000, creditMultiplier: 2.0, perk: "Apex commissioned rank." },
 
   // ============ MILITARY DOMAIN EXPERTS SCHEME (MDES / DIS tech track) ============
   // ME1–ME3 ≈ specialist/warrant level; ME4+ (Senior Military Experts) hold
@@ -106,9 +106,9 @@ export const RANKS: Rank[] = [
   { id: "me3", name: "Military Expert 3", abbr: "ME3", track: "military_expert", tier: 2, meritRequired: 4200, creditMultiplier: 1.3, perk: "≈ Warrant status. UAV marks enemies for +damage." },
   { id: "me4", name: "Military Expert 4", abbr: "ME4", track: "military_expert", tier: 3, meritRequired: 6800, creditMultiplier: 1.4, perk: "SENIOR ME (commissioned-equivalent). Command 1 AI + gadgets." },
   { id: "me5", name: "Military Expert 5", abbr: "ME5", track: "military_expert", tier: 4, meritRequired: 10000, creditMultiplier: 1.5, perk: "Deploy an automated sentry turret." },
-  { id: "me6", name: "Military Expert 6", abbr: "ME6", track: "military_expert", tier: 5, meritRequired: 15000, creditMultiplier: 1.6, perk: "Hijack an OPFOR heavy drone to fight for you." },
-  { id: "me7", name: "Military Expert 7", abbr: "ME7", track: "military_expert", tier: 6, meritRequired: 22000, creditMultiplier: 1.75, perk: "Cyber-blackout: stun all enemy drones for a wave." },
-  { id: "me8", name: "Military Expert 8", abbr: "ME8", track: "military_expert", tier: 7, meritRequired: 32000, creditMultiplier: 1.9, perk: "Apex ME. Full gadget suite." },
+  { id: "me6", name: "Military Expert 6", abbr: "ME6", track: "military_expert", tier: 5, meritRequired: 20000, creditMultiplier: 1.6, perk: "Hijack an OPFOR heavy drone to fight for you." },
+  { id: "me7", name: "Military Expert 7", abbr: "ME7", track: "military_expert", tier: 6, meritRequired: 28000, creditMultiplier: 1.75, perk: "Cyber-blackout: stun all enemy drones for a wave." },
+  { id: "me8", name: "Military Expert 8", abbr: "ME8", track: "military_expert", tier: 7, meritRequired: 38000, creditMultiplier: 1.9, perk: "Apex ME. Full gadget suite." },
 ];
 
 /** Helper: given a track + cumulative merit, return the current rank. */
