@@ -238,8 +238,8 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     name: "Extended Magazine",
     slot: "magazine",
     compatibleWith: [],
-    price: 400,
-    deltas: { magSize: 10, reloadTimeSec: 0.2 },
+    price: 500,
+    deltas: { magSize: 20, reloadTimeSec: 0.2 },
   },
   mag_p30_extended: {
     id: "mag_p30_extended",
@@ -247,7 +247,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     slot: "magazine",
     compatibleWith: ["p30"],
     price: 250,
-    deltas: { magSize: 3 },
+    deltas: { magSize: 5 },
   },
   ammo_fmj: {
     id: "ammo_fmj",
