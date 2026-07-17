@@ -72,6 +72,10 @@ export class WeaponController {
   private recoilKickPitch = 0; // accumulated upward kick still to recover
   private swayTime = 0;
   bipodDeployed = false;
+  /** True while the fitted M203 is toggled into firing mode — H switches, LMB then lobs a grenade instead of firing the rifle. */
+  m203Active = false;
+  private m203ToggleCooldown = 0;
+  private m203SwitchBlend = 0; // 0 = rifle sight, 1 = M203 sight — eases the swap so it doesn't snap
 
   constructor(
     private readonly scene: Scene,
@@ -111,6 +115,11 @@ export class WeaponController {
 
   get ammo(): AmmoState {
     return this.ammoByWeapon.get(this.weapon.id)!;
+  }
+
+  /** 0..1 crossfade progress between the rifle crosshair and the M203 sight — smooths the mode swap instead of a hard cut. */
+  get m203Blend(): number {
+    return this.m203SwitchBlend;
   }
 
   /** True once the physical scope lens has taken over the view — HUD hides its 2D crosshair then. */
@@ -219,21 +228,47 @@ export class WeaponController {
     this.updateAds(dt);
     this.updateReload(dt);
     this.updateRecoilRecovery(dt);
-    this.updateFireInput(dt);
-    this.updateSecondaryFireInput(dt);
+    this.updateM203Toggle(dt);
+    if (this.m203Active) {
+      this.updateM203FireInput();
+    } else {
+      this.updateFireInput(dt);
+    }
     this.bipodDeployed = this.effective.hasBipod && this.player.crouching && this.player.grounded;
     if (this.fireCooldown > 0) this.fireCooldown -= dt;
     if (this.secondaryFireCooldown > 0) this.secondaryFireCooldown -= dt;
+    if (this.m203ToggleCooldown > 0) this.m203ToggleCooldown -= dt;
+    // Ease the sight swap over ~0.2s so flipping in/out of M203 mode reads as
+    // a deliberate weapon-handling beat rather than an instant snap.
+    const m203Target = this.m203Active ? 1 : 0;
+    this.m203SwitchBlend += (m203Target - this.m203SwitchBlend) * Math.min(1, dt * 8);
   }
 
-  private updateSecondaryFireInput(_dt: number): void {
-    if (!this.effective.hasGrenadeLauncher) return;
-    if (this.secondaryFireCooldown > 0) return;
+  /** H toggles the fitted M203 into/out of firing mode — it stays in that mode until switched back. */
+  private updateM203Toggle(_dt: number): void {
+    if (!this.effective.hasGrenadeLauncher) {
+      this.m203Active = false;
+      return;
+    }
+    if (this.m203ToggleCooldown > 0) return;
     if (!this.input.wasPressed("KeyH")) return;
+    this.m203Active = !this.m203Active;
+    this.m203ToggleCooldown = 0.35; // debounce so a held/bouncing key can't flicker the mode
+    this.audio.uiClick();
+  }
+
+  private updateM203FireInput(): void {
+    if (!this.input.leftMouseDown) return;
+    if (this.secondaryFireCooldown > 0) return;
+    if (this.isReloading) return;
     this.player.breakSpawnProtection();
-    this.secondaryFireCooldown = 1.5;
+    this.secondaryFireCooldown = 1.6;
     this.audio.gunshot(true);
-    this.fireProjectileFromMuzzle(M203_BLAST, 80, 500);
+    // Real 40mm HE: fast enough to feel like a real weapon, but slow enough
+    // for the arc to read clearly; travels much farther than a hand throw
+    // (THROW_SPEED 11 m/s, capped range) thanks to both speed and gravity tuned
+    // for a flatter, longer trajectory.
+    this.fireProjectileFromMuzzle(M203_BLAST, 45, 180, 9.0);
     this.callbacks.onSecondaryFire?.(this.weapon, this.effective);
   }
 
@@ -424,14 +459,27 @@ export class WeaponController {
   private fireProjectileFromMuzzle(
     blast: { radiusM: number; centreDamage: number; edgeDamage: number },
     speedMps: number,
-    maxRangeM: number
+    maxRangeM: number,
+    gravityMps2 = 0
   ): void {
     const camera = this.player.camera;
     const direction = camera.getDirection(Vector3.Forward());
     const origin = this.activeViewmodel
       ? this.activeViewmodel.muzzle.getAbsolutePosition()
       : camera.globalPosition;
-    fireProjectile(this.scene, origin, direction, speedMps, maxRangeM, blast, this.enemyManager, this.player, this.audio, !this.player.inSafeZone);
+    fireProjectile(
+      this.scene,
+      origin,
+      direction,
+      speedMps,
+      maxRangeM,
+      blast,
+      this.enemyManager,
+      this.player,
+      this.audio,
+      !this.player.inSafeZone,
+      gravityMps2
+    );
   }
 
   private applyRecoil(): void {
@@ -530,7 +578,7 @@ export class WeaponController {
         const isHeadshot = zone === "head";
         const zoneMult = zone === "head" ? this.weapon.headshotMultiplier : ZONE_MULTIPLIER[zone];
         const finalDmg = dmg * zoneMult;
-        meta.damageable.takeDamage(finalDmg, isHeadshot, origin);
+        meta.damageable.takeDamage(finalDmg, isHeadshot, origin, this.effective.hasFmj);
         meta.onImpact?.(pick.pickedPoint.clone(), zone);
         this.audio.hitmarker();
         if (isHeadshot) this.audio.headshot();
@@ -541,10 +589,48 @@ export class WeaponController {
       } else {
         this.audio.impact();
         this.spawnImpactEffect(pick.pickedPoint, false);
+        // FMJ penetrates light cover: if the round was stopped by a non-damageable
+        // obstacle, punch a short second ray just past the impact point along the
+        // same line of fire and see if it reaches a target hiding behind it.
+        if (this.effective.hasFmj && pick.pickedPoint && !this.player.inSafeZone) {
+          this.penetrationShot(pick.pickedPoint, worldDir, muzzleWorld);
+        }
       }
     } else {
       this.drawTracer(muzzleWorld, origin.add(worldDir.scale(200)));
     }
+  }
+
+  // FMJ "light cover" penetration: re-cast a short ray starting just past a
+  // blocked (non-damageable) impact point, along the same line of fire. If it
+  // reaches a damageable target within a couple metres, the round punched
+  // through — deal reduced damage. Deliberately material-agnostic (no cover
+  // meshes need to be tagged) and capped short so it can't punch through walls.
+  private static readonly PENETRATION_DEPTH_M = 2.2;
+  private static readonly PENETRATION_DAMAGE_MULT = 0.5;
+
+  private penetrationShot(blockedPoint: Vector3, worldDir: Vector3, muzzleWorld: Vector3): void {
+    const penOrigin = blockedPoint.add(worldDir.scale(0.05));
+    const penRay = new Ray(penOrigin, worldDir, WeaponController.PENETRATION_DEPTH_M);
+    const penPick = this.scene.pickWithRay(penRay, (mesh) => mesh.isPickable && !mesh.metadata?.isSmoke);
+    if (!penPick?.hit || !penPick.pickedPoint) return;
+    const meta = penPick.pickedMesh?.metadata as HitMeshMetadata | undefined;
+    if (!meta?.damageable || meta.damageable.isDead) return;
+
+    const distance = Vector3.Distance(muzzleWorld, penPick.pickedPoint);
+    const dmg = damageAtRange(this.effective.damage, distance, this.weapon.falloff) * WeaponController.PENETRATION_DAMAGE_MULT;
+    const zone: HitZone = meta.hitZone ?? (meta.isHeadshotMesh ? "head" : "body");
+    const isHeadshot = zone === "head";
+    const zoneMult = zone === "head" ? this.weapon.headshotMultiplier : ZONE_MULTIPLIER[zone];
+    const finalDmg = dmg * zoneMult;
+    meta.damageable.takeDamage(finalDmg, isHeadshot, penOrigin, true);
+    meta.onImpact?.(penPick.pickedPoint.clone(), zone);
+    this.audio.hitmarker();
+    if (isHeadshot) this.audio.headshot();
+    this.callbacks.onHit?.(finalDmg, isHeadshot);
+    this.callbacks.onDamageNumber?.(penPick.pickedPoint.clone(), finalDmg, zone);
+    if (meta.damageable.isDead) this.callbacks.onKill?.(meta.damageable.id, this.weapon.class);
+    this.spawnImpactEffect(penPick.pickedPoint, true);
   }
 
   // Shared, created-once FX materials. Building a fresh StandardMaterial for

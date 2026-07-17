@@ -21,13 +21,19 @@ export interface RankProgress {
   xp: number;
   xpIntoRank: number;
   xpForNextRank: number | null;
+  /** True once the player has reached Corporal First Class and must pick a career path to rank further. */
+  atCareerGate: boolean;
 }
+
+export type CareerPath = "officer" | "specialist" | "me";
 
 export interface BadgeInfo {
   code: string;
   name: string;
   description: string;
   icon: string;
+  category: string;
+  rarity: string;
   unlockedAt: string;
 }
 
@@ -39,6 +45,8 @@ export interface Profile {
   accuracyPct: number;
   rank: RankProgress;
   careerTrack: string;
+  careerPath: CareerPath | null;
+  guardian: boolean;
   badges: BadgeInfo[];
 }
 
@@ -208,7 +216,51 @@ export class Backend {
     return resp.json() as Promise<PublicProfile>;
   }
 
+  /** One-time SAF career-path choice, allowed once Corporal First Class is reached. */
+  async chooseCareerPath(path: CareerPath): Promise<Profile> {
+    const resp = await this.request<{ profile: Profile }>("POST", "/api/profile/career-path", { path });
+    this.profile = resp.profile;
+    return this.profile;
+  }
+
+  // --- Guardian (hidden dev/mod/tester tooling; gated by the persisted
+  // `guardian` flag on this account — see server/routes/guardian.ts) ---
+
+  guardianLookup(username: string): Promise<PublicProfile & { guardian: boolean }> {
+    return this.request("GET", `/api/guardian/lookup/${encodeURIComponent(username)}`);
+  }
+
+  guardianListBadges(
+    username: string
+  ): Promise<{ badges: Array<{ code: string; name: string; description: string; icon: string; category: string; rarity: string; unlocked: boolean }> }> {
+    return this.request("GET", `/api/guardian/badges/${encodeURIComponent(username)}`);
+  }
+
+  guardianGrantBadge(username: string, code: string): Promise<{ ok: boolean; badge: BadgeInfo }> {
+    return this.request("POST", "/api/guardian/badges/grant", { username, code });
+  }
+
+  guardianAdjustXp(username: string, delta: number): Promise<{ ok: boolean; xp: number }> {
+    return this.request("POST", "/api/guardian/xp", { username, delta });
+  }
+
+  guardianSetCareerPath(username: string, path: CareerPath): Promise<{ ok: boolean }> {
+    return this.request("POST", "/api/guardian/career-path", { username, path });
+  }
+
   logout(): void {
     localStorage.removeItem(TOKEN_KEY);
   }
+}
+
+/** Grant Guardian access to a username (code-gated; no auth needed to bootstrap the very first Guardian). */
+export async function guardianGrantAccess(username: string, code: string): Promise<{ ok: boolean; error?: string }> {
+  const resp = await fetch("/api/guardian/grant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, code }),
+  });
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) return { ok: false, error: body.error ?? `HTTP ${resp.status}` };
+  return { ok: true };
 }

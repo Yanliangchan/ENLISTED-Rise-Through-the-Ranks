@@ -9,7 +9,7 @@ const BINDINGS: Array<[string, string]> = [
   ["R", "Reload"],
   ["G", "Throw equipped throwable"],
   ["F", "Collect supply crate (ammo/medical)"],
-  ["H", "Fire underbarrel M203 (if fitted)"],
+  ["H", "Toggle M203 grenade mode (if fitted) — LMB fires while active"],
   ["1 / 2 / 3 / 4", "Primary / Secondary / Special / Throwable"],
   ["5", "Use first aid kit (heals 50% max health)"],
   ["Mouse Wheel", "Cycle equipped slots"],

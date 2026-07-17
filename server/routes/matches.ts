@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuth, type AuthedRequest } from "../auth.js";
 import { withTransaction } from "../db.js";
 import { loadProfile } from "../profile.js";
-import { rankForXp, xpForMatch } from "../ranks.js";
+import { rankForXp, xpForMatch, type CareerPath } from "../ranks.js";
 import { evaluateAndUnlockBadges, type UnlockedBadge } from "../badges.js";
 import { asyncHandler } from "../asyncHandler.js";
 
@@ -129,8 +129,13 @@ matchesRouter.post("/matches", requireAuth, asyncHandler(async (req: AuthedReque
     );
     const xpBefore = Number(progRows.rows[0].xp) - xpGained;
     const xpAfter = Number(progRows.rows[0].xp);
-    const rankBefore = rankForXp(xpBefore);
-    const rankAfter = rankForXp(xpAfter);
+    const careerPathRow = await client.query<{ career_path: CareerPath | null }>(
+      "SELECT career_path FROM users WHERE id = $1",
+      [userId]
+    );
+    const careerPath = careerPathRow.rows[0]?.career_path ?? null;
+    const rankBefore = rankForXp(xpBefore, careerPath);
+    const rankAfter = rankForXp(xpAfter, careerPath);
 
     await client.query(
       `INSERT INTO match_history

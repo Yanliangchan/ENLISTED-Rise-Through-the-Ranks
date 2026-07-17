@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { query, queryOne } from "./db.js";
 
 /** Snapshot handed to badge checks: the just-updated lifetime totals plus this match's own deltas. */
 export interface BadgeCheckInput {
@@ -30,6 +31,21 @@ const BADGE_CHECKS: Record<string, (input: BadgeCheckInput) => boolean> = {
   deep_strike: (i) => i.match.waveReached >= 20,
   one_man_army: (i) => i.match.kills >= 50,
   sharpshooter: (i) => i.match.shotsFired >= 20 && i.match.shotsHit / i.match.shotsFired >= 0.8,
+  // Progression tiers — same lifetime-kills data as century, just higher bars.
+  kills_500: (i) => i.lifetime.kills >= 500,
+  kills_1000: (i) => i.lifetime.kills >= 1000,
+  kills_5000: (i) => i.lifetime.kills >= 5000,
+  kills_10000: (i) => i.lifetime.kills >= 10000,
+  headhunter: (i) => i.lifetime.headshots >= 500,
+  // double_kill / triple_kill / quad_kill / killstreak_* / untouchable /
+  // last_man_standing / medic / resupplier / engineer / defender need
+  // per-match data (kill-window timing, damage-taken, revive/resupply counts)
+  // the client doesn't submit yet — left unwired here, unlockable only via
+  // the Guardian manual-grant tooling until that instrumentation lands.
+  // guardian_badge / airborne_tab / ranger_tab / guards_tab /
+  // commando_recognition / master_marksman / event_veteran / alpha_tester /
+  // founder / event_winner are all manually granted (qualifications, events,
+  // Guardian service) rather than auto-detected from gameplay stats.
 };
 
 export interface UnlockedBadge {
@@ -69,4 +85,30 @@ export async function evaluateAndUnlockBadges(
     unlocked.push({ code: badge.code, name: badge.name, icon: badge.icon });
   }
   return unlocked;
+}
+
+/** Full badge catalogue with each user's unlock status — for Guardian's manual-grant tooling. */
+export async function listBadgeCatalogueFor(userId: number): Promise<
+  Array<{ code: string; name: string; description: string; icon: string; category: string; rarity: string; unlocked: boolean }>
+> {
+  const catalogue = await query<{ code: string; name: string; description: string; icon: string; category: string; rarity: string }>(
+    "SELECT code, name, description, icon, category, rarity FROM badges ORDER BY category, rarity, name"
+  );
+  const owned = await query<{ code: string }>(
+    "SELECT b.code FROM user_badges ub JOIN badges b ON b.id = ub.badge_id WHERE ub.user_id = $1",
+    [userId]
+  );
+  const ownedCodes = new Set(owned.map((r) => r.code));
+  return catalogue.map((b) => ({ ...b, unlocked: ownedCodes.has(b.code) }));
+}
+
+/** Manually grant a badge by code (Guardian tooling) — no-op if already owned or code unknown. */
+export async function grantBadgeByCode(userId: number, code: string): Promise<UnlockedBadge | null> {
+  const badge = await queryOne<{ id: number; code: string; name: string; icon: string }>(
+    "SELECT id, code, name, icon FROM badges WHERE code = $1",
+    [code]
+  );
+  if (!badge) return null;
+  await query("INSERT INTO user_badges (user_id, badge_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [userId, badge.id]);
+  return { code: badge.code, name: badge.name, icon: badge.icon };
 }

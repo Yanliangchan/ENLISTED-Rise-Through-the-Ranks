@@ -132,7 +132,7 @@ export const WEAPONS: Record<string, Weapon> = {
     price: 0,
     unlockedByDefault: true,
     // SAR 21 needs the P-Rail before most optics/attachments unlock (mirrors reality).
-    attachmentSlots: ["rail", "optic", "underbarrel", "muzzle", "laser"],
+    attachmentSlots: ["rail", "optic", "underbarrel", "muzzle", "laser", "magazine"],
     defaultAttachments: ["optic_sar21_1_5x"],
   },
 
@@ -162,7 +162,7 @@ export const WEAPONS: Record<string, Weapon> = {
     price: 2500,
     unlockedByDefault: false,
     // Full rail from the factory — no separate rail purchase needed.
-    attachmentSlots: ["optic", "underbarrel", "muzzle", "laser"],
+    attachmentSlots: ["optic", "underbarrel", "muzzle", "laser", "magazine"],
     defaultAttachments: [],
   },
 
@@ -226,7 +226,7 @@ export const WEAPONS: Record<string, Weapon> = {
     isProjectile: false,
     price: 1800,
     unlockedByDefault: false,
-    attachmentSlots: ["optic", "muzzle", "laser"],
+    attachmentSlots: ["optic", "muzzle", "laser", "magazine"],
     defaultAttachments: [],
   },
 

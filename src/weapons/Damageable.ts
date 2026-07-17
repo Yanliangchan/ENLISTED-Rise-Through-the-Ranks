@@ -2,7 +2,13 @@
 export interface Damageable {
   id: string;
   isDead: boolean;
-  takeDamage(damage: number, isHeadshot: boolean, sourcePosition?: import("@babylonjs/core").Vector3): void;
+  /** `armorPiercing` — true when the shot was fired with FMJ ammo: bypasses armoured targets' damage reduction. */
+  takeDamage(
+    damage: number,
+    isHeadshot: boolean,
+    sourcePosition?: import("@babylonjs/core").Vector3,
+    armorPiercing?: boolean
+  ): void;
 }
 
 /** Which body region a hit mesh represents — drives the damage multiplier. */

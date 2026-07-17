@@ -37,6 +37,7 @@ export class HUD {
   private uavEl: HTMLDivElement;
   private medkitEl: HTMLDivElement;
   private crosshair: HTMLDivElement;
+  private m203Sight: HTMLDivElement;
   private hitmarker: HTMLDivElement;
   private killFeedEl: HTMLDivElement;
   private damageIndicatorEl: HTMLDivElement;
@@ -54,6 +55,8 @@ export class HUD {
   private flashIntensity = 0;
   private hurtFlashIntensity = 0;
   private hurtOverlay: HTMLDivElement;
+  private bloodFlashIntensity = 0;
+  private bloodOverlay: HTMLDivElement;
   private centerMessageUntil = 0;
   private shotKickUntil = 0;
 
@@ -67,6 +70,7 @@ export class HUD {
   private lastDamageHtml = "";
   private crosshairLines: HTMLDivElement[] | null = null;
   private cratePositions: Array<{ x: number; z: number; type: "ammo" | "health" }> = [];
+  private bottyPos: { x: number; z: number; isDown: boolean } | null = null;
 
   constructor(
     container: HTMLElement,
@@ -111,10 +115,17 @@ export class HUD {
     `;
     this.root.appendChild(style);
 
+    // z-index 20: above the scope overlay's vignette (z-index 12) — the
+    // hitmarker, blood splatter, hurt vignette, and damage-direction arrows
+    // must stay visible even while the player is fully scoped in, otherwise
+    // taking damage while aiming down sights is invisible (the near-opaque
+    // scope vignette painted over them at the same DOM depth).
+    const DAMAGE_FEEDBACK_Z = "z-index: 20;";
+
     this.hitmarker = el("div", `
       position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
       transform: translate(-50%, -50%) rotate(45deg); opacity: 0;
-      border: 2px solid #ff5533;
+      border: 2px solid #ff5533; ${DAMAGE_FEEDBACK_Z}
     `);
 
     // Edge insets scale with the viewport but never crowd the very corner —
@@ -182,7 +193,7 @@ export class HUD {
       text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
     `);
 
-    this.damageIndicatorEl = el("div", "position:absolute; inset:0;");
+    this.damageIndicatorEl = el("div", `position:absolute; inset:0; ${DAMAGE_FEEDBACK_Z}`);
 
     this.flashOverlay = el("div", `
       position:absolute; inset:0; background:#fff; opacity:0; transition:none;
@@ -193,7 +204,16 @@ export class HUD {
     this.hurtOverlay = el("div", `
       position:absolute; inset:0; opacity:0; pointer-events:none;
       background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(190,30,20,0.55) 100%);
+      ${DAMAGE_FEEDBACK_Z}
     `);
+
+    // Blood-splatter: a handful of dark-red blobs scattered near the edges,
+    // punchier and shorter-lived than the vignette — the "you just got hit
+    // hard" read. Built once and re-randomized/faded via opacity per hit.
+    this.bloodOverlay = el("div", `
+      position:absolute; inset:0; opacity:0; pointer-events:none; ${DAMAGE_FEEDBACK_Z}
+    `);
+    this.bloodOverlay.innerHTML = BLOOD_BLOBS_HTML;
 
     this.centerMessageEl = el("div", `
       position:absolute; top:38%; left:50%; transform:translate(-50%,-50%);
@@ -230,7 +250,24 @@ export class HUD {
     `;
     this.radarCtx = this.radarCanvas.getContext("2d")!;
 
+    // Dedicated M203 grenade-launcher sight: an amber ring with elevation
+    // ladder ticks, shown instead of the rifle crosshair while the M203 is
+    // toggled active — a clear "you're lobbing a grenade now" read.
+    this.m203Sight = el("div", `
+      position: absolute; top: 50%; left: 50%; width: 90px; height: 90px;
+      transform: translate(-50%, -50%); display: none; opacity: 0;
+    `);
+    this.m203Sight.innerHTML = `
+      <div style="position:absolute; inset:0; border:2px solid #e0a83a; border-radius:50%; box-shadow:0 0 6px rgba(224,168,58,0.6);"></div>
+      <div style="position:absolute; top:50%; left:50%; width:4px; height:4px; margin:-2px; border-radius:50%; background:#e0a83a;"></div>
+      ${[0.2, 0.4, 0.6, 0.8].map((f) => `
+        <div style="position:absolute; left:50%; top:${50 - f * 42}%; width:14px; height:1.5px; margin-left:-7px; background:#e0a83a; opacity:${0.55 + f * 0.3};"></div>
+      `).join("")}
+      <div style="position:absolute; top:100%; left:50%; transform:translate(-50%,4px); font-size:10px; letter-spacing:1px; color:#e0a83a; white-space:nowrap; text-shadow:1px 1px 2px rgba(0,0,0,0.9);">M203 — LMB TO FIRE</div>
+    `;
+
     this.root.appendChild(this.crosshair);
+    this.root.appendChild(this.m203Sight);
     this.root.appendChild(this.hitmarker);
     this.root.appendChild(bottomLeft);
     this.root.appendChild(bottomRight);
@@ -239,6 +276,7 @@ export class HUD {
     this.root.appendChild(this.damageIndicatorEl);
     this.root.appendChild(this.flashOverlay);
     this.root.appendChild(this.hurtOverlay);
+    this.root.appendChild(this.bloodOverlay);
     this.root.appendChild(this.centerMessageEl);
     this.root.appendChild(this.lockHintEl);
     this.root.appendChild(this.interactPromptEl);
@@ -304,9 +342,16 @@ export class HUD {
     this.hitmarker.style.height = headshot ? "20px" : "16px";
   }
 
-  /** Brief red edge vignette when the player takes damage — pain feedback that doesn't block the view. */
-  notifyPlayerHurt(): void {
+  /**
+   * Damage feedback bundle for one hit: red edge vignette (always) plus a
+   * blood-splatter flash that scales with how much damage landed — a grazing
+   * hit barely shows blood, a heavy hit paints the edges hard. Both stay
+   * visible while scoped (see DAMAGE_FEEDBACK_Z above the scope overlay).
+   */
+  notifyPlayerHurt(damage = 20): void {
     this.hurtFlashIntensity = Math.min(0.55, this.hurtFlashIntensity + 0.35);
+    const bloodKick = Math.min(0.85, 0.15 + damage / 60);
+    this.bloodFlashIntensity = Math.min(0.9, this.bloodFlashIntensity + bloodKick);
   }
 
   /** Brief crosshair kick on every shot — subtle visual feedback, decays fast. */
@@ -339,10 +384,12 @@ export class HUD {
     isPointerLocked: boolean,
     enemyPositions: Array<{ x: number; z: number }>,
     interactPrompt: string | null = null,
-    cratePositions: Array<{ x: number; z: number; type: "ammo" | "health" }> = []
+    cratePositions: Array<{ x: number; z: number; type: "ammo" | "health" }> = [],
+    bottyPos: { x: number; z: number; isDown: boolean } | null = null
   ): void {
     const now = performance.now();
     this.cratePositions = cratePositions;
+    this.bottyPos = bottyPos;
 
     this.interactPromptEl.textContent = interactPrompt ?? "";
     this.interactPromptEl.style.opacity = interactPrompt ? "1" : "0";
@@ -386,7 +433,15 @@ export class HUD {
       this.waveEl.textContent = this.phaseLabel();
     }
 
-    this.crosshair.style.display = this.weaponController.isScopedIn ? "none" : "block";
+    // Cross-fades between the rifle crosshair and the M203 sight over the
+    // toggle's ease-in/out (weaponController.m203Blend) rather than a hard
+    // cut, so flipping modes reads as a deliberate handling beat.
+    const m203Blend = this.weaponController.m203Blend;
+    const scoped = this.weaponController.isScopedIn;
+    this.crosshair.style.display = scoped || m203Blend >= 0.995 ? "none" : "block";
+    this.crosshair.style.opacity = String(1 - m203Blend);
+    this.m203Sight.style.display = m203Blend <= 0.005 ? "none" : "block";
+    this.m203Sight.style.opacity = String(m203Blend);
     // Small, sharp, and mostly static — a light touch of dynamic spread (tracking
     // the weapon's actual live spread cone, not just a static per-weapon stat)
     // plus a brief per-shot kick reads as feedback without the crosshair
@@ -436,6 +491,14 @@ export class HUD {
     } else if (this.hurtFlashIntensity !== 0) {
       this.hurtFlashIntensity = 0;
       this.hurtOverlay.style.opacity = "0";
+    }
+
+    if (this.bloodFlashIntensity > 0.005) {
+      this.bloodOverlay.style.opacity = String(this.bloodFlashIntensity);
+      this.bloodFlashIntensity *= 0.9; // slightly slower fade than the vignette — blood lingers
+    } else if (this.bloodFlashIntensity !== 0) {
+      this.bloodFlashIntensity = 0;
+      this.bloodOverlay.style.opacity = "0";
     }
 
     this.centerMessageEl.style.opacity = now < this.centerMessageUntil ? "1" : "0";
@@ -558,6 +621,30 @@ export class HUD {
       ctx.arc(rx, -rz, 3, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // BOTTY: a distinct blue triangle (grey when downed) so he's never
+    // confused with a hostile red dot.
+    if (this.bottyPos) {
+      const dx = this.bottyPos.x - this.player.position.x;
+      const dz = this.bottyPos.z - this.player.position.z;
+      const rx = (dx / range) * size;
+      const rz = (dz / range) * size;
+      if (Math.abs(rx) <= size / 2 && Math.abs(rz) <= size / 2) {
+        ctx.save();
+        ctx.translate(rx, -rz);
+        ctx.fillStyle = this.bottyPos.isDown ? "#8a8a8a" : "#3aa0c8";
+        ctx.strokeStyle = "rgba(0,0,0,0.7)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, -5);
+        ctx.lineTo(4, 4);
+        ctx.lineTo(-4, 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
     ctx.restore();
 
     ctx.fillStyle = "#8fe08f";
@@ -569,6 +656,29 @@ export class HUD {
     ctx.fill();
   }
 }
+
+/**
+ * A handful of dark-red radial blobs clustered toward the screen edges (never
+ * the centre, so aim is never obstructed) — built once as static HTML; only
+ * the container's opacity animates per hit, which is far cheaper than
+ * regenerating blob markup on every hit.
+ */
+const BLOOD_BLOBS_HTML = (() => {
+  const blobs = [
+    { x: 4, y: 12, r: 26 }, { x: 92, y: 18, r: 22 }, { x: 8, y: 82, r: 30 },
+    { x: 90, y: 78, r: 24 }, { x: 50, y: 3, r: 18 }, { x: 50, y: 97, r: 20 },
+    { x: 1, y: 50, r: 20 }, { x: 98, y: 50, r: 18 },
+  ];
+  return blobs
+    .map(
+      (b) => `<div style="
+        position:absolute; left:${b.x}%; top:${b.y}%; width:${b.r * 2}vmin; height:${b.r * 2}vmin;
+        transform:translate(-50%,-50%); border-radius:50%;
+        background: radial-gradient(circle, rgba(120,8,8,0.85) 0%, rgba(90,4,4,0.4) 45%, rgba(90,4,4,0) 75%);
+      "></div>`
+    )
+    .join("");
+})();
 
 function normalizeAngle(a: number): number {
   let x = a % (Math.PI * 2);

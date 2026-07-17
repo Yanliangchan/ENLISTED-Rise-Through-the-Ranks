@@ -54,6 +54,14 @@ export class PlayerController {
   /** Set by WeaponController while a laser aiming device is fitted — the visible beam makes the player easier for AI to spot. */
   laserOn = false;
   private footstepTimer = 0;
+  // Camera shake: a decaying magnitude driving small random pitch/yaw jitter,
+  // applied as an additive offset each frame. The offset is tracked and
+  // subtracted before the next one is added so it never permanently drifts
+  // the player's aim — only the momentary shake is visible.
+  private shakeMagnitude = 0;
+  private shakeTime = 0;
+  private lastShakeYaw = 0;
+  private lastShakePitch = 0;
 
   constructor(
     private readonly scene: Scene,
@@ -91,6 +99,38 @@ export class PlayerController {
     if (this.noiseTimer > 0) this.noiseTimer = Math.max(0, this.noiseTimer - deltaSeconds);
     this.applyMouseLook();
     this.applyMovement(deltaSeconds);
+    this.applyCameraShake(deltaSeconds);
+  }
+
+  /**
+   * Kick the camera-shake decay curve — call proportional to incoming damage
+   * so a graze barely nudges the view and a heavy hit visibly rattles it.
+   * Stays visible even while scoped (it's a real camera rotation, not a DOM
+   * overlay the scope vignette could paint over).
+   */
+  shakeCamera(damage: number): void {
+    const kick = Math.min(0.045, 0.006 + damage * 0.0009);
+    this.shakeMagnitude = Math.min(0.06, this.shakeMagnitude + kick);
+  }
+
+  private applyCameraShake(dt: number): void {
+    // Undo last frame's shake offset before computing a new one, so the
+    // underlying aim (mouse look + recoil) never permanently drifts.
+    this.collider.rotation.y -= this.lastShakeYaw;
+    this.camera.rotation.x -= this.lastShakePitch;
+
+    if (this.shakeMagnitude > 0.0002) {
+      this.shakeTime += dt * 26; // jitter frequency
+      this.lastShakeYaw = Math.sin(this.shakeTime * 1.7) * this.shakeMagnitude;
+      this.lastShakePitch = Math.cos(this.shakeTime * 2.1) * this.shakeMagnitude * 0.6;
+      this.collider.rotation.y += this.lastShakeYaw;
+      this.camera.rotation.x += this.lastShakePitch;
+      this.shakeMagnitude *= Math.max(0, 1 - dt * 7); // fast decay
+    } else {
+      this.shakeMagnitude = 0;
+      this.lastShakeYaw = 0;
+      this.lastShakePitch = 0;
+    }
   }
 
   /** Nudge horizontal look angle — used by weapon recoil. */

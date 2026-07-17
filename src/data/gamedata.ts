@@ -139,6 +139,8 @@ export interface EnemyType {
   hearingRangeM: number;
   creditReward: number;
   weapon: string;         // flavour: which weapon they carry
+  /** Fraction of incoming small-arms damage that actually lands (1 = none reduced). FMJ ammo bypasses this. */
+  armorMultiplier: number;
   realNotes: string;
 }
 
@@ -146,20 +148,23 @@ export const ENEMIES: Record<string, EnemyType> = {
   opfor_grunt: {
     id: "opfor_grunt", name: "OPFOR Rifleman", health: 100, moveSpeed: 3.5,
     damage: 12, fireRateRpm: 500, accuracy: 0.45, sightRangeM: 60, hearingRangeM: 40,
-    creditReward: 50, weapon: "generic_rifle",
+    creditReward: 50, weapon: "generic_rifle", armorMultiplier: 1.0,
     realNotes: "Baseline hostile infantry. Fills early waves.",
   },
   opfor_marksman: {
     id: "opfor_marksman", name: "OPFOR Marksman", health: 90, moveSpeed: 2.5,
     damage: 45, fireRateRpm: 60, accuracy: 0.8, sightRangeM: 120, hearingRangeM: 40,
-    creditReward: 90, weapon: "generic_dmr",
+    creditReward: 90, weapon: "generic_dmr", armorMultiplier: 1.0,
     realNotes: "Long-range threat; holds back and picks off the player. Prioritise or use smoke.",
   },
   opfor_heavy: {
     id: "opfor_heavy", name: "OPFOR Heavy", health: 250, moveSpeed: 2.2,
     damage: 20, fireRateRpm: 650, accuracy: 0.4, sightRangeM: 50, hearingRangeM: 40,
     creditReward: 140, weapon: "generic_lmg",
-    realNotes: "Armoured, high HP, suppressing fire. Rewards MATADOR / headshots / .50 cal.",
+    // Plate carrier soaks 30% of small-arms damage; FMJ ammo bypasses this
+    // entirely, so a Heavy takes damage as if it were an unarmoured rifleman.
+    armorMultiplier: 0.7,
+    realNotes: "Armoured, high HP, suppressing fire. Rewards MATADOR / headshots / .50 cal / FMJ ammo.",
   },
 };
 

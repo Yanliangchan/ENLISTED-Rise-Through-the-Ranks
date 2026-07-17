@@ -18,7 +18,7 @@ const KEY_BINDINGS: Array<[string, string]> = [
   ["R / G", "Reload / Throwable"],
   ["Z", "UAV recon (reveals enemies 20s)"],
   ["Q", "BOTTY command wheel (if deployed)"],
-  ["F / H", "Collect crate / M203"],
+  ["F / H", "Collect crate / toggle M203"],
   ["1 2 3 4", "Weapon slots"],
   ["5", "Use first aid kit"],
   ["B / M", "Armoury / Tactical map"],

@@ -19,7 +19,7 @@ import { isInSafeZone } from "@/world/SafeZone";
 export type BottyCommand = "default" | "followMe" | "goDark" | "coverMe" | "engage" | "retreat";
 
 export const BOTTY_MAX_HEALTH = 150;
-export const BOTTY_PRICE = 15000;
+export const BOTTY_PRICE = 20000;
 
 const MAG_SIZE = 25;
 const RELOAD_SEC = 2.2;

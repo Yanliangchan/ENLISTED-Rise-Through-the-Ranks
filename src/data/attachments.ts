@@ -42,6 +42,7 @@ export interface Attachment {
     flashlight?: boolean; // weapon light — illuminates what the player faces
     compensator?: boolean; // ports vent upward: less vertical recoil, bigger muzzle flash
     flashHidden?: boolean; // flash hider — no visible muzzle flash, shorter AI visibility spike
+    fmj?: boolean; // full metal jacket — bypasses armoured-target damage reduction, penetrates light cover
   };
   realNotes?: string;
 }
@@ -247,5 +248,16 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["p30"],
     price: 250,
     deltas: { magSize: 3 },
+  },
+  ammo_fmj: {
+    id: "ammo_fmj",
+    name: "Full Metal Jacket (FMJ)",
+    slot: "magazine",
+    compatibleWith: [],
+    price: 5000,
+    deltas: { recoilVertical: 0.15 },
+    flags: { fmj: true },
+    realNotes:
+      "Solid-core ball ammunition: better penetration through body armour and light cover at the cost of slightly more felt recoil (less expansion/energy dump than the default loadout). Bypasses Heavy OPFOR's plate-carrier damage reduction entirely — a Heavy hit with FMJ takes damage as if it were an unarmoured rifleman.",
   },
 };

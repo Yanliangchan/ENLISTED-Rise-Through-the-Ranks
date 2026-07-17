@@ -95,6 +95,34 @@ interface OpforAssets {
 }
 const opforAssetCache = new WeakMap<Scene, OpforAssets>();
 
+/**
+ * Per-class accent colour so the three OPFOR types are recognisable at a
+ * glance without losing the hostile-orange base read: a bright helmet band +
+ * shoulder patch in a colour tied to the class. Visible at medium range,
+ * subtle enough up close not to look like a uniform malfunction.
+ */
+const CLASS_ACCENT_COLOR: Record<string, Color3> = {
+  opfor_grunt: new Color3(0.2, 0.75, 0.25), // green — baseline rifleman
+  opfor_marksman: new Color3(0.2, 0.45, 0.95), // blue — long-range threat
+  opfor_heavy: new Color3(0.12, 0.12, 0.14), // dark/black — armoured support gunner
+};
+const classAccentCache = new WeakMap<Scene, Map<string, StandardMaterial>>();
+
+function getClassAccentMat(scene: Scene, typeId: string): StandardMaterial {
+  let byType = classAccentCache.get(scene);
+  if (!byType) {
+    byType = new Map();
+    classAccentCache.set(scene, byType);
+  }
+  let mat = byType.get(typeId);
+  if (!mat) {
+    const color = CLASS_ACCENT_COLOR[typeId] ?? new Color3(0.6, 0.6, 0.6);
+    mat = litMat(scene, `opforAccent_${typeId}`, color, 0.55);
+    byType.set(typeId, mat);
+  }
+  return mat;
+}
+
 /** StandardMaterial with an emissive floor so it can never render white or pitch-black. */
 function litMat(scene: Scene, name: string, diffuse: Color3, emissiveScale = 0.4): StandardMaterial {
   const mat = new StandardMaterial(name, scene);
@@ -288,6 +316,21 @@ export class EnemyInstance implements Damageable {
     helmet.position.y = 1.78;
     helmet.material = assets.helmetMat;
     helmet.parent = vr;
+
+    // Class-identification accent: a coloured helmet band + chest patch,
+    // visible at medium range without recolouring the whole hostile silhouette.
+    const accentMat = getClassAccentMat(scene, type.id);
+    const helmetBand = MeshBuilder.CreateTorus(`${this.id}_helmetBand`, { diameter: 0.32, thickness: 0.03, tessellation: 12 }, scene);
+    helmetBand.position.y = 1.72;
+    helmetBand.rotation.x = Math.PI / 2;
+    helmetBand.material = accentMat;
+    helmetBand.parent = vr;
+    helmetBand.isPickable = false;
+    const chestPatch = MeshBuilder.CreateBox(`${this.id}_chestPatch`, { width: 0.1, height: 0.1, depth: 0.02 }, scene);
+    chestPatch.position.set(0.18, 1.2, 0.26);
+    chestPatch.material = accentMat;
+    chestPatch.parent = vr;
+    chestPatch.isPickable = false;
     helmet.isPickable = false;
 
     const shoulders = MeshBuilder.CreateBox(`${this.id}_shoulders`, { width: 0.66, height: 0.16, depth: 0.38 }, scene);
@@ -454,9 +497,12 @@ export class EnemyInstance implements Damageable {
     }
   }
 
-  takeDamage(damage: number, _isHeadshot: boolean, _sourcePosition?: Vector3): void {
+  takeDamage(damage: number, _isHeadshot: boolean, _sourcePosition?: Vector3, armorPiercing = false): void {
     if (this.isDead) return;
-    this.health -= damage;
+    // FMJ ammo bypasses this soldier's armour multiplier entirely — a Heavy
+    // hit with FMJ takes damage as if it were an unarmoured rifleman.
+    const effectiveDamage = armorPiercing ? damage : damage * this.type.armorMultiplier;
+    this.health -= effectiveDamage;
     this.flashHit();
     // Being hit rattles the aim for a moment — degrades this soldier's accuracy
     // (distinct from the full suppressed FSM state).

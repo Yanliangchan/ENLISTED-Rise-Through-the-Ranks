@@ -1,5 +1,5 @@
 import { queryOne, query } from "./db.js";
-import { rankForXp, careerTrackFor, type RankProgress } from "./ranks.js";
+import { rankForXp, careerTrackFor, type RankProgress, type CareerPath } from "./ranks.js";
 
 export interface PlayerStatsRow {
   games_played: number;
@@ -51,13 +51,15 @@ export interface ProfileDTO {
   accuracyPct: number;
   rank: RankProgress;
   careerTrack: string;
-  badges: Array<{ code: string; name: string; description: string; icon: string; unlockedAt: string }>;
+  careerPath: CareerPath | null;
+  guardian: boolean;
+  badges: Array<{ code: string; name: string; description: string; icon: string; category: string; rarity: string; unlockedAt: string }>;
 }
 
 /** Assemble the full profile DTO the client's Profile page / login response uses. */
 export async function loadProfile(userId: number): Promise<ProfileDTO | null> {
-  const user = await queryOne<{ username: string; save_data: unknown; settings: unknown }>(
-    "SELECT username, save_data, settings FROM users WHERE id = $1",
+  const user = await queryOne<{ username: string; save_data: unknown; settings: unknown; career_path: CareerPath | null; guardian: boolean }>(
+    "SELECT username, save_data, settings, career_path, guardian FROM users WHERE id = $1",
     [userId]
   );
   if (!user) return null;
@@ -66,8 +68,8 @@ export async function loadProfile(userId: number): Promise<ProfileDTO | null> {
   const progression = await queryOne<{ xp: string }>("SELECT xp FROM progression WHERE user_id = $1", [userId]);
   const xp = progression ? Number(progression.xp) : 0;
 
-  const badges = await query<{ code: string; name: string; description: string; icon: string; unlocked_at: string }>(
-    `SELECT b.code, b.name, b.description, b.icon, ub.unlocked_at
+  const badges = await query<{ code: string; name: string; description: string; icon: string; category: string; rarity: string; unlocked_at: string }>(
+    `SELECT b.code, b.name, b.description, b.icon, b.category, b.rarity, ub.unlocked_at
      FROM user_badges ub JOIN badges b ON b.id = ub.badge_id
      WHERE ub.user_id = $1 ORDER BY ub.unlocked_at ASC`,
     [userId]
@@ -80,6 +82,8 @@ export async function loadProfile(userId: number): Promise<ProfileDTO | null> {
     username: user.username,
     save: user.save_data,
     settings: user.settings,
+    careerPath: user.career_path,
+    guardian: user.guardian,
     stats: {
       gamesPlayed: statsRow.games_played,
       kills: statsRow.kills,
@@ -94,13 +98,15 @@ export async function loadProfile(userId: number): Promise<ProfileDTO | null> {
       playtimeSec: statsRow.playtime_sec,
     },
     accuracyPct,
-    rank: rankForXp(xp),
+    rank: rankForXp(xp, user.career_path),
     careerTrack: careerTrackFor(statsRow.career_kills_by_class ?? {}),
     badges: badges.map((b) => ({
       code: b.code,
       name: b.name,
       description: b.description,
       icon: b.icon,
+      category: b.category,
+      rarity: b.rarity,
       unlockedAt: b.unlocked_at,
     })),
   };

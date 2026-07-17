@@ -25,7 +25,9 @@ export function fireProjectile(
   player: PlayerController,
   audio: AudioManager,
   /** False when fired from inside the safe zone — the projectile still flies and detonates visually, it just can't hurt anything. */
-  canDealDamage = true
+  canDealDamage = true,
+  /** m/s² downward acceleration — 0 (default) keeps the old flat-trajectory rocket; >0 gives a real ballistic arc (the M203). */
+  gravityMps2 = 0
 ): void {
   const mesh = MeshBuilder.CreateSphere("projectile", { diameter: 0.12 }, scene);
   mesh.position = origin.clone();
@@ -34,11 +36,14 @@ export function fireProjectile(
   mat.emissiveColor = new Color3(0.9, 0.5, 0.1);
   mesh.material = mat;
 
+  const velocity = direction.scale(speedMps);
   let travelled = 0;
   const step = () => {
     const dt = scene.getEngine().getDeltaTime() / 1000;
-    const moveDist = speedMps * dt;
-    const ray = new Ray(mesh.position, direction, moveDist + 0.2);
+    if (gravityMps2 > 0) velocity.y -= gravityMps2 * dt;
+    const moveDist = velocity.length() * dt;
+    const moveDir = velocity.normalizeToNew();
+    const ray = new Ray(mesh.position, moveDir, moveDist + 0.2);
     const pick = scene.pickWithRay(ray, (m) => m.isPickable && m !== mesh);
 
     if (pick?.hit && pick.pickedPoint && pick.distance <= moveDist) {
@@ -46,9 +51,9 @@ export function fireProjectile(
       return;
     }
 
-    mesh.position.addInPlace(direction.scale(moveDist));
+    mesh.position.addInPlace(velocity.scale(dt));
     travelled += moveDist;
-    if (travelled >= maxRangeM) {
+    if (travelled >= maxRangeM || mesh.position.y <= 0) {
       detonate(mesh.position.clone());
       return;
     }

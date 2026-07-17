@@ -17,6 +17,8 @@ export interface EffectiveStats {
   hasLaser: boolean;
   hasFlashlight: boolean;
   hasGrenadeLauncher: boolean;
+  /** FMJ ammunition fitted: bypasses armoured-enemy damage reduction, penetrates light cover. */
+  hasFmj: boolean;
   /** Visual muzzle flash size multiplier: 0 = hidden (suppressor/flash hider), >1 = compensator's bigger bloom. */
   muzzleFlashScale: number;
   zoom: number;
@@ -41,6 +43,7 @@ export function computeEffectiveStats(weapon: Weapon, fittedAttachmentIds: strin
     hasLaser: false,
     hasFlashlight: false,
     hasGrenadeLauncher: false,
+    hasFmj: false,
     muzzleFlashScale: 1,
     zoom: 1,
     fittedAttachmentIds: [...fittedAttachmentIds],
@@ -56,6 +59,7 @@ export function computeEffectiveStats(weapon: Weapon, fittedAttachmentIds: strin
     if (attachment.flags?.laser) stats.hasLaser = true;
     if (attachment.flags?.flashlight) stats.hasFlashlight = true;
     if (attachment.flags?.grenadeLauncher) stats.hasGrenadeLauncher = true;
+    if (attachment.flags?.fmj) stats.hasFmj = true;
     if (attachment.flags?.compensator) stats.muzzleFlashScale = Math.max(stats.muzzleFlashScale, 1.7);
     if (attachment.flags?.flashHidden) stats.muzzleFlashScale = 0;
   }

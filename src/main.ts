@@ -35,8 +35,10 @@ import { RangeTargetController } from "@/world/RangeTarget";
 import { TrainingRangeUI, type RangeWeaponOption } from "@/ui/TrainingRangeUI";
 import { WEAPONS } from "@/data/weapons";
 import { armAdminTrigger } from "@/core/AdminMode";
+import { armGuardianTrigger } from "@/core/GuardianTrigger";
 import { MedicalStation } from "@/world/MedicalStation";
 import { BottyController, BOTTY_MAX_HEALTH } from "@/companion/Botty";
+import { BottyMarker } from "@/ui/BottyMarker";
 import { CommandWheel } from "@/ui/CommandWheel";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
@@ -107,6 +109,7 @@ async function boot(): Promise<void> {
   if (backend && backend.profile.save === null) backend.saveGameState(gameState.data);
   if (backend && backend.profile.settings === null) backend.saveSettings(settings.data);
   armAdminTrigger(gameState);
+  armGuardianTrigger(() => backend?.profile.username ?? null);
 
   const audio = new AudioManager();
   audio.setVolume(settings.data.volume);
@@ -128,10 +131,11 @@ async function boot(): Promise<void> {
 
   const waveManager = new WaveManager(game.scene, player, gameState, audio, {
     onKillFeed: (name, headshot) => hud.notifyKill(name, headshot),
-    onPlayerDamaged: (_dmg, sourcePos) => {
+    onPlayerDamaged: (dmg, sourcePos) => {
       const bearing = Math.atan2(sourcePos.x - player.position.x, sourcePos.z - player.position.z);
       hud.notifyDamageFrom(bearing);
-      hud.notifyPlayerHurt();
+      hud.notifyPlayerHurt(dmg);
+      player.shakeCamera(dmg);
     },
     onWaveStart: (wave) => {
       applyWaveArcLighting(game.scene, wave);
@@ -269,6 +273,8 @@ async function boot(): Promise<void> {
   }
 
   if (gameState.data.hasBotty) spawnBotty();
+
+  const bottyMarker = new BottyMarker(uiRoot);
 
   armoury.onBuyBotty = () => spawnBotty();
 
@@ -546,13 +552,20 @@ async function boot(): Promise<void> {
         input.isPointerLocked,
         waveManager.enemyManager.livePositions(),
         bottyHealPrompt() ?? medicalStation.promptText ?? supplyCrates.promptText,
-        supplyCrates.liveCrates()
+        supplyCrates.liveCrates(),
+        botty ? { x: botty.position.x, z: botty.position.z, isDown: botty.isDown } : null
       );
       hud.updateUAV(uav.active, uav.secondsRemaining, uav.chargesRemaining, uav.cooldownRemaining);
       hud.updateMedkit(medKit.count);
       hud.updateBotty(
         botty ? { health: botty.health, maxHealth: botty.maxHealth, command: botty.command, isDown: botty.isDown } : null
       );
+    }
+
+    if (botty && !paused && !rangeActive) {
+      bottyMarker.update(game.scene, player.camera, botty.position.add(new Vector3(0, 1.75, 0)), botty.isDown);
+    } else {
+      bottyMarker.hide();
     }
     input.resetFrame();
   });
