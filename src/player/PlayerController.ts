@@ -6,7 +6,7 @@ const FOOTSTEP_INTERVAL_WALK = 0.46; // seconds between footstep sounds at walk 
 const FOOTSTEP_INTERVAL_SPRINT = 0.32;
 
 const WALK_SPEED = 4.5; // m/s
-const SPRINT_MULT = 1.6;
+const SPRINT_MULT = 1.8;
 const CROUCH_MULT = 0.5;
 const JUMP_SPEED = 4.2; // gives ~0.9m of jump height at real gravity below
 const GRAVITY = -9.81; // real-world m/s^2
