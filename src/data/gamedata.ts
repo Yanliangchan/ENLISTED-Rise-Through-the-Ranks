@@ -36,22 +36,22 @@ export const THROWABLES: Record<string, Throwable> = {
       "Standard SAF fragmentation grenade. ST Kinetics. ~300g, Composition B, ~2800 steel balls. Kill radius ~5m, casualty radius ~20m. Damage should fall off with distance from blast centre.",
   },
   smoke_red: {
-    id: "smoke_red", name: "Smoke — Red", type: "smoke", price: 150,
+    id: "smoke_red", name: "Smoke — Red", type: "smoke", price: 200,
     fuseSec: 1.5, effectDurationSec: 18, radiusM: 8, color: "#e53935",
     realNotes: "Coloured smoke for concealment/marking. Blocks enemy AI line-of-sight while active.",
   },
   smoke_yellow: {
-    id: "smoke_yellow", name: "Smoke — Yellow", type: "smoke", price: 150,
+    id: "smoke_yellow", name: "Smoke — Yellow", type: "smoke", price: 200,
     fuseSec: 1.5, effectDurationSec: 18, radiusM: 8, color: "#fdd835",
     realNotes: "Coloured smoke. Blocks enemy AI line-of-sight while active.",
   },
   smoke_blue: {
-    id: "smoke_blue", name: "Smoke — Blue", type: "smoke", price: 150,
+    id: "smoke_blue", name: "Smoke — Blue", type: "smoke", price: 200,
     fuseSec: 1.5, effectDurationSec: 18, radiusM: 8, color: "#1e88e5",
     realNotes: "Coloured smoke. Blocks enemy AI line-of-sight while active.",
   },
   smoke_green: {
-    id: "smoke_green", name: "Smoke — Green", type: "smoke", price: 150,
+    id: "smoke_green", name: "Smoke — Green", type: "smoke", price: 200,
     fuseSec: 1.5, effectDurationSec: 18, radiusM: 8, color: "#43a047",
     realNotes: "Coloured smoke. Blocks enemy AI line-of-sight while active.",
   },
@@ -66,7 +66,7 @@ export const THROWABLES: Record<string, Throwable> = {
     realNotes: "Illumination. Bright light source that lights up an area at night and reveals nearby enemies.",
   },
   tripflare: {
-    id: "tripflare", name: "Tripflare", type: "tripflare", price: 250,
+    id: "tripflare", name: "Tripflare", type: "tripflare", price: 300,
     fuseSec: 0, effectDurationSec: 20, radiusM: 3,
     realNotes: "Deployable trip alarm. Placed on the ground; triggers a bright flare + alerts the player when an enemy crosses the tripline. Early-warning trap.",
   },
@@ -113,12 +113,12 @@ export const GEAR: Record<string, GearItem> = {
     realNotes: "Default player + friendly appearance. SAF pixelised digital camouflage pattern (manufactured by Sritex / PT Sri Rejeki Isman Tbk). Cosmetic, sets the soldier skin.",
   },
   lbv: {
-    id: "lbv", name: "Load Bearing Vest", price: 800,
+    id: "lbv", name: "Load Bearing Vest", price: 900,
     carryBonus: 2,
     realNotes: "Increases carry capacity (extra throwables / magazines). Prerequisite for the armour plate.",
   },
   armour_plate: {
-    id: "armour_plate", name: "Armour Plate", price: 1200,
+    id: "armour_plate", name: "Armour Plate", price: 1300,
     armour: 50, damageReduction: 0.5,
     realNotes: "Fits into the LBV. Adds an armour pool: incoming damage depletes armour (at 50% reduction) before health. Sustained fire can break the plate.",
   },
@@ -148,19 +148,19 @@ export const ENEMIES: Record<string, EnemyType> = {
   opfor_grunt: {
     id: "opfor_grunt", name: "OPFOR Rifleman", health: 100, moveSpeed: 3.5,
     damage: 12, fireRateRpm: 500, accuracy: 0.45, sightRangeM: 60, hearingRangeM: 40,
-    creditReward: 50, weapon: "generic_rifle", armorMultiplier: 1.0,
+    creditReward: 35, weapon: "generic_rifle", armorMultiplier: 1.0,
     realNotes: "Baseline hostile infantry. Fills early waves.",
   },
   opfor_marksman: {
     id: "opfor_marksman", name: "OPFOR Marksman", health: 90, moveSpeed: 2.5,
     damage: 45, fireRateRpm: 60, accuracy: 0.8, sightRangeM: 120, hearingRangeM: 40,
-    creditReward: 90, weapon: "generic_dmr", armorMultiplier: 1.0,
+    creditReward: 65, weapon: "generic_dmr", armorMultiplier: 1.0,
     realNotes: "Long-range threat; holds back and picks off the player. Prioritise or use smoke.",
   },
   opfor_heavy: {
     id: "opfor_heavy", name: "OPFOR Heavy", health: 250, moveSpeed: 2.2,
     damage: 20, fireRateRpm: 650, accuracy: 0.4, sightRangeM: 50, hearingRangeM: 40,
-    creditReward: 140, weapon: "generic_lmg",
+    creditReward: 100, weapon: "generic_lmg",
     // Plate carrier soaks 30% of small-arms damage; FMJ ammo bypasses this
     // entirely, so a Heavy takes damage as if it were an unarmoured rifleman.
     armorMultiplier: 0.7,
@@ -171,10 +171,14 @@ export const ENEMIES: Record<string, EnemyType> = {
 // ===========================================================================
 // ECONOMY & WAVE SCALING
 // ===========================================================================
+// Progression rebalance: base rewards trimmed ~25-30% from their original
+// values so weapon unlocks and rank progression take longer to feel earned,
+// without stalling steady progress (waveClearScaling is untouched — the
+// late-game bonus curve still grows the same rate off this smaller base).
 export const ECONOMY = {
-  killCredit: 50,          // base; per-enemy reward overrides this
-  headshotBonus: 25,
-  waveClearBonus: 200,
+  killCredit: 35,          // base; per-enemy reward overrides this
+  headshotBonus: 18,
+  waveClearBonus: 150,
   waveClearScaling: 1.15,  // bonus grows each wave
   startingCredits: 0,
 };

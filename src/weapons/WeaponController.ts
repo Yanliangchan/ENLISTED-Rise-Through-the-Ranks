@@ -313,7 +313,7 @@ export class WeaponController {
     const swayX = Math.sin(this.swayTime * 1.3) * swayScale;
     const swayY = Math.cos(this.swayTime * 0.9) * swayScale * 0.6;
 
-    this.scopeOverlay?.update(isScope ? "scope" : isReflex ? "reddot" : "none", this.adsBlend);
+    this.scopeOverlay?.update(isScope ? "scope" : isReflex ? "reddot" : "none", this.adsBlend, this.effective.zoom);
 
     if (this.activeViewmodel) {
       // Hip-rest position, lowered/offset per weapon class so the model never

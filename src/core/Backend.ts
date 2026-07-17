@@ -17,6 +17,8 @@ export interface ProfileStats {
 
 export interface RankProgress {
   name: string;
+  /** Short rank-insignia abbreviation, e.g. "CPT", "ME4", "3SG" — shown before the username on leaderboards/nameplates. */
+  insignia: string;
   index: number;
   xp: number;
   xpIntoRank: number;
@@ -74,6 +76,8 @@ export interface LeaderboardEntry {
   rank: number;
   username: string;
   value: number;
+  rankInsignia: string;
+  rankName: string;
 }
 
 const TOKEN_KEY = "enlisted.token";

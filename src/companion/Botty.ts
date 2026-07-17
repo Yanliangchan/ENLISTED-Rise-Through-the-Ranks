@@ -15,11 +15,12 @@ import type { AudioManager } from "@/core/AudioManager";
 import type { HitMeshMetadata } from "@/weapons/Damageable";
 import { CAMP_POSITION } from "@/world/Level";
 import { isInSafeZone } from "@/world/SafeZone";
+import { findNearestNavigable } from "@/world/Nav";
 
 export type BottyCommand = "default" | "followMe" | "goDark" | "coverMe" | "engage" | "retreat";
 
 export const BOTTY_MAX_HEALTH = 150;
-export const BOTTY_PRICE = 20000;
+export const BOTTY_PRICE = 22000; // +10% economy rebalance, rounded to nearest $100
 
 const MAG_SIZE = 25;
 const RELOAD_SEC = 2.2;
@@ -62,6 +63,15 @@ export class BottyController {
   private reloadTimer = 0;
   private repositionTimer = 0;
   private coverOffset = new Vector3(0, 0, 0);
+  // Obstacle-stuck handling: if moveToward keeps failing to make real progress
+  // (wedged against a wall/prop), sidestep first; if that doesn't help either
+  // after a longer stretch, teleport to the nearest walkable ground nearby —
+  // same escalation EnemyAI uses, sized down since BOTTY only ever moves in
+  // short reposition hops rather than long chases.
+  private stuckTimer = 0;
+  private hardStuckTimer = 0;
+  private escapeDir: Vector3 | null = null;
+  private escapeTimer = 0;
   private wasFiredUpon = false;
   private smokeThrownForRetreat = false;
   // Target acquisition runs LOS raycasts across every live enemy — far too
@@ -318,8 +328,50 @@ export class BottyController {
     const dist = to.length();
     if (dist < 0.3) return;
     to.normalize();
-    this.root.moveWithCollisions(to.scale(MOVE_SPEED * speedMult * dt));
+
+    // If a recent stuck episode is still being worked off, sidestep instead of
+    // shoving straight into whatever's blocking the path.
+    let dir = to;
+    if (this.escapeTimer > 0) {
+      this.escapeTimer -= dt;
+      if (this.escapeDir) dir = this.escapeDir;
+    }
+
+    const before = this.position.clone();
+    this.root.moveWithCollisions(dir.scale(MOVE_SPEED * speedMult * dt));
     this.root.rotation.y = Math.atan2(to.x, to.z);
+
+    const moved = Vector3.Distance(this.position, before);
+    const barelyMoved = moved < MOVE_SPEED * speedMult * dt * 0.35;
+    if (this.escapeTimer <= 0) {
+      if (barelyMoved) {
+        this.stuckTimer += dt;
+        if (this.stuckTimer > 0.45) {
+          const side = Math.random() < 0.5 ? 1 : -1;
+          this.escapeDir = new Vector3(-to.z * side, 0, to.x * side).normalize();
+          this.escapeTimer = 0.7;
+          this.stuckTimer = 0;
+        }
+      } else {
+        this.stuckTimer = Math.max(0, this.stuckTimer - dt * 1.5);
+      }
+    }
+    // Sidestepping alone hasn't restored real progress for a good while —
+    // BOTTY is genuinely wedged. Teleport to the nearest walkable ground.
+    if (barelyMoved) {
+      this.hardStuckTimer += dt;
+      if (this.hardStuckTimer > 4) {
+        const safe = findNearestNavigable(this.scene, this.position, 14);
+        this.root.position.x = safe.x;
+        this.root.position.z = safe.z;
+        this.hardStuckTimer = 0;
+        this.stuckTimer = 0;
+        this.escapeTimer = 0;
+        this.escapeDir = null;
+      }
+    } else {
+      this.hardStuckTimer = Math.max(0, this.hardStuckTimer - dt * 2);
+    }
   }
 
   private throwRetreatSmoke(threat: Vector3 | null, player: PlayerController): void {

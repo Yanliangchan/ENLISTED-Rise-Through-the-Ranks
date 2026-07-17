@@ -6,28 +6,25 @@
  */
 export interface RankDef {
   name: string;
+  abbr: string;
   xp: number;
 }
 
+// Stops at Corporal First Class — the SAF career-path gate. Every rank above
+// CFC belongs to CAREER_PATHS below instead, once a track is chosen.
 export const RANKS: RankDef[] = [
-  { name: "Recruit", xp: 0 },
-  { name: "Private", xp: 400 },
-  { name: "Private (1CL)", xp: 1000 },
-  { name: "Lance Corporal", xp: 2000 },
-  { name: "Corporal", xp: 3400 },
-  { name: "Corporal First Class", xp: 5200 },
-  { name: "3rd Sergeant", xp: 7500 },
-  { name: "2nd Sergeant", xp: 10500 },
-  { name: "1st Sergeant", xp: 14200 },
-  { name: "Master Sergeant", xp: 18800 },
-  { name: "2nd Lieutenant", xp: 24500 },
-  { name: "Lieutenant", xp: 31500 },
-  { name: "Captain", xp: 40000 },
-  { name: "Major", xp: 50500 },
+  { name: "Recruit", abbr: "REC", xp: 0 },
+  { name: "Private", abbr: "PTE", xp: 400 },
+  { name: "Private (1CL)", abbr: "PTE(1)", xp: 1000 },
+  { name: "Lance Corporal", abbr: "LCP", xp: 2000 },
+  { name: "Corporal", abbr: "CPL", xp: 3400 },
+  { name: "Corporal First Class", abbr: "CFC", xp: 5200 },
 ];
 
 export interface RankProgress {
   name: string;
+  /** Short rank-insignia abbreviation, e.g. "CPT", "ME4", "3SG" — for leaderboard/nameplate display. */
+  insignia: string;
   index: number;
   xp: number;
   xpIntoRank: number;
@@ -111,6 +108,7 @@ export function rankForXp(xp: number, careerPath?: CareerPath | null): RankProgr
     const next = index >= CFC_INDEX ? null : RANKS[index + 1];
     return {
       name: RANKS[index].name,
+      insignia: RANKS[index].abbr,
       index,
       xp,
       xpIntoRank: xp - RANKS[index].xp,
@@ -132,6 +130,7 @@ export function rankForXp(xp: number, careerPath?: CareerPath | null): RankProgr
     const first = ladder[0];
     return {
       name: RANKS[CFC_INDEX].name,
+      insignia: RANKS[CFC_INDEX].abbr,
       index: CFC_INDEX,
       xp,
       xpIntoRank: xp - RANKS[CFC_INDEX].xp,
@@ -143,6 +142,7 @@ export function rankForXp(xp: number, careerPath?: CareerPath | null): RankProgr
   const next = ladder[ladderIndex + 1] ?? null;
   return {
     name: `${rank.name} (${rank.insignia})`,
+    insignia: rank.insignia,
     index: CFC_INDEX + 1 + ladderIndex,
     xp,
     xpIntoRank: xp - rank.xp,
@@ -158,9 +158,14 @@ export interface MatchXpInput {
   creditsEarned: number;
 }
 
-/** XP awarded for one completed deployment. Kept as one pure function so the economy can be re-tuned in one place. */
+/**
+ * XP awarded for one completed deployment. Kept as one pure function so the
+ * economy can be re-tuned in one place. Coefficients trimmed ~25-30% from
+ * their original values (progression rebalance) so rank-ups and end-game
+ * career milestones take meaningfully longer to reach.
+ */
 export function xpForMatch(m: MatchXpInput): number {
-  return Math.round(m.kills * 10 + m.headshots * 15 + m.waveReached * 25 + m.creditsEarned / 10);
+  return Math.round(m.kills * 7 + m.headshots * 11 + m.waveReached * 18 + m.creditsEarned / 13);
 }
 
 /** Weapon class -> display label for the "career track" derived from kills-by-class. */

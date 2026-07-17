@@ -25,6 +25,7 @@ export class HUD {
   private root: HTMLDivElement;
   private healthBar: HTMLDivElement;
   private armourBar: HTMLDivElement;
+  private armourValueEl: HTMLSpanElement;
   private bottyBar: HTMLDivElement;
   private bottyWrap: HTMLDivElement;
   private bottyCommandEl: HTMLDivElement;
@@ -139,11 +140,16 @@ export class HUD {
     `);
     this.healthBar = makeBar("#c0392b");
     this.armourBar = makeBar("#5b8dd6");
-    bottomLeft.appendChild(labeled("HP", this.healthBar));
-    bottomLeft.appendChild(labeled("ARM", this.armourBar));
+    const hpLabeled = labeled("HP", this.healthBar);
+    const armLabeled = labeled("ARM", this.armourBar);
+    bottomLeft.appendChild(hpLabeled.wrap);
+    bottomLeft.appendChild(armLabeled.wrap);
+    this.armourValueEl = document.createElement("span");
+    armLabeled.labelEl.appendChild(this.armourValueEl);
 
     this.bottyBar = makeBar("#3aa0c8");
-    this.bottyWrap = labeled("BOTTY", this.bottyBar);
+    const bottyLabeled = labeled("BOTTY", this.bottyBar);
+    this.bottyWrap = bottyLabeled.wrap;
     this.bottyWrap.style.display = "none";
     this.bottyCommandEl = el("div", "font-size:11px; color:#8fc7e0; margin-top:-4px; margin-bottom:6px; text-shadow:1px 1px 2px rgba(0,0,0,0.9);");
     this.bottyWrap.appendChild(this.bottyCommandEl);
@@ -398,6 +404,7 @@ export class HUD {
     this.armourBar.style.width = this.player.maxArmour
       ? `${Math.max(0, (this.player.armour / this.player.maxArmour) * 100)}%`
       : "0%";
+    this.armourValueEl.textContent = `${Math.round(this.player.armour)}/${this.player.maxArmour}`;
 
     const ammo = this.weaponController.ammo;
     this.ammoEl.textContent = this.weaponController.isReloading
@@ -699,16 +706,17 @@ function makeBar(color: string): HTMLDivElement {
   return bar;
 }
 
-function labeled(label: string, bar: HTMLDivElement): HTMLDivElement {
+/** Returns the wrapping element plus the label's own text node target, so callers can append a live "42/65" value readout next to the label (e.g. armour, whose max changes as gear is bought). */
+function labeled(label: string, bar: HTMLDivElement): { wrap: HTMLDivElement; labelEl: HTMLDivElement } {
   const wrap = document.createElement("div");
   wrap.style.cssText = "margin-bottom:8px;";
   const labelEl = document.createElement("div");
   labelEl.textContent = label;
-  labelEl.style.cssText = "font-size:10px; font-weight:bold; letter-spacing:1.5px; color:#9fc78a; margin-bottom:3px; text-shadow:1px 1px 2px rgba(0,0,0,0.9);";
+  labelEl.style.cssText = "font-size:10px; font-weight:bold; letter-spacing:1.5px; color:#9fc78a; margin-bottom:3px; text-shadow:1px 1px 2px rgba(0,0,0,0.9); display:flex; justify-content:space-between;";
   const track = document.createElement("div");
   track.style.cssText = "width:100%; height:8px; background:rgba(0,0,0,0.55); border:1px solid rgba(255,255,255,0.18); border-radius:1px; overflow:hidden;";
   track.appendChild(bar);
   wrap.appendChild(labelEl);
   wrap.appendChild(track);
-  return wrap;
+  return { wrap, labelEl };
 }

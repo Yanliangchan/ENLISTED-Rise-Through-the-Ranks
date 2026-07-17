@@ -345,6 +345,10 @@ export class Armoury {
         if (needsLbv) return;
         if (this.gameState.spendCredits(item.price)) {
           this.gameState.data.ownedGear.push(item.id);
+          // LBV grants 5 First Aid Kits immediately, not just on the next respawn.
+          if (item.id === "lbv") {
+            this.gameState.data.medkitCount = Math.max(this.gameState.data.medkitCount, this.gameState.startingMedkitCount());
+          }
           this.gameState.save();
           this.audio.purchase();
           this.refresh();

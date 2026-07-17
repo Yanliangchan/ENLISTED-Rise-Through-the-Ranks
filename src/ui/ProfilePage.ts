@@ -233,7 +233,7 @@ export class ProfilePage {
             <div class="lb-row" data-username="${escapeHtml(e.username)}" style="display:flex; justify-content:space-between; padding:5px 10px; cursor:pointer; ${
               e.username === p.username ? "background:#1c2c18; border-left:2px solid #6ea24a;" : ""
             }">
-              <span>#${e.rank} ${escapeHtml(e.username)}</span><span>${e.value}</span>
+              <span>#${e.rank} <span style="color:#7fae68; font-weight:bold;">${escapeHtml(e.rankInsignia)}</span> ${escapeHtml(e.username)}</span><span>${e.value}</span>
             </div>`
             )
             .join("");

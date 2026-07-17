@@ -159,7 +159,7 @@ export const WEAPONS: Record<string, Weapon> = {
     spread: { hip: 3.2, ads: 0.3, movePenalty: 1.2 },
     moveSpeedMult: 1.0,
     isProjectile: false,
-    price: 2500,
+    price: 2800,
     unlockedByDefault: false,
     // Full rail from the factory — no separate rail purchase needed.
     attachmentSlots: ["optic", "underbarrel", "muzzle", "laser", "magazine"],
@@ -224,7 +224,7 @@ export const WEAPONS: Record<string, Weapon> = {
     spread: { hip: 1.5, ads: 0.55, movePenalty: 0.6 }, // best hip-fire in the game
     moveSpeedMult: 1.1, // as mobile as the pistol
     isProjectile: false,
-    price: 1800,
+    price: 2000,
     unlockedByDefault: false,
     attachmentSlots: ["optic", "muzzle", "laser", "magazine"],
     defaultAttachments: [],
@@ -256,7 +256,7 @@ export const WEAPONS: Record<string, Weapon> = {
     spread: { hip: 5.0, ads: 0.15, movePenalty: 2.0 },
     moveSpeedMult: 0.95,
     isProjectile: false,
-    price: 4000,
+    price: 4400,
     unlockedByDefault: false,
     attachmentSlots: ["optic", "underbarrel", "muzzle", "laser"],
     defaultAttachments: ["optic_variable_3_9x"],
@@ -285,7 +285,7 @@ export const WEAPONS: Record<string, Weapon> = {
     spread: { hip: 6.0, ads: 0.05, movePenalty: 3.0 },
     moveSpeedMult: 0.9,
     isProjectile: false,
-    price: 4500,
+    price: 5000,
     unlockedByDefault: false,
     attachmentSlots: ["optic", "underbarrel", "muzzle"],
     defaultAttachments: ["optic_precision_5_25x"],
@@ -318,10 +318,39 @@ export const WEAPONS: Record<string, Weapon> = {
     spread: { hip: 4.5, ads: 0.7, movePenalty: 2.5 },
     moveSpeedMult: 0.8,
     isProjectile: false,
-    price: 6000,
+    price: 6600,
     unlockedByDefault: false,
     attachmentSlots: ["optic", "underbarrel", "magazine"],
     defaultAttachments: ["under_bipod"],
+  },
+
+  colt_iar: {
+    id: "colt_iar",
+    name: "Colt IAR",
+    class: "lmg",
+    slot: "primary",
+    realCaliber: "5.56×45mm NATO",
+    fireModes: ["safe", "semi", "auto"],
+    magSize: 30, // magazine-fed STANAG, not belt — lighter/quicker-handling than the FN MAG
+    effectiveRangeM: 600,
+    muzzleVelocityMps: 880,
+    realNotes:
+      "Infantry Automatic Rifle: a magazine-fed, quick-change-barrel 5.56mm automatic rifle (Colt's USMC IAR-trials lineage). Trades the FN MAG's belt-fed volume for a lighter, more controllable, rifle-like support weapon. Premium late-game upgrade.",
+    damage: 26,
+    headshotMultiplier: 2.0,
+    fireRateRpm: 750,
+    reserveAmmo: 240,
+    reloadTimeSec: 2.6,
+    adsTimeSec: 0.28,
+    falloff: { startM: 100, endM: 320, minMultiplier: 0.82 },
+    recoil: { vertical: 1.3, horizontal: 0.5, recovery: 6.5 },
+    spread: { hip: 3.4, ads: 0.28, movePenalty: 1.4 },
+    moveSpeedMult: 0.92,
+    isProjectile: false,
+    price: 9700,
+    unlockedByDefault: false,
+    attachmentSlots: ["optic", "underbarrel", "muzzle", "laser", "magazine"],
+    defaultAttachments: [],
   },
 
 
@@ -351,7 +380,7 @@ export const WEAPONS: Record<string, Weapon> = {
     spread: { hip: 2.0, ads: 0.5, movePenalty: 1.0 },
     moveSpeedMult: 0.85,
     isProjectile: true,
-    price: 1200, // per shot
+    price: 1300, // per shot
     unlockedByDefault: false,
     attachmentSlots: ["optic"],
     defaultAttachments: [],

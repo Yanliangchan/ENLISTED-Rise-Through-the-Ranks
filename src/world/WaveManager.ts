@@ -37,6 +37,7 @@ export class WaveManager {
     private readonly player: PlayerController,
     private readonly gameState: GameState,
     private readonly audio: AudioManager,
+    private readonly spawnPosition: import("@babylonjs/core").Vector3,
     private readonly callbacks: WaveManagerCallbacks = {}
   ) {
     this.wave = gameState.data.wave;
@@ -67,6 +68,10 @@ export class WaveManager {
 
   startWave(): void {
     this.phase = "combat";
+    // Reset to the main base at the start of every wave — a player who wandered
+    // off (or is still mid-armoury) never gets caught out in an unsafe spot the
+    // instant OPFOR forms up. Position only: health/armour are untouched.
+    this.player.teleportTo(this.spawnPosition);
     const isBoss = this.enemyManager.isBossWave(this.wave);
     this.enemyManager.startWave(this.wave, this.player);
     this.audio.waveStart();

@@ -166,6 +166,11 @@ export class GameState {
     return true;
   }
 
+  /** First Aid Kits carried at spawn — the Load Bearing Vest bumps this from the base loadout to 5. */
+  startingMedkitCount(): number {
+    return this.data.ownedGear.includes("lbv") ? 5 : STARTING_MEDKITS;
+  }
+
   buyBotty(price: number): boolean {
     if (this.data.hasBotty) return false;
     if (!this.spendCredits(price)) return false;

@@ -1,7 +1,7 @@
 import { GameEngine } from "@/core/Engine";
 import { attachCinematicPipeline } from "@/core/Postprocess";
 import { InputManager } from "@/core/InputManager";
-import { GameState, STARTING_MEDKITS } from "@/core/GameState";
+import { GameState } from "@/core/GameState";
 import { Settings } from "@/core/Settings";
 import { AudioManager } from "@/core/AudioManager";
 import { Backend } from "@/core/Backend";
@@ -129,7 +129,7 @@ async function boot(): Promise<void> {
 
   const damageNumbers = new DamageNumbers(uiRoot);
 
-  const waveManager = new WaveManager(game.scene, player, gameState, audio, {
+  const waveManager = new WaveManager(game.scene, player, gameState, audio, SPAWN_POINT, {
     onKillFeed: (name, headshot) => hud.notifyKill(name, headshot),
     onPlayerDamaged: (dmg, sourcePos) => {
       const bearing = Math.atan2(sourcePos.x - player.position.x, sourcePos.z - player.position.z);
@@ -229,7 +229,7 @@ async function boot(): Promise<void> {
     weaponController.resetAllAmmo();
     gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
     uav.reset();
-    gameState.data.medkitCount = STARTING_MEDKITS;
+    gameState.data.medkitCount = gameState.startingMedkitCount();
     gameState.save();
   }
 

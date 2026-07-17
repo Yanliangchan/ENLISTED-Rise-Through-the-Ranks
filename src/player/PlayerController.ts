@@ -290,4 +290,10 @@ export class PlayerController {
     this.verticalVelocity = 0;
     this.collider.position = position.clone();
   }
+
+  /** Repositions the player without touching health/armour — used to reset to the base at the start of each wave. */
+  teleportTo(position: Vector3): void {
+    this.verticalVelocity = 0;
+    this.collider.position = position.clone();
+  }
 }
