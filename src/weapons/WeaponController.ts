@@ -16,6 +16,21 @@ import type { ScopeOverlay } from "@/ui/ScopeOverlay";
 const BASE_FOV = 1.1;
 /** Optics at or above this zoom get the real windowed scope lens instead of just a centred in-world sight. */
 const SCOPE_ZOOM_THRESHOLD = 1.3;
+/** Global bullet-spread reduction (~75% cut) applied to every weapon's computed cone. */
+const SPREAD_GLOBAL_MULT = 0.25;
+
+/**
+ * Hip-rest viewmodel position (camera-local) per weapon class. The default sits
+ * the gun lower-right of the centre reticle; the listed classes are pushed a
+ * touch further down/right so their taller models never cover the crosshair.
+ */
+const DEFAULT_HIP_REST = new Vector3(0.18, -0.16, 0.35);
+const HIP_REST: Partial<Record<Weapon["class"], Vector3>> = {
+  rifle: new Vector3(0.2, -0.2, 0.35), // covers BR18 (shares the rifle model)
+  pistol: new Vector3(0.17, -0.22, 0.3),
+  lmg: new Vector3(0.24, -0.24, 0.34),
+  smg: new Vector3(0.19, -0.2, 0.32),
+};
 
 interface AmmoState {
   mag: number;
@@ -247,8 +262,11 @@ export class WeaponController {
 
     // Higher-power scopes feel less twitchy to aim with, like real optics — scale
     // mouse sensitivity down with zoom while aiming, blending back to normal at hip.
-    const aimSens = wantsAim ? 1 / Math.sqrt(Math.max(1, this.effective.zoom)) : 1;
-    this.player.aimSensitivityMult = 1 + (aimSens - 1) * this.adsBlend;
+    // The player's own ADS-sensitivity setting multiplies in on top, and only
+    // takes effect while scoped (blended by adsBlend so hip-fire is untouched).
+    const zoomSens = wantsAim ? 1 / Math.sqrt(Math.max(1, this.effective.zoom)) : 1;
+    const fullAimMult = zoomSens * this.player.adsSensitivitySetting;
+    this.player.aimSensitivityMult = 1 + (fullAimMult - 1) * this.adsBlend;
 
     // Subtle idle weapon sway while aiming — purely visual (the hitscan ray still
     // fires from the camera's exact look direction), fades in with ADS blend so it
@@ -263,7 +281,11 @@ export class WeaponController {
     this.scopeOverlay?.update(isScope ? "scope" : isReflex ? "reddot" : "none", this.adsBlend);
 
     if (this.activeViewmodel) {
-      const hip = new Vector3(0.18, -0.16, 0.35);
+      // Hip-rest position, lowered/offset per weapon class so the model never
+      // rises into the centre reticle. Tall/bulky guns (LMG) and the ones the
+      // reticle was getting buried behind (BR18/rifle, pistol) sit further
+      // down-right so the crosshair and whatever's under it stay clear.
+      const hip = (HIP_REST[this.weapon.class] ?? DEFAULT_HIP_REST).clone();
       // Solve for the root position that puts the sight/optic at screen centre.
       const sight = this.activeViewmodel.sightOffset;
       const ads = new Vector3(-sight.x + swayX, -sight.y + swayY, 0.28 - sight.z);
@@ -435,6 +457,10 @@ export class WeaponController {
     // aimed shot.
     if (this.isAiming && stationary) return 0;
 
+    // Bolt-action snipers have ZERO bullet spread in every stance — the shot
+    // always goes exactly where the scope is aimed.
+    if (this.weapon.class === "sniper") return 0;
+
     let base: number;
     if (this.isAiming) {
       // Aimed but moving: still tight, just not laser-perfect.
@@ -457,7 +483,10 @@ export class WeaponController {
     // Crouching or standing fully still tightens the group; bipod (handled below) supersedes this.
     const crouchMult = this.player.crouching && !this.bipodDeployed ? 0.55 : 1;
     const bipodMult = this.bipodDeployed ? 0.25 : 1;
-    return ((base + moveExtra + airborneExtra) * crouchMult * bipodMult * Math.PI) / 180;
+    // Global tightening pass: all weapon spread cut to ~25% of the old cone
+    // (a ~75% reduction) so shots land far closer to the reticle everywhere.
+    const degrees = (base + moveExtra + airborneExtra) * crouchMult * bipodMult * SPREAD_GLOBAL_MULT;
+    return (degrees * Math.PI) / 180;
   }
 
   private raycastShot(): void {
@@ -479,7 +508,9 @@ export class WeaponController {
     const origin = camera.globalPosition.clone();
 
     const ray = new Ray(origin, worldDir, 1000);
-    const pick = this.scene.pickWithRay(ray, (mesh) => mesh.isPickable);
+    // Bullets ignore smoke entirely (it only obscures vision) — shooting into,
+    // through, or out of a cloud damages whatever the round actually reaches.
+    const pick = this.scene.pickWithRay(ray, (mesh) => mesh.isPickable && !mesh.metadata?.isSmoke);
 
     const muzzleWorld = this.activeViewmodel
       ? this.activeViewmodel.muzzle.getAbsolutePosition()

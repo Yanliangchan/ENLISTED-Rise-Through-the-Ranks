@@ -66,6 +66,7 @@ export class HUD {
   private lastKillFeedHtml = "";
   private lastDamageHtml = "";
   private crosshairLines: HTMLDivElement[] | null = null;
+  private cratePositions: Array<{ x: number; z: number; type: "ammo" | "health" }> = [];
 
   constructor(
     container: HTMLElement,
@@ -116,8 +117,11 @@ export class HUD {
       border: 2px solid #ff5533;
     `);
 
+    // Edge insets scale with the viewport but never crowd the very corner —
+    // a simple safe-zone margin that holds up from tiny windows to 4K.
     const bottomLeft = el("div", `
-      position:absolute; bottom:20px; left:20px; width:230px; padding:12px 14px;
+      position:absolute; bottom:clamp(12px,2.4vh,30px); left:clamp(12px,2vw,30px);
+      width:min(230px, 32vw); padding:12px 14px;
       background: linear-gradient(135deg, rgba(10,16,10,0.72), rgba(8,12,8,0.55));
       border: 1px solid rgba(159,199,138,0.28); border-left: 3px solid #4a7a3c;
       border-radius: 3px; backdrop-filter: blur(2px);
@@ -135,8 +139,9 @@ export class HUD {
     bottomLeft.appendChild(this.bottyWrap);
 
     const bottomRight = el("div", `
-      position:absolute; bottom:20px; right:20px; text-align:right; font-size:15px;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.9); line-height:1.45; min-width:200px;
+      position:absolute; bottom:clamp(12px,2.4vh,30px); right:clamp(12px,2vw,30px);
+      text-align:right; font-size:15px;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.9); line-height:1.45; min-width:min(200px, 34vw);
       padding:12px 14px;
       background: linear-gradient(225deg, rgba(10,16,10,0.72), rgba(8,12,8,0.55));
       border: 1px solid rgba(159,199,138,0.28); border-right: 3px solid #4a7a3c;
@@ -151,13 +156,13 @@ export class HUD {
     bottomRight.appendChild(this.throwableEl);
     bottomRight.appendChild(this.specialEl);
 
-    // Grouped with the top-centre radar (positioned just to its left) rather
-    // than the far top-left corner, so wave/objective info reads as one
-    // cluster with the minimap instead of a separate HUD element.
-    const topLeft = el("div", `
-      position:absolute; top:22px; right:calc(50% + 96px); text-align:right; font-size:13px;
+    // Wave / objective status: TOP CENTRE, above the crosshair. Centred as its
+    // own cluster (the minimap now lives top-right).
+    const topCentre = el("div", `
+      position:absolute; top:clamp(10px,1.8vh,24px); left:50%; transform:translateX(-50%);
+      text-align:center; font-size:13px; max-width:min(340px, 46vw);
       text-shadow: 1px 1px 2px rgba(0,0,0,0.9); line-height:1.5;
-      padding:10px 14px;
+      padding:8px 16px;
       background: linear-gradient(135deg, rgba(10,16,10,0.6), rgba(8,12,8,0.4));
       border: 1px solid rgba(159,199,138,0.22); border-radius: 3px;
     `);
@@ -165,13 +170,15 @@ export class HUD {
     this.creditsEl = el("div", "color:#e0c15a; margin-top:2px;");
     this.uavEl = el("div", "color:#7fd0ff; font-size:13px; margin-top:4px;");
     this.medkitEl = el("div", "color:#8fd68f; font-size:13px;");
-    topLeft.appendChild(this.waveEl);
-    topLeft.appendChild(this.creditsEl);
-    topLeft.appendChild(this.uavEl);
-    topLeft.appendChild(this.medkitEl);
+    topCentre.appendChild(this.waveEl);
+    topCentre.appendChild(this.creditsEl);
+    topCentre.appendChild(this.uavEl);
+    topCentre.appendChild(this.medkitEl);
 
+    // Notifications / kill feed: UPPER LEFT.
     this.killFeedEl = el("div", `
-      position:absolute; top:20px; right:24px; text-align:right; font-size:13px;
+      position:absolute; top:clamp(10px,1.8vh,24px); left:clamp(12px,2vw,30px);
+      text-align:left; font-size:13px; max-width:min(300px, 34vw);
       text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
     `);
 
@@ -215,8 +222,9 @@ export class HUD {
     this.radarCanvas = document.createElement("canvas");
     this.radarCanvas.width = 140;
     this.radarCanvas.height = 140;
+    // Minimap: TOP RIGHT.
     this.radarCanvas.style.cssText = `
-      position:absolute; top:20px; left: 50%; transform: translateX(-50%);
+      position:absolute; top:clamp(10px,1.8vh,24px); right:clamp(12px,2vw,30px);
       background: rgba(10,20,10,0.55); border: 2px solid rgba(159,199,138,0.4);
       border-radius: 50%; box-shadow: 0 0 12px rgba(0,0,0,0.5);
     `;
@@ -226,7 +234,7 @@ export class HUD {
     this.root.appendChild(this.hitmarker);
     this.root.appendChild(bottomLeft);
     this.root.appendChild(bottomRight);
-    this.root.appendChild(topLeft);
+    this.root.appendChild(topCentre);
     this.root.appendChild(this.killFeedEl);
     this.root.appendChild(this.damageIndicatorEl);
     this.root.appendChild(this.flashOverlay);
@@ -330,9 +338,11 @@ export class HUD {
   update(
     isPointerLocked: boolean,
     enemyPositions: Array<{ x: number; z: number }>,
-    interactPrompt: string | null = null
+    interactPrompt: string | null = null,
+    cratePositions: Array<{ x: number; z: number; type: "ammo" | "health" }> = []
   ): void {
     const now = performance.now();
+    this.cratePositions = cratePositions;
 
     this.interactPromptEl.textContent = interactPrompt ?? "";
     this.interactPromptEl.style.opacity = interactPrompt ? "1" : "0";
@@ -502,6 +512,39 @@ export class HUD {
       if (Math.abs(rx) - rsize > size / 2 || Math.abs(rz) - rsize > size / 2) continue;
       ctx.fillRect(rx - rsize / 2, -rz - rsize / 2, rsize, rsize);
       ctx.strokeRect(rx - rsize / 2, -rz - rsize / 2, rsize, rsize);
+    }
+
+    // Supply crates: a distinct diamond with a cross so they're unmistakable
+    // against the round enemy blips — cyan for ammo, green for medical.
+    for (const c of this.cratePositions) {
+      const dx = c.x - this.player.position.x;
+      const dz = c.z - this.player.position.z;
+      const rx = (dx / range) * size;
+      const rz = (dz / range) * size;
+      if (Math.abs(rx) > size / 2 || Math.abs(rz) > size / 2) continue;
+      const cy = -rz;
+      ctx.save();
+      ctx.translate(rx, cy);
+      ctx.fillStyle = c.type === "ammo" ? "#39c7d8" : "#5be07a";
+      ctx.strokeStyle = "rgba(0,0,0,0.7)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, -4.5);
+      ctx.lineTo(4.5, 0);
+      ctx.lineTo(0, 4.5);
+      ctx.lineTo(-4.5, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Small centre cross (supply marker).
+      ctx.strokeStyle = "rgba(0,0,0,0.85)";
+      ctx.beginPath();
+      ctx.moveTo(-2, 0);
+      ctx.lineTo(2, 0);
+      ctx.moveTo(0, -2);
+      ctx.lineTo(0, 2);
+      ctx.stroke();
+      ctx.restore();
     }
 
     ctx.fillStyle = "#ff5540";

@@ -27,6 +27,21 @@ export type EnemyState =
 
 let enemyCounter = 0;
 
+/** Rotate a flat (XZ) direction vector by `angle` radians about the Y axis. */
+function rotateY(dir: Vector3, angle: number): Vector3 {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return new Vector3(dir.x * c - dir.z * s, 0, dir.x * s + dir.z * c);
+}
+
+/** Ease `current` yaw toward `target` (shortest way round) at `rate` per second — smooths heading changes. */
+function smoothYaw(current: number, target: number, dt: number, rate: number): number {
+  let delta = target - current;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return current + delta * Math.min(1, rate * dt);
+}
+
 // --- Perception tuning -----------------------------------------------------
 // A soldier only spots the player through a forward cone (~120° total), never
 // behind them. cos(60°) = 0.5.
@@ -46,6 +61,18 @@ const DETECT_FACTOR = {
 // position for this long after losing line of sight before giving up. This is
 // what lets the player break contact by breaking LOS and going quiet.
 const LOSE_CONTACT_SEC = 5;
+
+// --- Fire accuracy tuning ---------------------------------------------------
+// Global marksmanship nerf on top of the per-type accuracy — makes sustained
+// firefights survivable rather than a wall of guaranteed hits (~35% cut).
+const ACCURACY_GLOBAL = 0.65;
+// Aim error grows with range: full accuracy holds out to this distance, then
+// the hit chance scales down toward ACCURACY_MIN_DISTANCE_FACTOR at sight edge.
+const ACCURACY_NEAR_M = 12;
+const ACCURACY_MIN_DISTANCE_FACTOR = 0.4;
+// Multiplier applied to hit chance while the soldier is under suppression.
+const SUPPRESSION_ACCURACY_FACTOR = 0.45;
+const SUPPRESSION_ACCURACY_SEC = 2.2;
 
 /**
  * OPFOR are solid low-poly 3D soldiers again (not flat billboards) — the
@@ -154,6 +181,10 @@ export class EnemyInstance implements Damageable {
   private roundsInMag: number;
   private isReloading = false;
   private reloadTimer = 0;
+  // Suppression accuracy penalty: taking fire (or a flashbang) shakes the
+  // soldier's aim for a short window even if it keeps shooting. Separate from
+  // the full "suppressed" FSM state (which stops fire entirely).
+  private accuracySuppressionTimer = 0;
   // Locomotion animation.
   private walkPhase = 0;
   private movingThisFrame = false;
@@ -162,6 +193,10 @@ export class EnemyInstance implements Damageable {
   private stuckTimer = 0;
   private escapeDir: Vector3 | null = null;
   private escapeTimer = 0;
+  // Building-avoidance steering: a deflection angle refreshed on a short clock
+  // that curves the path around solid geometry so the AI never grinds a wall.
+  private steerAngle = 0;
+  private steerTimer = Math.random() * 0.15;
   // Hard-stuck escalation: total time making no real progress. Past a few
   // seconds the enemy is teleported to the nearest navigable point.
   private hardStuckTimer = 0;
@@ -357,10 +392,12 @@ export class EnemyInstance implements Damageable {
     const pick = this.scene.pickWithRay(
       ray,
       (mesh) =>
-        mesh.isPickable &&
-        mesh.checkCollisions &&
-        mesh.name !== "playerCollider" &&
-        !mesh.metadata?.damageable
+        // Solid world geometry blocks sight, and so does thrown smoke (an
+        // obscurant with checkCollisions off, tagged isSmoke) — that's the
+        // whole point of a smoke screen: it hides the player from the AI.
+        (mesh.metadata?.isSmoke ||
+          (mesh.isPickable && mesh.checkCollisions && !mesh.metadata?.damageable)) &&
+        mesh.name !== "playerCollider"
     );
     return !pick?.hit;
   }
@@ -398,6 +435,7 @@ export class EnemyInstance implements Damageable {
     this.engageLimiter?.releaseEngage(this.id);
     this.state = "suppressed";
     this.suppressedTimer = durationSec;
+    this.accuracySuppressionTimer = Math.max(this.accuracySuppressionTimer, durationSec);
   }
 
   /** Called by the weapon system whenever the player fires, for hearing checks. */
@@ -420,6 +458,9 @@ export class EnemyInstance implements Damageable {
     if (this.isDead) return;
     this.health -= damage;
     this.flashHit();
+    // Being hit rattles the aim for a moment — degrades this soldier's accuracy
+    // (distinct from the full suppressed FSM state).
+    this.accuracySuppressionTimer = SUPPRESSION_ACCURACY_SEC;
     if (this.health <= 0) {
       this.die(_isHeadshot);
       return;
@@ -490,6 +531,7 @@ export class EnemyInstance implements Damageable {
 
     this.stateTimer += dt;
     if (this.fireCooldown > 0) this.fireCooldown -= dt;
+    if (this.accuracySuppressionTimer > 0) this.accuracySuppressionTimer -= dt;
     // Reload runs on its own clock regardless of state, so an enemy that breaks
     // contact mid-reload still finishes it.
     this.updateReload(dt);
@@ -646,11 +688,24 @@ export class EnemyInstance implements Damageable {
       // its edge and stalling there — this is what lets OPFOR reroute around
       // the army base rather than clustering just outside it.
       dir = steerAroundExclusionZone(pos, dir);
+      // Proactively steer around buildings/props so OPFOR flow along walls and
+      // fight from outside instead of grinding into a facade (which is what
+      // triggered the sidestep jitter and last-resort teleporting). Refreshed
+      // on a short clock so it costs a few raycasts a second, not per frame.
+      this.steerTimer -= dt;
+      if (this.steerTimer <= 0) {
+        this.steerTimer = 0.14 + Math.random() * 0.06;
+        this.steerAngle = this.computeAvoidanceAngle(pos, dir);
+      }
+      if (this.steerAngle !== 0) dir = rotateY(dir, this.steerAngle);
     }
 
     const before = pos.clone();
     this.root.moveWithCollisions(dir.scale(speed * dt));
-    this.root.rotation.y = Math.atan2(dir.x, dir.z);
+    // Smoothly turn toward the heading of travel instead of snapping — removes
+    // the visible spin/jitter when the steer direction changes.
+    const targetYaw = Math.atan2(dir.x, dir.z);
+    this.root.rotation.y = smoothYaw(this.root.rotation.y, targetYaw, dt, 10);
     this.movingThisFrame = true;
 
     // Hard boundary: never allow an enemy to drift outside the playable arena.
@@ -677,15 +732,54 @@ export class EnemyInstance implements Damageable {
         this.stuckTimer = Math.max(0, this.stuckTimer - dt * 1.5);
       }
     }
-    // Escalation: if sidestepping never restores real progress for several
-    // seconds, the enemy is genuinely wedged — teleport it to the nearest
-    // navigable point so it can never be permanently trapped in geometry.
+    // Escalation: if avoidance-steering AND sidestepping both fail to restore
+    // real progress for a good while, the enemy is genuinely wedged — only then
+    // relocate. The higher threshold (with steering now handling most snags)
+    // means the jarring teleport almost never fires in practice.
     if (barelyMoved) {
       this.hardStuckTimer += dt;
-      if (this.hardStuckTimer > 3) this.relocateToNavigable();
+      if (this.hardStuckTimer > 5) this.relocateToNavigable();
     } else {
       this.hardStuckTimer = Math.max(0, this.hardStuckTimer - dt * 2);
     }
+  }
+
+  /**
+   * If a building/prop blocks the way ahead, find the smallest left/right
+   * deflection that opens a clear lane and return it as a yaw offset (0 = path
+   * already clear). Probes a torso-height ray forward, then widening angles to
+   * each side — this is what makes OPFOR follow walls around a block instead of
+   * pathing into it.
+   */
+  private computeAvoidanceAngle(pos: Vector3, dir: Vector3): number {
+    const eye = pos.add(new Vector3(0, 0.9, 0));
+    const probe = 3.2;
+    if (this.pathClear(eye, dir, probe)) return 0;
+    // Prefer the gentlest deflection; try both sides at each widening angle.
+    for (const deg of [30, 55, 80, 110]) {
+      const rad = (deg * Math.PI) / 180;
+      const rightClear = this.pathClear(eye, rotateY(dir, rad), probe);
+      const leftClear = this.pathClear(eye, rotateY(dir, -rad), probe);
+      if (rightClear && leftClear) return Math.random() < 0.5 ? rad : -rad;
+      if (rightClear) return rad;
+      if (leftClear) return -rad;
+    }
+    return 0; // boxed in — the sidestep/teleport fallback takes over
+  }
+
+  /** True if nothing solid (excluding the player and other combatants) is within `len` along `dir`. */
+  private pathClear(from: Vector3, dir: Vector3, len: number): boolean {
+    const ray = new Ray(from, dir, len);
+    const pick = this.scene.pickWithRay(
+      ray,
+      (m) =>
+        m.isPickable &&
+        m.checkCollisions &&
+        m !== this.root &&
+        m.name !== "playerCollider" &&
+        !m.metadata?.damageable
+    );
+    return !pick?.hit;
   }
 
   /** Teleport to the nearest walkable ground and clear all stuck state. */
@@ -726,7 +820,7 @@ export class EnemyInstance implements Damageable {
     // Early waves fire slower and less accurately — ramps to full lethality by ~wave 7.
     this.fireCooldown = 60 / (this.type.fireRateRpm * this.difficultyMult);
     this.roundsInMag -= 1;
-    const hit = Math.random() < this.type.accuracy * this.difficultyMult;
+    const hit = Math.random() < this.hitChance(player);
     this.audio.gunshot();
     if (hit) {
       player.takeDamage(this.type.damage);
@@ -735,6 +829,23 @@ export class EnemyInstance implements Damageable {
     }
     // Emptied the magazine — go straight into a reload so fire can't continue.
     if (this.roundsInMag <= 0) this.startReload();
+  }
+
+  /**
+   * Per-shot hit probability: base per-type accuracy, scaled by the wave
+   * difficulty ramp, a global marksmanship nerf, an aim-error term that grows
+   * with range, and a suppression penalty while the soldier is under fire.
+   */
+  private hitChance(player: PlayerController): number {
+    const base = this.type.accuracy * this.difficultyMult * ACCURACY_GLOBAL;
+    // Distance factor: 1.0 within ACCURACY_NEAR_M, easing to the floor at the
+    // edge of this soldier's sight range.
+    const dist = this.distanceToPlayer(player);
+    const span = Math.max(1, this.type.sightRangeM - ACCURACY_NEAR_M);
+    const t = Math.min(1, Math.max(0, (dist - ACCURACY_NEAR_M) / span));
+    const distanceFactor = 1 - t * (1 - ACCURACY_MIN_DISTANCE_FACTOR);
+    const suppressionFactor = this.accuracySuppressionTimer > 0 ? SUPPRESSION_ACCURACY_FACTOR : 1;
+    return base * distanceFactor * suppressionFactor;
   }
 
   /** Reload time by weapon class — the belt-fed LMG is the slowest to bring back up. */

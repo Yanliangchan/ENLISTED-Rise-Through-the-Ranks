@@ -176,8 +176,13 @@ export class ThrowableController {
     mat.diffuseColor = throwable.color ? Color3.FromHexString(throwable.color) : Color3.Gray();
     mat.alpha = 0.55;
     smoke.material = mat;
-    smoke.isPickable = true; // blocks enemy LOS raycasts
+    // Smoke blocks VISION only, never bullets. It's pickable so the enemy LOS
+    // raycast can treat it as an obscurant, and tagged `isSmoke` so the player's
+    // shot raycast (and any other bullet ray) explicitly skips it — rounds pass
+    // straight through the cloud and hit whatever's on the far side.
+    smoke.isPickable = true;
     smoke.checkCollisions = false;
+    smoke.metadata = { isSmoke: true };
     this.smokeVolumes.push({ mesh: smoke, expiresAt: performance.now() + throwable.effectDurationSec * 1000 });
   }
 

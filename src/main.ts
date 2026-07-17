@@ -119,6 +119,7 @@ async function boot(): Promise<void> {
   const player = new PlayerController(game.scene, input, SPAWN_POINT, audio);
   attachCinematicPipeline(game.scene, player.camera);
   player.sensitivityMult = settings.data.sensitivity;
+  player.adsSensitivitySetting = settings.data.adsSensitivity;
   applyGearToPlayer(gameState, player);
   player.health = player.maxHealth;
   player.armour = player.maxArmour;
@@ -399,6 +400,30 @@ async function boot(): Promise<void> {
   showMainMenu();
   game.renderingPaused = true;
 
+  // ---- Pause-menu actions -------------------------------------------------
+  /** Persist everything that survives a session: economy/loadout, the current wave, and settings. */
+  function saveAll(): void {
+    gameState.data.wave = waveManager.wave; // capture the current wave, not just the last cleared one
+    gameState.save();
+    settings.save();
+    backend?.flush();
+  }
+  function exitToMainMenu(): void {
+    waveManager.enemyManager.clearAll();
+    waveManager.beginIntro();
+    hud.setVisible(true);
+    showMainMenu(); // landingPage.visible becomes true before we hide the pause menu
+    pauseMenu.hide();
+    game.renderingPaused = true;
+    document.exitPointerLock();
+  }
+  pauseMenu.onSaveGame = () => saveAll();
+  pauseMenu.onSaveAndExit = () => {
+    saveAll();
+    exitToMainMenu();
+  };
+  pauseMenu.onExitToMenu = () => exitToMainMenu();
+
   const tacticalMap = new TacticalMap(uiRoot, buildingLayout);
 
   const uav = new UAVSupport(input, audio, {
@@ -517,7 +542,12 @@ async function boot(): Promise<void> {
 
     damageNumbers.update(game.scene);
     if (!rangeActive) {
-      hud.update(input.isPointerLocked, waveManager.enemyManager.livePositions(), bottyHealPrompt() ?? medicalStation.promptText ?? supplyCrates.promptText);
+      hud.update(
+        input.isPointerLocked,
+        waveManager.enemyManager.livePositions(),
+        bottyHealPrompt() ?? medicalStation.promptText ?? supplyCrates.promptText,
+        supplyCrates.liveCrates()
+      );
       hud.updateUAV(uav.active, uav.secondsRemaining, uav.chargesRemaining, uav.cooldownRemaining);
       hud.updateMedkit(medKit.count);
       hud.updateBotty(

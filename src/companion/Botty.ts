@@ -317,8 +317,10 @@ export class BottyController {
     mat.emissiveColor = new Color3(0.3, 0.05, 0.03);
     mat.alpha = 0.55;
     puff.material = mat;
+    // Obscures vision but not bullets — same contract as thrown smoke.
     puff.isPickable = true;
     puff.checkCollisions = false;
+    puff.metadata = { isSmoke: true };
     window.setTimeout(() => puff.dispose(), 9000);
     this.audio.throwableFuse();
     void player; // reserved: could nudge the smoke toward the player's sightline in a future pass

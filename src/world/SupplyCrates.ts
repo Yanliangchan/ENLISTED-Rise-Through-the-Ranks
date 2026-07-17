@@ -88,9 +88,37 @@ export class SupplyCrateManager {
     }
   }
 
+  /** Available crates' map positions + type — read by the HUD to draw supply icons on the minimap. */
+  liveCrates(): Array<{ x: number; z: number; type: CrateType }> {
+    return this.crates
+      .filter((c) => c.available)
+      .map((c) => ({ x: c.mesh.position.x, z: c.mesh.position.z, type: c.type }));
+  }
+
+  /** Bring a collected crate back online immediately — used to guarantee a crate is always in play. */
+  private forceRespawnFarthest(): void {
+    let best: Crate | null = null;
+    let bestDist = -1;
+    for (const crate of this.crates) {
+      if (crate.available) continue;
+      const dist = Vector3.Distance(crate.mesh.position, this.player.position);
+      // Prefer a crate comfortably away from the player (never pop one in their lap).
+      if (dist > bestDist) {
+        bestDist = dist;
+        best = crate;
+      }
+    }
+    if (best) {
+      best.available = true;
+      best.respawnTimer = 0;
+      best.mesh.setEnabled(true);
+    }
+  }
+
   update(dt: number): void {
     let nearest: Crate | null = null;
     let nearestDist = INTERACT_RADIUS;
+    let availableCount = 0;
 
     for (const crate of this.crates) {
       if (!crate.available) {
@@ -99,14 +127,19 @@ export class SupplyCrateManager {
           crate.available = true;
           crate.mesh.setEnabled(true);
         }
-        continue;
       }
+      if (!crate.available) continue;
+      availableCount++;
       const dist = Vector3.Distance(crate.mesh.position, this.player.position);
       if (dist < nearestDist) {
         nearest = crate;
         nearestDist = dist;
       }
     }
+
+    // Always keep at least one crate in the world: if the player has cleared
+    // them all, immediately bring the farthest-away one back online.
+    if (availableCount === 0) this.forceRespawnFarthest();
 
     if (!nearest) {
       this.promptText = null;

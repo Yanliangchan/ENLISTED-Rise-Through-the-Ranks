@@ -2315,8 +2315,26 @@ function buildVehicle(
   root.position.set(x, dims.h / 2 + wheelDia / 2, z);
   root.rotation.y = rotationY;
   root.material = bodyMat;
-  root.checkCollisions = true;
+  // Visual body only — a single invisible collider (below) matches the FULL
+  // vehicle so the player can't clip through the cabin, hood, or wheels. (Kept
+  // non-colliding, but with metadata so the static-decor merge pass leaves it
+  // and its child cabin/glass/wheels alone.)
+  root.checkCollisions = false;
+  root.metadata = { vehicle: index };
   addBlobShadow(root, -(dims.h / 2 + wheelDia / 2), dims.w * 1.5, dims.d * 1.15);
+
+  // Full-extent solid collider: ground-to-roof height, full body width+wheels,
+  // full length. Invisible, so the detailed body renders while collision matches
+  // the whole silhouette rather than just the low chassis box.
+  const fullH = dims.h + dims.cabinH + wheelDia;
+  const collider = MeshBuilder.CreateBox(`veh_${index}_collider`, { width: dims.w + 0.2, height: fullH, depth: dims.d + 0.1 }, scene);
+  collider.position.set(x, fullH / 2, z);
+  collider.rotation.y = rotationY;
+  collider.isVisible = false;
+  // Pickable so it also blocks bullets and AI line-of-sight across the full
+  // silhouette — vehicles stay proper hard cover, not just movement blockers.
+  collider.isPickable = true;
+  collider.checkCollisions = true;
 
   if (dims.cabinH > 0) {
     const cabin = MeshBuilder.CreateBox(`veh_${index}_cabin`, { width: dims.w * 0.9, height: dims.cabinH, depth: dims.cabinD }, scene);

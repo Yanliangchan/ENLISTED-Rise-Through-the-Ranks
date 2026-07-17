@@ -1,4 +1,4 @@
-import { Scene, Vector3 } from "@babylonjs/core";
+import { Scene, Vector3, Ray } from "@babylonjs/core";
 import { ENEMIES, WAVES } from "@/data/gamedata";
 import { EnemyInstance, type EnemyKillInfo } from "@/enemies/EnemyAI";
 import { blastDamageAtDistance } from "@/weapons/ballistics";
@@ -29,6 +29,14 @@ const SPAWN_POINTS: Vector3[] = [
   // by a wide margin (unlike the old (-94,-45) point, which sat inside it).
   new Vector3(-16, 0, -77),
 ];
+
+// --- Spawn placement rules --------------------------------------------------
+// OPFOR reinforcements always arrive as pairs, and never materialise on top of
+// the player, in their line of sight, or right behind them.
+const SPAWN_PAIR_SIZE = 2;
+const MIN_SPAWN_RADIUS_M = 30; // never spawn closer than this to the player
+const REAR_CONE_COS = Math.cos((30 * Math.PI) / 180); // "directly behind" exclusion half-angle
+const FRONT_VIEW_COS = Math.cos((55 * Math.PI) / 180); // forward view half-angle for the "in sight" test
 
 /** Enemy-type mix per wave band, roughly matching the story's escalation. */
 function pickTypeForWave(wave: number): string {
@@ -151,57 +159,103 @@ export class EnemyManager {
   }
 
   /**
-   * Spawns the ENTIRE wave at once, in a handful of randomised groups spread
-   * across valid spawn locations. Groups are chosen from the spawn ring but
-   * biased away from wherever the player is currently looking, so enemies never
-   * pop into existence in view, and every candidate is pushed clear of the camp
-   * standoff and snapped onto navigable ground (never inside a building, prop,
-   * vehicle, or outside the arena).
+   * Spawns the ENTIRE wave as pairs (SPAWN_PAIR_SIZE = 2). Every pair's anchor
+   * point is validated first — never inside MIN_SPAWN_RADIUS_M of the player,
+   * never in the player's line of sight, and never in the rear cone directly
+   * behind them — then snapped clear of the camp and onto navigable ground so
+   * the two soldiers never appear inside a building, prop, vehicle, or the
+   * arena wall. If the map is so hemmed in that no point passes every rule, the
+   * checks relax step by step (LOS first, then the rear cone) so a wave always
+   * arrives rather than silently failing to spawn.
    */
   startWave(wave: number, player: PlayerController): void {
     this.enemies = this.enemies.filter((e) => !e.isDead);
     this.engagedIds.clear();
     const count = this.waveEnemyCount(wave);
+    const pairCount = Math.ceil(count / SPAWN_PAIR_SIZE);
 
-    // Rank spawn points by how much they're in the player's forward view; keep
-    // the ones clearly out of view, falling back to the least-visible points if
-    // the player somehow faces every option at once.
-    const ranked = SPAWN_POINTS.map((p) => ({ p, view: this.viewScore(p, player) })).sort(
-      (a, b) => a.view - b.view
-    );
-    const outOfView = ranked.filter((r) => r.view < 0.35).map((r) => r.p);
-    const pool = outOfView.length >= 2 ? outOfView : ranked.slice(0, 3).map((r) => r.p);
-
-    // Pick 2–4 distinct groups and split the wave across them (kept together).
-    const shuffled = [...pool].sort(() => Math.random() - 0.5);
-    const groupCount = Math.max(2, Math.min(shuffled.length, Math.min(4, Math.ceil(count / 4))));
-    const groups = shuffled.slice(0, groupCount);
-
-    for (let i = 0; i < count; i++) {
-      const group = groups[i % groups.length];
-      const jitter = new Vector3((Math.random() - 0.5) * 9, 0, (Math.random() - 0.5) * 9);
-      const typeId =
-        this.isBossWave(wave) && i < Math.ceil(count * 0.4) ? "opfor_heavy" : pickTypeForWave(wave);
-      // Clear of camp, then snapped onto genuinely walkable ground.
-      let position = ensureClearOfCamp(group.add(jitter));
-      position = ensureClearOfCamp(findNearestNavigable(this.scene, position));
-      this.spawnEnemy(typeId, position, wave);
+    let spawned = 0;
+    for (let p = 0; p < pairCount && spawned < count; p++) {
+      const anchor = this.findValidSpawnAnchor(player);
+      for (let m = 0; m < SPAWN_PAIR_SIZE && spawned < count; m++) {
+        // The two members of a pair stand a couple of metres apart, each
+        // re-snapped to walkable ground and clear of the camp.
+        const jitter = new Vector3((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4);
+        let position = ensureClearOfCamp(anchor.add(jitter));
+        position = ensureClearOfCamp(findNearestNavigable(this.scene, position));
+        const typeId =
+          this.isBossWave(wave) && spawned < Math.ceil(count * 0.4)
+            ? "opfor_heavy"
+            : pickTypeForWave(wave);
+        this.spawnEnemy(typeId, position, wave);
+        spawned++;
+      }
     }
   }
 
   /**
-   * 0..1 measure of how squarely a world point sits in the player's forward
-   * view (1 = dead ahead, 0 = to the side, negative folded to 0 = behind).
+   * Search the spawn ring (plus jitter) for a point satisfying all placement
+   * rules. Tries strict validation first, then progressively drops the softest
+   * rules so a valid-enough anchor is always returned.
    */
-  private viewScore(point: Vector3, player: PlayerController): number {
+  private findValidSpawnAnchor(player: PlayerController): Vector3 {
+    const candidates: Vector3[] = [];
+    for (let i = 0; i < 40; i++) {
+      const base = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+      const jitter = new Vector3((Math.random() - 0.5) * 22, 0, (Math.random() - 0.5) * 22);
+      let cand = ensureClearOfCamp(base.add(jitter));
+      cand = ensureClearOfCamp(findNearestNavigable(this.scene, cand));
+      candidates.push(cand);
+    }
+    // Tier 1: all rules. Tier 2: allow front-but-occluded (drop LOS). Tier 3:
+    // just the safe radius (guarantees a spawn on a pathological map).
+    for (const tier of [3, 2, 1]) {
+      const valid = candidates.filter((c) => this.spawnRuleScore(c, player) >= tier);
+      if (valid.length > 0) return valid[Math.floor(Math.random() * valid.length)];
+    }
+    return candidates[0];
+  }
+
+  /**
+   * How many placement rules a candidate satisfies (0–3): +1 far enough from
+   * the player, +1 not directly behind them, +1 not in their line of sight.
+   */
+  private spawnRuleScore(point: Vector3, player: PlayerController): number {
+    const to = new Vector3(point.x - player.position.x, 0, point.z - player.position.z);
+    const dist = to.length();
+    if (dist < MIN_SPAWN_RADIUS_M) return 0; // too close — fails the hard rule
+    to.normalize();
+
     const fwd = player.camera.getDirection(Vector3.Forward());
     fwd.y = 0;
-    if (fwd.lengthSquared() < 1e-4) return 0;
+    if (fwd.lengthSquared() < 1e-4) fwd.set(0, 0, 1);
     fwd.normalize();
-    const to = new Vector3(point.x - player.position.x, 0, point.z - player.position.z);
-    if (to.lengthSquared() < 1e-4) return 1;
-    to.normalize();
-    return Math.max(0, Vector3.Dot(fwd, to));
+    const facing = Vector3.Dot(fwd, to);
+
+    let score = 1; // passed the radius rule
+    // Not directly behind: the point must not sit in the rear cone.
+    if (facing > -REAR_CONE_COS) score++;
+    // Not in line of sight: either outside the forward view cone, or occluded
+    // from the player's eye by a solid mesh.
+    const inView = facing > FRONT_VIEW_COS;
+    if (!inView || !this.hasLineOfSightFromPlayer(player, point)) score++;
+    return score;
+  }
+
+  /** True if nothing solid stands between the player's eye and a world point. */
+  private hasLineOfSightFromPlayer(player: PlayerController, point: Vector3): boolean {
+    const from = player.position.add(new Vector3(0, 1.5, 0));
+    const target = point.add(new Vector3(0, 1.0, 0));
+    const dir = target.subtract(from);
+    const dist = dir.length();
+    if (dist < 0.01) return true;
+    dir.normalize();
+    const ray = new Ray(from, dir, dist - 0.3);
+    const pick = this.scene.pickWithRay(
+      ray,
+      (m) => m.isPickable && m.checkCollisions && m.name !== "playerCollider" && !m.metadata?.damageable
+    );
+    return !pick?.hit;
   }
 
   update(dt: number, player: PlayerController, wave: number): void {

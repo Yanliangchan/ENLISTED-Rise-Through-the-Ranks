@@ -45,6 +45,8 @@ export class PlayerController {
   sensitivityMult = 1;
   /** Set by WeaponController while aiming — scopes/zoom feel less twitchy at higher magnification. */
   aimSensitivityMult = 1;
+  /** User's ADS/scope-sensitivity setting (1 = same as hip). Applied only while aiming. */
+  adsSensitivitySetting = 1;
   /** Written every frame by SafeZoneManager — true while standing inside the camp's protected radius. */
   inSafeZone = false;
   /** Written by SafeZoneManager on leaving the safe zone; grants brief incoming-damage immunity. Cancelled by firing/throwing. */
