@@ -241,6 +241,21 @@ export class BottyController {
     return this.position.add(new Vector3(0, 1.55, 0));
   }
 
+  /**
+   * Deterministic ground clamp: cast straight down from just above BOTTY's
+   * head and set `root.position.y` to whatever solid, collidable ground is
+   * actually beneath it. Skips a frame gracefully (holds current height) if
+   * nothing is hit, e.g. mid-air over a gap for a single frame.
+   */
+  private snapToGround(): void {
+    const from = this.position.add(new Vector3(0, 3, 0));
+    const ray = new Ray(from, new Vector3(0, -1, 0), 12);
+    const pick = this.scene.pickWithRay(ray, (m) => m.isPickable && m.checkCollisions && m !== this.root);
+    if (pick?.hit && pick.pickedPoint) {
+      this.root.position.y = pick.pickedPoint.y;
+    }
+  }
+
   private hasLineOfSight(from: Vector3, to: Vector3): boolean {
     const dir = to.subtract(from);
     const dist = dir.length();
@@ -328,6 +343,15 @@ export class BottyController {
 
   update(dt: number, player: PlayerController): void {
     if (this.isDown) return;
+
+    // Gravity: moveToward only ever moves on the XZ plane (holds Y constant),
+    // so over sunken/uneven ground BOTTY would hover mid-air with nothing
+    // pulling it down. A per-frame downward moveWithCollisions() nudge (the
+    // fix used for EnemyAI) turned out to still creep upward here — repeated
+    // collision-resolution "pop out of the ground" responses outpaced the
+    // weak gravity pull over time. A direct downward raycast onto whatever's
+    // actually below is deterministic and can't drift the same way.
+    this.snapToGround();
 
     switch (this.command) {
       case "retreat": {
