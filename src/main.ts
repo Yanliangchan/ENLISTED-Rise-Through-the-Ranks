@@ -243,6 +243,9 @@ async function boot(): Promise<void> {
     gameOverScreen.hide();
     waveManager.restartRun(SPAWN_POINT);
     beginDeployment();
+    // The Redeploy click is a user gesture — grab the pointer right here so
+    // the player spawns already in control instead of having to click again.
+    input.lockPointer();
   };
   const controlsOverlay = new ControlsOverlay(uiRoot);
   const medKit = new MedKitController(input, audio, gameState, player, {
@@ -404,10 +407,40 @@ async function boot(): Promise<void> {
       hud.showCenterMessage(reason === "empty" ? "NO UAV CHARGES REMAINING" : "UAV RECHARGING", 1500),
   });
 
+  // ---- Focus keeper -------------------------------------------------------
+  // The game should always own the mouse while actually in play: any click or
+  // key press with no menu open re-acquires pointer lock (both are user
+  // gestures, so the browser allows it), so the player never has to click the
+  // canvas manually after closing a menu, respawning, or interacting with UI.
+  function anyMenuOpen(): boolean {
+    return (
+      pauseMenu.visible ||
+      armoury.visible ||
+      gameOverScreen.visible ||
+      landingPage.visible ||
+      tacticalMap.visible ||
+      commandWheel.visible ||
+      rangeUI.resultsOpen
+    );
+  }
+  window.addEventListener("mousedown", (e) => {
+    // Only clicks on the game itself — clicking a button/select (range status
+    // bar, overlays) must not steal the cursor mid-interaction.
+    if (e.target === canvas && !anyMenuOpen() && !input.isPointerLocked) input.lockPointer();
+  });
+  pauseMenu.onHide = () => {
+    if (!anyMenuOpen()) input.lockPointer();
+  };
+
   window.addEventListener("keydown", (e) => {
     if (e.code === "Escape") {
       pauseMenu.toggle();
       if (!pauseMenu.visible) input.lockPointer();
+    }
+    // Movement/action keys while unlocked and un-menued (e.g. right after a
+    // respawn or closing an overlay) snap focus straight back to the game.
+    if (!anyMenuOpen() && !input.isPointerLocked && !e.ctrlKey && !e.altKey && !e.metaKey && e.code !== "Escape") {
+      input.lockPointer();
     }
     if (e.code === "Tab") {
       e.preventDefault();

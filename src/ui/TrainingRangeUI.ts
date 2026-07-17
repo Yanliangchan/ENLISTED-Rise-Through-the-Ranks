@@ -99,6 +99,11 @@ export class TrainingRangeUI {
     this.distanceSelect.value = String(selected);
   }
 
+  /** True while the end-of-session results card is up — the cursor must stay free for its buttons. */
+  get resultsOpen(): boolean {
+    return this.visible && this.resultsPanel.style.display !== "none";
+  }
+
   updateShotCount(shotsSoFar: number): void {
     this.shotsEl.textContent = `SHOT ${Math.min(shotsSoFar, 10)}/10`;
   }

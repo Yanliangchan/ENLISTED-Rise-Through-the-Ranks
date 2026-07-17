@@ -23,6 +23,8 @@ export class Armoury {
   private content: HTMLDivElement;
   private creditsLabel: HTMLDivElement;
   private activeTab: Tab = "loadout";
+  /** Which loadout weapon the Attachments tab is editing. */
+  private attachmentTarget: "primary" | "secondary" = "primary";
   visible = false;
 
   onStartWave?: () => void;
@@ -243,9 +245,31 @@ export class Armoury {
   }
 
   private renderAttachments(): void {
-    const weaponId = this.gameState.data.loadout.primary;
+    // Attachments can be fitted to the primary OR the secondary — a small
+    // selector switches which loadout weapon the list below applies to.
+    const loadout = this.gameState.data.loadout;
+    if (this.attachmentTarget === "secondary" && !loadout.secondary) this.attachmentTarget = "primary";
+    const weaponId = this.attachmentTarget === "secondary" ? loadout.secondary : loadout.primary;
     const weapon = WEAPONS[weaponId];
     const wrap = document.createElement("div");
+
+    const picker = document.createElement("div");
+    picker.style.cssText = "display:flex; gap:8px; margin-bottom:12px;";
+    for (const target of ["primary", "secondary"] as const) {
+      const id = target === "primary" ? loadout.primary : loadout.secondary;
+      const w = WEAPONS[id];
+      if (!w) continue;
+      const btn = document.createElement("button");
+      btn.textContent = `${target === "primary" ? "Primary" : "Secondary"} — ${w.name}`;
+      styleButton(btn, target === this.attachmentTarget ? "#4a7a3c" : "#2a332480");
+      btn.onclick = () => {
+        this.attachmentTarget = target;
+        this.audio.uiClick();
+        this.renderContent();
+      };
+      picker.appendChild(btn);
+    }
+    wrap.appendChild(picker);
 
     if (weapon) {
       const heading = document.createElement("div");

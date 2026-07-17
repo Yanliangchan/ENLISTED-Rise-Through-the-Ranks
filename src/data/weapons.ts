@@ -16,6 +16,7 @@
 export type WeaponClass =
   | "rifle"
   | "pistol"
+  | "smg"
   | "dmr"
   | "sniper"
   | "lmg"
@@ -194,6 +195,38 @@ export const WEAPONS: Record<string, Weapon> = {
     price: 0,
     unlockedByDefault: true,
     attachmentSlots: ["optic", "muzzle", "magazine", "laser"],
+    defaultAttachments: [],
+  },
+
+  mp5k: {
+    id: "mp5k",
+    name: "H&K MP5K",
+    class: "smg",
+    slot: "secondary",
+    realCaliber: "9×19mm Parabellum",
+    fireModes: ["safe", "semi", "auto"],
+    magSize: 30,
+    effectiveRangeM: 100,
+    muzzleVelocityMps: 375, // 4.5" barrel — noticeably down on the full MP5's ~400
+    realNotes:
+      "Kurz (short) MP5: 4.5\" barrel, front vertical grip, no stock. Roller-delayed blowback — famously smooth and controllable. ~900 rpm. Close-protection and special-operations weapon; MP5 family serves with SAF/SPF special units.",
+    // Balanced against the P30: much higher sustained DPS inside ~30m, but
+    // per-shot damage is low and falls off hard — past ~60m the pistol's
+    // heavier single hits and the primaries outclass it.
+    damage: 18,
+    headshotMultiplier: 1.8,
+    fireRateRpm: 850,
+    reserveAmmo: 120,
+    reloadTimeSec: 2.2,
+    adsTimeSec: 0.16, // stockless and tiny — fastest ADS in the game
+    falloff: { startM: 15, endM: 55, minMultiplier: 0.45 },
+    recoil: { vertical: 0.7, horizontal: 0.35, recovery: 9 }, // roller-delayed = very soft
+    spread: { hip: 1.5, ads: 0.55, movePenalty: 0.6 }, // best hip-fire in the game
+    moveSpeedMult: 1.1, // as mobile as the pistol
+    isProjectile: false,
+    price: 1800,
+    unlockedByDefault: false,
+    attachmentSlots: ["optic", "muzzle", "laser"],
     defaultAttachments: [],
   },
 

@@ -35,10 +35,13 @@ export interface Attachment {
   /** Special behaviour flags for game logic to read. */
   flags?: {
     unlocksSlots?: AttachmentSlot[]; // e.g. P-Rail unlocks optic/underbarrel
-    suppressed?: boolean; // no muzzle flash, reduced AI hearing
+    suppressed?: boolean; // no muzzle flash, reduced AI hearing, slightly lower muzzle velocity/damage
     grenadeLauncher?: boolean; // underslung 40mm GL (secondary fire)
     bipod?: boolean; // huge recoil/spread cut when deployed prone/crouched
-    laser?: boolean; // tighter hipfire
+    laser?: boolean; // tighter hipfire, but the beam makes the player easier to spot
+    flashlight?: boolean; // weapon light — illuminates what the player faces
+    compensator?: boolean; // ports vent upward: less vertical recoil, bigger muzzle flash
+    flashHidden?: boolean; // flash hider — no visible muzzle flash, shorter AI visibility spike
   };
   realNotes?: string;
 }
@@ -100,7 +103,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     id: "optic_lpvo_1_6x",
     name: "LPVO 1–6×",
     slot: "optic",
-    compatibleWith: ["br18", "iar6940"],
+    compatibleWith: ["br18"],
     price: 900,
     zoom: 6.0, // variable; game can toggle 1x/6x
     deltas: { adsTimeSec: 0.04, effectiveRangeM: 50 },
@@ -140,7 +143,19 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     slot: "muzzle",
     compatibleWith: [],
     price: 200,
-    deltas: { recoilVertical: -0.1 },
+    deltas: {},
+    flags: { flashHidden: true },
+    realNotes: "Kills the visible muzzle flash — firing spikes your AI visibility for a much shorter window.",
+  },
+  muzzle_compensator: {
+    id: "muzzle_compensator",
+    name: "Compensator",
+    slot: "muzzle",
+    compatibleWith: [],
+    price: 350,
+    deltas: { recoilVertical: -0.35 },
+    flags: { compensator: true },
+    realNotes: "Ports vent gas upward: much less vertical climb, but a bigger flash that keeps you lit up longer for AI.",
   },
   muzzle_suppressor: {
     id: "muzzle_suppressor",
@@ -150,10 +165,51 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     price: 500,
     deltas: { damage: -2, effectiveRangeM: -20 },
     flags: { suppressed: true },
-    realNotes: "No muzzle flash; reduces the range at which enemy AI hears your shots.",
+    realNotes:
+      "No muzzle flash; reduces the range at which enemy AI hears your shots. Slightly lower muzzle velocity — modelled as reduced damage/effective range.",
   },
 
-  // --- Laser ---
+  // --- Underbarrel ---
+  under_vert_grip: {
+    id: "under_vert_grip",
+    name: "Vertical Grip",
+    slot: "underbarrel",
+    compatibleWith: [],
+    price: 300,
+    deltas: { recoilVertical: -0.25, recoilHorizontal: -0.1, adsTimeSec: 0.02 },
+    realNotes: "Best raw recoil control; a touch slower to shoulder.",
+  },
+  under_angled_grip: {
+    id: "under_angled_grip",
+    name: "Angled Grip",
+    slot: "underbarrel",
+    compatibleWith: [],
+    price: 300,
+    deltas: { adsTimeSec: -0.05, recoilVertical: -0.05 },
+    realNotes: "Faster, smoother ADS handling; only a small recoil benefit.",
+  },
+  under_bipod: {
+    id: "under_bipod",
+    name: "Bipod",
+    slot: "underbarrel",
+    compatibleWith: ["fnmag", "m110", "trg22"],
+    price: 0, // factory equipment on the GPMG; free to fit on marksman rifles too
+    deltas: { moveSpeedMult: -0.03 },
+    flags: { bipod: true },
+    realNotes: "Deploys while crouched and stationary — huge recoil/spread cut. Slightly heavier on the move.",
+  },
+  under_m203: {
+    id: "under_m203",
+    name: "M203 40mm Launcher",
+    slot: "underbarrel",
+    compatibleWith: ["sar21", "br18"],
+    price: 900,
+    deltas: { moveSpeedMult: -0.04, adsTimeSec: 0.03 },
+    flags: { grenadeLauncher: true },
+    realNotes: "Underslung single-shot 40mm HE (fire with H). Adds real weight to the rifle.",
+  },
+
+  // --- Rail accessories (laser slot) ---
   laser_lad: {
     id: "laser_lad",
     name: "Laser Aiming Device (LAD)",
@@ -162,7 +218,17 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     price: 300,
     deltas: { spreadHip: -0.8 },
     flags: { laser: true },
-    realNotes: "SAR 21 issues a LAD (visible/IR). Tightens hipfire.",
+    realNotes: "SAR 21 issues a LAD (visible/IR). Tightens hipfire — but the visible beam makes you easier for OPFOR to spot.",
+  },
+  rail_flashlight: {
+    id: "rail_flashlight",
+    name: "Tactical Flashlight",
+    slot: "laser",
+    compatibleWith: [],
+    price: 200,
+    deltas: {},
+    flags: { flashlight: true },
+    realNotes: "Weapon-mounted light: illuminates whatever you're facing at night. Occupies the same rail as the LAD.",
   },
 
   // --- Magazine ---

@@ -15,7 +15,10 @@ export interface EffectiveStats {
   suppressed: boolean;
   hasBipod: boolean;
   hasLaser: boolean;
+  hasFlashlight: boolean;
   hasGrenadeLauncher: boolean;
+  /** Visual muzzle flash size multiplier: 0 = hidden (suppressor/flash hider), >1 = compensator's bigger bloom. */
+  muzzleFlashScale: number;
   zoom: number;
   fittedAttachmentIds: string[];
 }
@@ -36,7 +39,9 @@ export function computeEffectiveStats(weapon: Weapon, fittedAttachmentIds: strin
     suppressed: false,
     hasBipod: false,
     hasLaser: false,
+    hasFlashlight: false,
     hasGrenadeLauncher: false,
+    muzzleFlashScale: 1,
     zoom: 1,
     fittedAttachmentIds: [...fittedAttachmentIds],
   };
@@ -49,8 +54,13 @@ export function computeEffectiveStats(weapon: Weapon, fittedAttachmentIds: strin
     if (attachment.flags?.suppressed) stats.suppressed = true;
     if (attachment.flags?.bipod) stats.hasBipod = true;
     if (attachment.flags?.laser) stats.hasLaser = true;
+    if (attachment.flags?.flashlight) stats.hasFlashlight = true;
     if (attachment.flags?.grenadeLauncher) stats.hasGrenadeLauncher = true;
+    if (attachment.flags?.compensator) stats.muzzleFlashScale = Math.max(stats.muzzleFlashScale, 1.7);
+    if (attachment.flags?.flashHidden) stats.muzzleFlashScale = 0;
   }
+  // A suppressor swallows the flash entirely, whatever else is fitted.
+  if (stats.suppressed) stats.muzzleFlashScale = 0;
 
   return stats;
 }

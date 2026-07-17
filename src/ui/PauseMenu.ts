@@ -14,6 +14,8 @@ export class PauseMenu {
   private root: HTMLDivElement;
   private statsBody: HTMLDivElement | null = null;
   visible = false;
+  /** Fired on every hide — main.ts uses it to hand focus straight back to the game. */
+  onHide?: () => void;
 
   constructor(
     container: HTMLElement,
@@ -141,6 +143,7 @@ export class PauseMenu {
   hide(): void {
     this.visible = false;
     this.root.style.display = "none";
+    this.onHide?.();
   }
 
   toggle(): void {

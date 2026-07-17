@@ -29,6 +29,7 @@ export interface Viewmodel {
 const MUZZLE_OFFSET: Record<Weapon["class"], Vector3> = {
   rifle: new Vector3(0, 0.01, 0.5),
   pistol: new Vector3(0, 0.02, 0.14),
+  smg: new Vector3(0, 0.02, 0.24),
   dmr: new Vector3(0, 0.01, 0.78),
   sniper: new Vector3(0, 0.01, 0.78),
   lmg: new Vector3(0, 0.02, 0.62),
@@ -178,23 +179,135 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
         mag, magLower, grip, ...gripRibs, carryHandle, chFront, chRear, trigger, triggerGuard
       );
 
-      // Compact integral scope (matches the SAR 21's real 1.5x integral optic),
-      // faired into the middle of the carry handle. Kept small — ADS brings the
-      // sight right up to the camera, so full-scale geometry would loom in frame.
-      sightOffset = new Vector3(0, 0.14, 0.02);
-      const scopeTube = MeshBuilder.CreateCylinder("sightScopeTube", { diameter: 0.026, height: 0.11, tessellation: 12 }, scene);
-      scopeTube.rotation.x = Math.PI / 2;
-      scopeTube.position.copyFrom(sightOffset);
-      scopeTube.material = housingMat;
-      const objective = MeshBuilder.CreateCylinder("sightObjective", { diameter: 0.03, height: 0.006, tessellation: 12 }, scene);
+      // Integral 1.5x optic, faired INTO the carry handle the way the real
+      // SAR 21's sight is — a low rectangular housing that reads as part of
+      // the handle, not a clamped-on aftermarket scope. All matte black with
+      // dark glass: no glowing red/blue lens discs. Kept small — ADS brings
+      // the sight right up to the camera.
+      sightOffset = new Vector3(0, 0.132, 0.02);
+      const darkGlass = new StandardMaterial(`sightGlassMat_${weapon.id}`, scene);
+      darkGlass.diffuseColor = new Color3(0.02, 0.025, 0.03);
+      darkGlass.emissiveColor = new Color3(0.02, 0.03, 0.045); // faint cold sheen, not a glow
+      darkGlass.specularColor = new Color3(0.5, 0.55, 0.6);
+      darkGlass.specularPower = 64;
+
+      // Rectangular optic housing sunk into the handle's midsection.
+      const sightHousing = MeshBuilder.CreateBox("sightHousing", { width: 0.034, height: 0.034, depth: 0.12 }, scene);
+      sightHousing.position.copyFrom(sightOffset);
+      sightHousing.material = housingMat;
+      // Sloped fairings blending the housing down into the carry handle rib.
+      const fairFront = MeshBuilder.CreateBox("sightFairFront", { width: 0.03, height: 0.02, depth: 0.05 }, scene);
+      fairFront.position.set(0, 0.118, 0.1);
+      fairFront.rotation.x = 0.35;
+      fairFront.material = polymerMat;
+      const fairRear = MeshBuilder.CreateBox("sightFairRear", { width: 0.03, height: 0.02, depth: 0.05 }, scene);
+      fairRear.position.set(0, 0.118, -0.06);
+      fairRear.rotation.x = -0.35;
+      fairRear.material = polymerMat;
+      // Recessed dark-glass objective (front) and ocular (rear) faces.
+      const objective = MeshBuilder.CreateCylinder("sightObjective", { diameter: 0.024, height: 0.004, tessellation: 12 }, scene);
       objective.rotation.x = Math.PI / 2;
-      objective.position.set(sightOffset.x, sightOffset.y, sightOffset.z + 0.056);
-      objective.material = lensMaterial(scene, `sightObjectiveLens_${weapon.id}`, new Color3(0.9, 0.2, 0.15));
-      const ocular = MeshBuilder.CreateCylinder("sightOcular", { diameter: 0.024, height: 0.005, tessellation: 12 }, scene);
+      objective.position.set(sightOffset.x, sightOffset.y, sightOffset.z + 0.061);
+      objective.material = darkGlass;
+      const ocular = MeshBuilder.CreateCylinder("sightOcular", { diameter: 0.02, height: 0.004, tessellation: 12 }, scene);
       ocular.rotation.x = Math.PI / 2;
-      ocular.position.set(sightOffset.x, sightOffset.y, sightOffset.z - 0.055);
-      ocular.material = lensMaterial(scene, `sightOcularLens_${weapon.id}`, new Color3(0.15, 0.35, 0.5));
-      sightParts.push(scopeTube, objective, ocular);
+      ocular.position.set(sightOffset.x, sightOffset.y, sightOffset.z - 0.061);
+      ocular.material = darkGlass;
+      // Low-profile backup iron post moulded ahead of the housing.
+      const backupPost = MeshBuilder.CreateBox("sightBackupPost", { width: 0.004, height: 0.01, depth: 0.004 }, scene);
+      backupPost.position.set(0, 0.155, 0.12);
+      backupPost.material = housingMat;
+      sightParts.push(sightHousing, fairFront, fairRear, objective, ocular, backupPost);
+      break;
+    }
+    case "smg": {
+      // H&K MP5K — the Kurz machine pistol: stubby receiver, very short
+      // barrel ending in the 3-lug muzzle, distinctive front vertical grip,
+      // curved 30-round 9mm magazine, flat rear end cap (no stock), drum
+      // rear sight + hooded front post. All-black finish.
+      mat.diffuseColor = new Color3(0.09, 0.09, 0.1);
+      mat.specularColor = new Color3(0.32, 0.32, 0.36);
+      mat.specularPower = 44;
+      polymerMat.diffuseColor = new Color3(0.07, 0.07, 0.075);
+      polymerMat.specularColor = new Color3(0.1, 0.1, 0.11);
+
+      const receiver = MeshBuilder.CreateBox("smgReceiver", { width: 0.05, height: 0.08, depth: 0.3 }, scene);
+      receiver.position.set(0, 0.01, 0.0);
+      // Rounded upper: the MP5's tubular receiver top.
+      const upperTube = MeshBuilder.CreateCylinder("smgUpper", { diameter: 0.05, height: 0.3, tessellation: 12 }, scene);
+      upperTube.rotation.x = Math.PI / 2;
+      upperTube.position.set(0, 0.05, 0.0);
+      // Flat rear end cap (K variant has no stock — sling-and-cap only).
+      const endCap = MeshBuilder.CreateBox("smgEndCap", { width: 0.052, height: 0.09, depth: 0.014 }, scene);
+      endCap.position.set(0, 0.02, -0.155);
+      endCap.material = housingMat;
+      // Short barrel + 3-lug muzzle just proud of the handguard.
+      const barrel = MeshBuilder.CreateCylinder("smgBarrel", { diameter: 0.018, height: 0.07, tessellation: 12 }, scene);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.022, 0.19);
+      const lugs = MeshBuilder.CreateCylinder("smgLugs", { diameter: 0.026, height: 0.024, tessellation: 8 }, scene);
+      lugs.rotation.x = Math.PI / 2;
+      lugs.position.set(0, 0.022, 0.225);
+      lugs.material = housingMat;
+      // Cocking tube ahead of the upper with the forward charging handle.
+      const cockTube = MeshBuilder.CreateCylinder("smgCockTube", { diameter: 0.03, height: 0.1, tessellation: 10 }, scene);
+      cockTube.rotation.x = Math.PI / 2;
+      cockTube.position.set(0, 0.055, 0.16);
+      const chargingHandle = MeshBuilder.CreateBox("smgCharge", { width: 0.05, height: 0.012, depth: 0.014 }, scene);
+      chargingHandle.position.set(-0.03, 0.055, 0.13);
+      chargingHandle.material = housingMat;
+      // The MP5K's signature front vertical grip.
+      const frontGrip = MeshBuilder.CreateBox("smgFrontGrip", { width: 0.042, height: 0.11, depth: 0.05 }, scene);
+      frontGrip.position.set(0, -0.075, 0.15);
+      frontGrip.rotation.x = -0.12;
+      frontGrip.material = polymerMat;
+      // Pistol grip + lower (trigger group housing).
+      const lower = MeshBuilder.CreateBox("smgLower", { width: 0.046, height: 0.045, depth: 0.16 }, scene);
+      lower.position.set(0, -0.05, -0.04);
+      lower.material = polymerMat;
+      const grip = MeshBuilder.CreateBox("smgGrip", { width: 0.046, height: 0.13, depth: 0.055 }, scene);
+      grip.position.set(0, -0.13, -0.1);
+      grip.rotation.x = 0.22;
+      grip.material = polymerMat;
+      const trigger = MeshBuilder.CreateBox("smgTrigger", { width: 0.01, height: 0.026, depth: 0.008 }, scene);
+      trigger.position.set(0, -0.085, -0.035);
+      trigger.material = housingMat;
+      const guard = MeshBuilder.CreateTorus("smgGuard", { diameter: 0.055, thickness: 0.006, tessellation: 10 }, scene);
+      guard.rotation.x = Math.PI / 2;
+      guard.position.set(0, -0.095, -0.035);
+      guard.material = housingMat;
+      // Curved 30-round 9mm magazine.
+      const magUpper = MeshBuilder.CreateBox("smgMagU", { width: 0.032, height: 0.1, depth: 0.05 }, scene);
+      magUpper.position.set(0, -0.11, 0.05);
+      magUpper.rotation.x = -0.1;
+      magUpper.material = housingMat;
+      const magLower = MeshBuilder.CreateBox("smgMagL", { width: 0.032, height: 0.1, depth: 0.048 }, scene);
+      magLower.position.set(0, -0.2, 0.072);
+      magLower.rotation.x = -0.32;
+      magLower.material = housingMat;
+      // Selector markings plate.
+      const selector = MeshBuilder.CreateCylinder("smgSelector", { diameter: 0.018, height: 0.006, tessellation: 8 }, scene);
+      selector.rotation.z = Math.PI / 2;
+      selector.position.set(-0.027, -0.045, -0.075);
+      selector.material = housingMat;
+      parts.push(
+        receiver, upperTube, endCap, barrel, lugs, cockTube, chargingHandle,
+        frontGrip, lower, grip, trigger, guard, magUpper, magLower, selector
+      );
+
+      // HK drum rear sight + hooded front post.
+      sightOffset = new Vector3(0, 0.092, -0.1);
+      const rearDrum = MeshBuilder.CreateCylinder("smgRearDrum", { diameter: 0.02, height: 0.012, tessellation: 10 }, scene);
+      rearDrum.rotation.x = Math.PI / 2;
+      rearDrum.position.copyFrom(sightOffset);
+      rearDrum.material = housingMat;
+      const frontHood = MeshBuilder.CreateTorus("smgFrontHood", { diameter: 0.018, thickness: 0.003, tessellation: 10 }, scene);
+      frontHood.position.set(0, 0.095, 0.2);
+      frontHood.material = housingMat;
+      const frontPost = MeshBuilder.CreateBox("smgFrontPost", { width: 0.0025, height: 0.009, depth: 0.0025 }, scene);
+      frontPost.position.set(0, 0.092, 0.2);
+      frontPost.material = ironMat;
+      sightParts.push(rearDrum, frontHood, frontPost);
       break;
     }
     case "pistol": {

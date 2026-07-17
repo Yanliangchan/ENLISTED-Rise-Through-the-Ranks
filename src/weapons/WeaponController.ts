@@ -1,4 +1,4 @@
-import { Scene, Vector3, Matrix, MeshBuilder, StandardMaterial, Color3, LinesMesh, Ray } from "@babylonjs/core";
+import { Scene, Vector3, Matrix, MeshBuilder, StandardMaterial, Color3, LinesMesh, Ray, SpotLight } from "@babylonjs/core";
 import type { Weapon } from "@/data/weapons";
 import { WEAPONS } from "@/data/weapons";
 import { MATADOR_BLAST, M203_BLAST } from "@/data/gamedata";
@@ -70,7 +70,27 @@ export class WeaponController {
   ) {
     this.weapon = WEAPONS.sar21;
     this.effective = computeEffectiveStats(this.weapon, []);
+
+    // Weapon-mounted flashlight: one spotlight riding the camera, enabled only
+    // while a flashlight attachment is fitted. World materials are frozen at
+    // level build, so the beam mainly lights dynamic actors (OPFOR, BOTTY) and
+    // reads as a bright cone via its glow — cheap, and never recompiles the
+    // static world's shaders.
+    this.flashlight = new SpotLight(
+      "weaponFlashlight",
+      Vector3.Zero(),
+      new Vector3(0, 0, 1),
+      Math.PI / 5,
+      12,
+      this.scene
+    );
+    this.flashlight.parent = this.player.camera;
+    this.flashlight.diffuse = new Color3(1, 0.96, 0.85);
+    this.flashlight.intensity = 0;
+    this.flashlight.range = 30;
   }
+
+  private flashlight!: SpotLight;
 
   private secondaryFireCooldown = 0;
 
@@ -138,6 +158,7 @@ export class WeaponController {
     this.adsBlend = 0;
     this.bipodDeployed = false;
     this.player.weaponSpeedMult = this.effective.moveSpeedMult;
+    this.applyAccessoryState();
 
     if (!this.ammoByWeapon.has(weaponId)) {
       this.ammoByWeapon.set(weaponId, { mag: this.effective.magSize, reserve: weapon.reserveAmmo });
@@ -150,6 +171,15 @@ export class WeaponController {
   refreshAttachments(): void {
     this.effective = computeEffectiveStats(this.weapon, this.gameState.getFittedAttachments(this.weapon.id));
     this.player.weaponSpeedMult = this.effective.moveSpeedMult;
+    this.applyAccessoryState();
+  }
+
+  /** Sync rail-accessory side effects: flashlight beam on/off, laser visibility penalty. */
+  private applyAccessoryState(): void {
+    this.flashlight.intensity = this.effective.hasFlashlight ? 1.6 : 0;
+    // The LAD's visible beam cuts hip spread (stat delta) but also makes the
+    // player easier for OPFOR to spot — EnemyAI reads this flag.
+    this.player.laserOn = this.effective.hasLaser;
   }
 
   private showViewmodel(weapon: Weapon): void {
@@ -343,10 +373,14 @@ export class WeaponController {
     }
 
     this.player.breakSpawnProtection();
-    this.player.markFired(); // muzzle flash + report gives the player's position away to nearby AI
+    // Muzzle flash + report gives the player's position away to nearby AI.
+    // No visible flash (suppressor/flash hider) = a much shorter visibility
+    // spike; a compensator's bigger bloom keeps the player lit up longer.
+    const flashScale = this.effective.muzzleFlashScale;
+    this.player.markFired(flashScale <= 0 ? 1.1 : flashScale > 1 ? 3.2 : 2.5);
     this.ammo.mag -= 1;
     this.fireCooldown = 60 / this.weapon.fireRateRpm;
-    this.audio.gunshot(this.effective.suppressed);
+    this.audio.gunshot(this.effective.suppressed, this.weapon.class === "pistol" || this.weapon.class === "smg");
     this.callbacks.onFire?.(this.weapon);
     this.spawnMuzzleFlash();
 
@@ -512,7 +546,8 @@ export class WeaponController {
   }
 
   private spawnMuzzleFlash(): void {
-    if (this.effective.suppressed || !this.activeViewmodel) return;
+    // muzzleFlashScale 0 = hidden entirely (suppressor or flash hider).
+    if (this.effective.muzzleFlashScale <= 0 || !this.activeViewmodel) return;
     // No flash once the sight picture is what matters: fully suppressed through
     // the scope lens, and skipped entirely once mostly aimed in on ANY optic
     // (and in any stance, including crouched) so it can never sit over the
@@ -520,8 +555,9 @@ export class WeaponController {
     // camera centre regardless of the flash.
     if (this.isScopedIn) return;
     if (this.adsBlend > 0.7) return;
-    // Small and brief, and smaller still while partway into ADS.
-    const radius = 0.034 * (1 - 0.55 * this.adsBlend);
+    // Small and brief, and smaller still while partway into ADS. A compensator
+    // vents upward and blooms visibly larger (its trade-off for the recoil cut).
+    const radius = 0.034 * (1 - 0.55 * this.adsBlend) * this.effective.muzzleFlashScale;
     const flash = MeshBuilder.CreateDisc("muzzleFlash", { radius, tessellation: 6 }, this.scene);
     flash.parent = this.activeViewmodel.muzzle;
     // Nudged slightly down/forward of the bore so it blooms below the optic axis.

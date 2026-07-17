@@ -49,6 +49,8 @@ export class PlayerController {
   inSafeZone = false;
   /** Written by SafeZoneManager on leaving the safe zone; grants brief incoming-damage immunity. Cancelled by firing/throwing. */
   spawnProtected = false;
+  /** Set by WeaponController while a laser aiming device is fitted — the visible beam makes the player easier for AI to spot. */
+  laserOn = false;
   private footstepTimer = 0;
 
   constructor(

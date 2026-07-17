@@ -387,6 +387,9 @@ export class EnemyInstance implements Damageable {
     else if (player.crouching) factor = player.isMoving ? DETECT_FACTOR.crouchWalk : DETECT_FACTOR.crouchStill;
     else factor = player.isMoving ? DETECT_FACTOR.walk : DETECT_FACTOR.standStill;
     if (player.firedRecently) factor = Math.max(factor, DETECT_FACTOR.firingFloor);
+    // A visible laser beam gives the player away — floors detection at
+    // walking-visibility even while crouched and still.
+    if (player.laserOn) factor = Math.max(factor, DETECT_FACTOR.walk);
     return this.type.sightRangeM * factor;
   }
 

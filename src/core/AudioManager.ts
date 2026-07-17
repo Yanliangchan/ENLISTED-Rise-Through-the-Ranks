@@ -58,7 +58,13 @@ export class AudioManager {
     osc.stop(ctx.currentTime + durationSec);
   }
 
-  gunshot(suppressed = false): void {
+  /** `light` = 9mm SMG/pistol report — shorter and snappier than a rifle's crack. */
+  gunshot(suppressed = false, light = false): void {
+    if (light) {
+      this.noiseBurst(suppressed ? 0.045 : 0.08, suppressed ? 0.25 : 0.7, suppressed ? 1400 : 5200);
+      if (!suppressed) this.tone(190, 0.05, "square", 0.3);
+      return;
+    }
     this.noiseBurst(suppressed ? 0.06 : 0.12, suppressed ? 0.3 : 0.9, suppressed ? 1200 : 4000);
     if (!suppressed) this.tone(120, 0.08, "square", 0.4);
   }

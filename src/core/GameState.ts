@@ -51,7 +51,7 @@ export function defaultSave(): SaveData {
       sar21: ["optic_sar21_1_5x"],
       m110: ["optic_variable_3_9x"],
       trg22: ["optic_precision_5_25x"],
-      fnmag: [],
+      fnmag: ["under_bipod"],
     },
     loadout: { ...STARTER_LOADOUT },
     highestWaveCleared: 0,
