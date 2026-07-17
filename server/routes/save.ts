@@ -5,6 +5,10 @@ import { asyncHandler } from "../asyncHandler.js";
 
 export const saveRouter = Router();
 
+// Well above any legitimate save/settings blob (defense in depth beyond the
+// server-wide 256kb express.json() body limit already applied in index.ts).
+const MAX_BLOB_BYTES = 64 * 1024;
+
 /** GET /api/save — the raw save+settings blobs (used on rare reconnect-without-login-response paths). */
 saveRouter.get(
   "/save",
@@ -28,7 +32,12 @@ saveRouter.put(
       res.status(400).json({ error: "Missing save payload." });
       return;
     }
-    await queryOne("UPDATE users SET save_data = $2 WHERE id = $1", [req.user!.sub, JSON.stringify(save)]);
+    const serialized = JSON.stringify(save);
+    if (serialized.length > MAX_BLOB_BYTES) {
+      res.status(413).json({ error: "Save payload too large." });
+      return;
+    }
+    await queryOne("UPDATE users SET save_data = $2 WHERE id = $1", [req.user!.sub, serialized]);
     res.json({ ok: true });
   })
 );
@@ -43,7 +52,12 @@ saveRouter.put(
       res.status(400).json({ error: "Missing settings payload." });
       return;
     }
-    await queryOne("UPDATE users SET settings = $2 WHERE id = $1", [req.user!.sub, JSON.stringify(settings)]);
+    const serialized = JSON.stringify(settings);
+    if (serialized.length > MAX_BLOB_BYTES) {
+      res.status(413).json({ error: "Settings payload too large." });
+      return;
+    }
+    await queryOne("UPDATE users SET settings = $2 WHERE id = $1", [req.user!.sub, serialized]);
     res.json({ ok: true });
   })
 );

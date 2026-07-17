@@ -76,6 +76,7 @@ export class WeaponController {
   m203Active = false;
   private m203ToggleCooldown = 0;
   private m203SwitchBlend = 0; // 0 = rifle sight, 1 = M203 sight — eases the swap so it doesn't snap
+  private m203RequireTriggerRelease = false;
 
   constructor(
     private readonly scene: Scene,
@@ -254,11 +255,19 @@ export class WeaponController {
     if (!this.input.wasPressed("KeyH")) return;
     this.m203Active = !this.m203Active;
     this.m203ToggleCooldown = 0.35; // debounce so a held/bouncing key can't flicker the mode
+    // If LMB is already held down at the moment of switching in, require a
+    // release before firing — otherwise toggling mid-trigger-pull launches an
+    // unintended "free" grenade off whatever click was already in progress.
+    if (this.m203Active && this.input.leftMouseDown) this.m203RequireTriggerRelease = true;
     this.audio.uiClick();
   }
 
   private updateM203FireInput(): void {
-    if (!this.input.leftMouseDown) return;
+    if (!this.input.leftMouseDown) {
+      this.m203RequireTriggerRelease = false;
+      return;
+    }
+    if (this.m203RequireTriggerRelease) return;
     if (this.secondaryFireCooldown > 0) return;
     if (this.isReloading) return;
     this.player.breakSpawnProtection();

@@ -169,7 +169,12 @@ export class EnemyManager {
    * arrives rather than silently failing to spawn.
    */
   startWave(wave: number, player: PlayerController): void {
-    this.enemies = this.enemies.filter((e) => !e.isDead);
+    // Filter on `disposed`, not `isDead`: a soldier that died seconds ago is
+    // `isDead` immediately but keeps its meshes alive for its ~4s death-collapse
+    // animation. Dropping it from the tracked array here (as `isDead` would)
+    // orphans those meshes — nothing left holding a reference ever calls
+    // dispose() on them, leaking every corpse still mid-despawn at wave-start.
+    this.enemies = this.enemies.filter((e) => !e.disposed);
     this.engagedIds.clear();
     const count = this.waveEnemyCount(wave);
     const pairCount = Math.ceil(count / SPAWN_PAIR_SIZE);
@@ -207,10 +212,16 @@ export class EnemyManager {
       cand = ensureClearOfCamp(findNearestNavigable(this.scene, cand));
       candidates.push(cand);
     }
+    // Score every candidate once (each score costs up to one LOS raycast) and
+    // reuse it across all three tiers below, instead of re-running
+    // spawnRuleScore per tier — at high wave counts (many pairs, each calling
+    // this) the repeated 3x pass was a measurable source of frame hitches at
+    // wave start.
+    const scores = candidates.map((c) => this.spawnRuleScore(c, player));
     // Tier 1: all rules. Tier 2: allow front-but-occluded (drop LOS). Tier 3:
     // just the safe radius (guarantees a spawn on a pathological map).
     for (const tier of [3, 2, 1]) {
-      const valid = candidates.filter((c) => this.spawnRuleScore(c, player) >= tier);
+      const valid = candidates.filter((_, i) => scores[i] >= tier);
       if (valid.length > 0) return valid[Math.floor(Math.random() * valid.length)];
     }
     return candidates[0];

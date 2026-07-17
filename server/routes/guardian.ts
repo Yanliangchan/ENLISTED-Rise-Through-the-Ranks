@@ -5,6 +5,7 @@ import { loadProfile } from "../profile.js";
 import { listBadgeCatalogueFor, grantBadgeByCode } from "../badges.js";
 import { CAREER_PATHS, type CareerPath } from "../ranks.js";
 import { asyncHandler } from "../asyncHandler.js";
+import { rateLimit } from "../rateLimit.js";
 import type { NextFunction, Response } from "express";
 
 export const guardianRouter = Router();
@@ -37,9 +38,10 @@ guardianRouter.get(
   })
 );
 
-/** POST /api/guardian/grant { username, code } — code-gated, sets a target account's guardian flag. */
+/** POST /api/guardian/grant { username, code } — code-gated, sets a target account's guardian flag. Rate-limited (fixed-length secret check, reachable without auth). */
 guardianRouter.post(
   "/grant",
+  rateLimit(10, 5 * 60_000),
   asyncHandler(async (req, res) => {
     const expected = process.env.GUARDIAN_CODE;
     const code = String(req.body?.code ?? "");
