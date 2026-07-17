@@ -92,10 +92,11 @@ export const RANKS: Rank[] = [
   { id: "cpt", name: "Captain", abbr: "CPT", track: "officer", tier: 3, meritRequired: 8000, creditMultiplier: 1.4, perk: "Call-in: 1 supply drop per wave (ammo/armour)." },
   { id: "maj", name: "Major", abbr: "MAJ", track: "officer", tier: 4, meritRequired: 10000, creditMultiplier: 1.5, perk: "Call-in: MATADOR resupply. Command 3 friendly AI." },
   { id: "ltc", name: "Lieutenant-Colonel", abbr: "LTC", track: "officer", tier: 5, meritRequired: 18000, creditMultiplier: 1.6, perk: "Call-in: mortar strike marker (1 per 2 waves)." },
-  { id: "col", name: "Colonel", abbr: "COL", track: "officer", tier: 6, meritRequired: 24000, creditMultiplier: 1.7, perk: "Full command: 4 friendly AI, all call-ins." },
-  { id: "bg", name: "Brigadier-General", abbr: "BG", track: "officer", tier: 7, meritRequired: 30000, creditMultiplier: 1.8, perk: "Flag-officer prestige." },
-  { id: "mg", name: "Major-General", abbr: "MG", track: "officer", tier: 8, meritRequired: 40000, creditMultiplier: 1.9, perk: "Flag-officer prestige." },
-  { id: "lg", name: "Lieutenant-General", abbr: "LG", track: "officer", tier: 9, meritRequired: 50000, creditMultiplier: 2.0, perk: "Apex commissioned rank." },
+  { id: "sltc", name: "Senior-Lieutenant-Colonel", abbr: "SLTC", track: "officer", tier: 6, meritRequired: 22000, creditMultiplier: 1.6, perk: "Call-in: mortar strike marker (1 per 2 waves)." },
+  { id: "col", name: "Colonel", abbr: "COL", track: "officer", tier: 7, meritRequired: 28000, creditMultiplier: 1.7, perk: "Full command: 4 friendly AI, all call-ins." },
+  { id: "bg", name: "Brigadier-General", abbr: "BG", track: "officer", tier: 8, meritRequired: 32000, creditMultiplier: 1.8, perk: "Flag-officer prestige." },
+  { id: "mg", name: "Major-General", abbr: "MG", track: "officer", tier: 9, meritRequired: 45000, creditMultiplier: 1.9, perk: "Flag-officer prestige." },
+  { id: "lg", name: "Lieutenant-General", abbr: "LG", track: "officer", tier: 10, meritRequired: 52000, creditMultiplier: 2.0, perk: "Apex commissioned rank." },
 
   // ============ MILITARY DOMAIN EXPERTS SCHEME (MDES / DIS tech track) ============
   // ME1–ME3 ≈ specialist/warrant level; ME4+ (Senior Military Experts) hold
