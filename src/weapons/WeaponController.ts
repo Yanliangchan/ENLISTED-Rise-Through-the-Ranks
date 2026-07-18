@@ -1,4 +1,4 @@
-import { Scene, Vector3, Matrix, MeshBuilder, StandardMaterial, Color3, LinesMesh, Ray, SpotLight } from "@babylonjs/core";
+import { Scene, Vector3, Matrix, MeshBuilder, StandardMaterial, Color3, LinesMesh, Ray, SpotLight, type AbstractMesh } from "@babylonjs/core";
 import type { Weapon } from "@/data/weapons";
 import { WEAPONS } from "@/data/weapons";
 import { MATADOR_BLAST, M203_BLAST } from "@/data/gamedata";
@@ -596,6 +596,10 @@ export class WeaponController {
         if (meta.damageable.isDead) this.callbacks.onKill?.(meta.damageable.id, this.weapon.class);
         this.spawnImpactEffect(pick.pickedPoint, true);
       } else {
+        // Breakable glass: a round through a tagged glass panel shatters it out,
+        // opening the sightline/opening — a selective-destruction touch used by
+        // the Iron Citadel map's meeting-room / partition glazing.
+        if (pick.pickedMesh?.metadata?.breakableGlass) this.shatterGlass(pick.pickedMesh, pick.pickedPoint);
         this.audio.impact();
         this.spawnImpactEffect(pick.pickedPoint, false);
         // FMJ penetrates light cover: if the round was stopped by a non-damageable
@@ -640,6 +644,33 @@ export class WeaponController {
     this.callbacks.onDamageNumber?.(penPick.pickedPoint.clone(), finalDmg, zone);
     if (meta.damageable.isDead) this.callbacks.onKill?.(meta.damageable.id, this.weapon.class);
     this.spawnImpactEffect(penPick.pickedPoint, true);
+  }
+
+  private glassShardMat?: StandardMaterial;
+  /** Shatter a tagged breakable-glass panel: hide it, drop its collision so the opening is now passable, and pop a quick burst of glass shards. */
+  private shatterGlass(mesh: AbstractMesh, at: Vector3): void {
+    if (!mesh.metadata?.breakableGlass) return;
+    mesh.metadata.breakableGlass = false; // one-shot
+    mesh.setEnabled(false);
+    mesh.checkCollisions = false;
+    mesh.isPickable = false;
+    if (!this.glassShardMat) {
+      const m = new StandardMaterial("glassShardMat", this.scene);
+      m.diffuseColor = new Color3(0.7, 0.85, 0.95);
+      m.emissiveColor = new Color3(0.35, 0.5, 0.65);
+      m.alpha = 0.7;
+      m.disableLighting = true;
+      m.backFaceCulling = false;
+      this.glassShardMat = m;
+    }
+    for (let i = 0; i < 7; i++) {
+      const shard = MeshBuilder.CreatePlane("glassShard", { size: 0.12 + Math.random() * 0.16 }, this.scene);
+      shard.position = at.add(new Vector3((Math.random() - 0.5) * 1.4, (Math.random() - 0.5) * 1.8, (Math.random() - 0.5) * 0.5));
+      shard.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+      shard.material = this.glassShardMat;
+      shard.isPickable = false;
+      setTimeout(() => shard.dispose(), 550);
+    }
   }
 
   // Shared, created-once FX materials. Building a fresh StandardMaterial for
