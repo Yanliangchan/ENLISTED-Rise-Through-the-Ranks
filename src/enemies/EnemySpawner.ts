@@ -4,31 +4,14 @@ import { EnemyInstance, type EnemyKillInfo } from "@/enemies/EnemyAI";
 import { blastDamageAtDistance } from "@/weapons/ballistics";
 import { ensureClearOfCamp } from "@/world/SafeZone";
 import { findNearestNavigable } from "@/world/Nav";
+import { activeMap } from "@/world/MapProfile";
 import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
 
-/**
- * Spawn points ring the map edge, just inside the boundary wall (see
- * Level.ts BOUNDARY_HALF = 100), so OPFOR has to move through the blocks
- * and cover to reach the plaza. Every point is well clear of the camp's AI
- * exclusion zone (see SafeZone.ts) — `ensureClearOfCamp` also re-checks the
- * jittered spawn position at runtime as a second line of defence.
- */
-const SPAWN_POINTS: Vector3[] = [
-  // Pulled in from the ±94 boundary ring (~18% closer to the centre) so OPFOR
-  // reach the fight sooner — shorter travel time between engagements — while
-  // still starting outside the built-up blocks and clear of the camp.
-  new Vector3(77, 0, 0),
-  new Vector3(-77, 0, 0),
-  new Vector3(0, 0, 77),
-  new Vector3(0, 0, -77),
-  new Vector3(53, 0, 53),
-  new Vector3(-53, 0, 53),
-  new Vector3(53, 0, -53),
-  // South edge, well east of the SW camp corner — clears the exclusion zone
-  // by a wide margin (unlike the old (-94,-45) point, which sat inside it).
-  new Vector3(-16, 0, -77),
-];
+// OPFOR spawn anchors come from the active map profile (MapProfile.ts): the
+// Singapore ring, or Iron Citadel's building entry points. Every anchor is
+// well clear of the base's AI-exclusion zone; `ensureClearOfCamp` re-checks
+// the jittered runtime position too.
 
 // --- Spawn placement rules --------------------------------------------------
 // OPFOR reinforcements always arrive as pairs, and never materialise on top of
@@ -204,9 +187,10 @@ export class EnemyManager {
    * rules so a valid-enough anchor is always returned.
    */
   private findValidSpawnAnchor(player: PlayerController): Vector3 {
+    const spawnPoints = activeMap().enemySpawnPoints;
     const candidates: Vector3[] = [];
     for (let i = 0; i < 40; i++) {
-      const base = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+      const base = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
       const jitter = new Vector3((Math.random() - 0.5) * 22, 0, (Math.random() - 0.5) * 22);
       let cand = ensureClearOfCamp(base.add(jitter));
       cand = ensureClearOfCamp(findNearestNavigable(this.scene, cand));

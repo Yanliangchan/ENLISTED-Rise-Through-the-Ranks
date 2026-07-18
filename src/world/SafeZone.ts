@@ -1,36 +1,36 @@
 import { Vector3 } from "@babylonjs/core";
-import { CAMP_POSITION } from "@/world/Level";
+import { activeMap } from "@/world/MapProfile";
 import type { PlayerController } from "@/player/PlayerController";
 
-/** Radius (metres, XZ-plane) of the fully-protected safe zone — covers the whole camp: clearing, tents, and checkpoint. */
-export const SAFE_ZONE_RADIUS = 26;
-/** Radius of the AI no-go zone around the camp — comfortably larger than the safe zone so OPFOR reroute well before reaching its edge. */
-export const AI_EXCLUSION_RADIUS = 42;
-/** Enemies never spawn closer than this to the camp. */
-export const MIN_SPAWN_DISTANCE_FROM_CAMP = AI_EXCLUSION_RADIUS + 15;
-/** Seconds of incoming-damage immunity after leaving the safe zone — cancelled instantly if the player fires or throws. */
-export const SPAWN_PROTECTION_SEC = 4;
+// Safe-zone / exclusion / spawn-standoff radii and the base centre now come
+// from the active map profile (see MapProfile.ts) so a second map can define
+// its own base and radii. The Singapore profile carries the original values,
+// so this is behaviour-preserving for that map.
 
 function flatDistance(a: Vector3, b: Vector3): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
 export function isInSafeZone(position: Vector3): boolean {
-  return flatDistance(position, CAMP_POSITION) < SAFE_ZONE_RADIUS;
+  const m = activeMap();
+  return flatDistance(position, m.baseCenter) < m.safeZoneRadius;
 }
 
 export function isInExclusionZone(position: Vector3): boolean {
-  return flatDistance(position, CAMP_POSITION) < AI_EXCLUSION_RADIUS;
+  const m = activeMap();
+  return flatDistance(position, m.baseCenter) < m.aiExclusionRadius;
 }
 
-/** Pushes a spawn point radially outward until it clears the minimum camp standoff distance. */
+/** Pushes a spawn point radially outward until it clears the minimum base standoff distance. */
 export function ensureClearOfCamp(position: Vector3): Vector3 {
-  const dx = position.x - CAMP_POSITION.x;
-  const dz = position.z - CAMP_POSITION.z;
+  const m = activeMap();
+  const base = m.baseCenter;
+  const dx = position.x - base.x;
+  const dz = position.z - base.z;
   const dist = Math.hypot(dx, dz);
-  if (dist >= MIN_SPAWN_DISTANCE_FROM_CAMP || dist < 0.001) return position;
-  const scale = MIN_SPAWN_DISTANCE_FROM_CAMP / dist;
-  return new Vector3(CAMP_POSITION.x + dx * scale, position.y, CAMP_POSITION.z + dz * scale);
+  if (dist >= m.minSpawnDistanceFromBase || dist < 0.001) return position;
+  const scale = m.minSpawnDistanceFromBase / dist;
+  return new Vector3(base.x + dx * scale, position.y, base.z + dz * scale);
 }
 
 /**
@@ -40,9 +40,10 @@ export function ensureClearOfCamp(position: Vector3): Vector3 {
  * further into the zone; otherwise leaves it untouched.
  */
 export function steerAroundExclusionZone(position: Vector3, dir: Vector3): Vector3 {
-  const toCentre = new Vector3(CAMP_POSITION.x - position.x, 0, CAMP_POSITION.z - position.z);
+  const m = activeMap();
+  const toCentre = new Vector3(m.baseCenter.x - position.x, 0, m.baseCenter.z - position.z);
   const dist = toCentre.length();
-  if (dist > AI_EXCLUSION_RADIUS + 8 || dist < 0.001) return dir;
+  if (dist > m.aiExclusionRadius + 8 || dist < 0.001) return dir;
   const toCentreNorm = toCentre.normalize();
   const approachAmount = Vector3.Dot(dir, toCentreNorm);
   if (approachAmount <= 0) return dir; // already moving away/tangential, no correction needed
@@ -76,7 +77,7 @@ export class SafeZoneManager {
       this.player.spawnProtected = false;
       this.onEnter?.();
     } else if (!inside && this.wasInside) {
-      this.protectionTimer = SPAWN_PROTECTION_SEC;
+      this.protectionTimer = activeMap().spawnProtectionSec;
       this.player.spawnProtected = true;
       this.onExit?.();
     }

@@ -47,6 +47,7 @@ export class LandingPage {
   onDeploy?: () => void;
   onProfile?: () => void;
   onTrainingRange?: () => void;
+  onIronCitadel?: () => void;
   onLeaderboards?: () => void;
 
   private targetMx = 0;
@@ -230,6 +231,7 @@ export class LandingPage {
     nav.className = "lp-nav";
     const actions: Array<[string, () => void]> = [
       ["TRAINING RANGE", () => this.onTrainingRange?.()],
+      ["IRON CITADEL", () => this.onIronCitadel?.()],
       ["PROFILE", () => this.onProfile?.()],
       ["LEADERBOARDS", () => this.onLeaderboards?.()],
       ["SETTINGS", () => this.showSettingsModal()],

@@ -31,6 +31,7 @@ import { MedKitController } from "@/player/MedKit";
 import { Ambience } from "@/world/Ambience";
 import { Vector3, Ray } from "@babylonjs/core";
 import { buildTrainingRange, RANGE_FIRING_LINE, RANGE_DISTANCES_M } from "@/world/TrainingRange";
+import { buildIronCitadel, type IronCitadelHandles } from "@/world/IronCitadel";
 import { RangeTargetController } from "@/world/RangeTarget";
 import { TrainingRangeUI, type RangeWeaponOption } from "@/ui/TrainingRangeUI";
 import { WEAPONS } from "@/data/weapons";
@@ -118,6 +119,11 @@ async function boot(): Promise<void> {
   // below (weapon fire, the update loop, key handlers) all need to branch on
   // it, but the range's own controller/UI aren't constructed until later.
   let rangeActive = false;
+  // Iron Citadel free-roam preview flag + lazily-built handles. Same "movement
+  // + weapon only, no waves" treatment as the range. Built on first entry so
+  // the wave-survival players never pay for its geometry.
+  let citadelActive = false;
+  let citadel: IronCitadelHandles | null = null;
 
   const player = new PlayerController(game.scene, input, SPAWN_POINT, audio);
   attachCinematicPipeline(game.scene, player.camera);
@@ -382,6 +388,54 @@ async function boot(): Promise<void> {
     showMainMenu();
   }
 
+  // ---- Iron Citadel free-roam preview (multiplayer-map WIP) --------------
+  let citadelExitBtn: HTMLButtonElement | null = null;
+  function enterIronCitadel(): void {
+    if (!citadel) citadel = buildIronCitadel(game.scene); // lazy first-time build
+    landingPage.hide();
+    game.renderingPaused = false;
+    citadelActive = true;
+    // Hide the wave-mode HUD chrome (wave panel, safe-zone chip, radar) — this
+    // is a clean spatial walk-through of the multiplayer map, not a match.
+    hud.setVisible(false);
+    loadout.switchTo("primary");
+    weaponController.resetAllAmmo();
+    player.respawn(citadel.spawn);
+    // No safe zone / waves here — treat the player as fully "live" so weapons
+    // behave normally (safe-zone rule otherwise suppresses all hit damage).
+    player.inSafeZone = false;
+    player.spawnProtected = false;
+    (player as unknown as { collider: { rotation: { y: number } } }).collider.rotation.y = 0;
+    player.camera.rotation.x = 0;
+
+    if (!citadelExitBtn) {
+      const btn = document.createElement("button");
+      btn.textContent = "◀ EXIT PREVIEW";
+      btn.style.cssText =
+        "position:fixed; top:14px; left:14px; z-index:70; background:rgba(20,26,20,0.85); color:#cfe6c0;" +
+        "border:1px solid #3c4a34; padding:8px 14px; font-family:Consolas,monospace; font-size:12px; letter-spacing:1px; cursor:pointer;";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        exitIronCitadelToMenu();
+      });
+      uiRoot.appendChild(btn);
+      citadelExitBtn = btn;
+    }
+    citadelExitBtn.style.display = "block";
+    hud.showCenterMessage("IRON CITADEL — MULTIPLAYER MAP PREVIEW · walk the complex · ESC to exit", 5000);
+    input.lockPointer();
+  }
+
+  function exitIronCitadelToMenu(): void {
+    citadelActive = false;
+    if (citadelExitBtn) citadelExitBtn.style.display = "none";
+    hud.setVisible(true);
+    game.renderingPaused = true;
+    document.exitPointerLock();
+    player.respawn(SPAWN_POINT);
+    showMainMenu();
+  }
+
   // ---- Main menu (landing page) -----------------------------------------
   let profilePage: ProfilePage | undefined;
   if (backend) profilePage = new ProfilePage(uiRoot, backend);
@@ -398,6 +452,7 @@ async function boot(): Promise<void> {
       input.lockPointer();
     };
     landingPage.onTrainingRange = () => enterTrainingRange();
+    landingPage.onIronCitadel = () => enterIronCitadel();
     if (profilePage) {
       landingPage.onProfile = () => profilePage!.show();
       landingPage.onLeaderboards = () => profilePage!.show();
@@ -465,6 +520,12 @@ async function boot(): Promise<void> {
 
   window.addEventListener("keydown", (e) => {
     if (e.code === "Escape") {
+      // In the Iron Citadel preview, ESC leaves straight back to the menu
+      // rather than opening the wave-mode pause menu.
+      if (citadelActive) {
+        exitIronCitadelToMenu();
+        return;
+      }
       pauseMenu.toggle();
       if (!pauseMenu.visible) input.lockPointer();
     }
@@ -477,12 +538,12 @@ async function boot(): Promise<void> {
       e.preventDefault();
       controlsOverlay.toggle();
     }
-    if (e.code === "KeyM" && !landingPage.visible && !rangeActive && waveManager.phase !== "gameover") {
+    if (e.code === "KeyM" && !landingPage.visible && !rangeActive && !citadelActive && waveManager.phase !== "gameover") {
       tacticalMap.toggle();
       if (tacticalMap.visible) document.exitPointerLock();
       else input.lockPointer();
     }
-    if (e.code === "KeyB" && (waveManager.phase === "intro" || waveManager.phase === "armoury")) {
+    if (e.code === "KeyB" && !citadelActive && (waveManager.phase === "intro" || waveManager.phase === "armoury")) {
       armoury.visible ? armoury.hide() : armoury.show();
       if (!armoury.visible) input.lockPointer();
     }
@@ -491,6 +552,7 @@ async function boot(): Promise<void> {
       botty &&
       !landingPage.visible &&
       !rangeActive &&
+      !citadelActive &&
       waveManager.phase !== "gameover" &&
       !armoury.visible
     ) {
@@ -516,9 +578,10 @@ async function boot(): Promise<void> {
       commandWheel.visible;
 
     if (!paused) {
-      if (rangeActive) {
-        // Range sessions only need movement, aiming/firing, and weapon-slot
-        // switching — no waves, crates, UAV, medkits, or rain ambience.
+      if (rangeActive || citadelActive) {
+        // Range / Iron Citadel preview only need movement, aiming/firing, and
+        // weapon-slot switching — no waves, crates, UAV, medkits, safe zone,
+        // or rain ambience.
         player.update(dt);
         loadout.update();
         weaponController.update(dt);
@@ -547,7 +610,7 @@ async function boot(): Promise<void> {
     }
 
     damageNumbers.update(game.scene);
-    if (!rangeActive) {
+    if (!rangeActive && !citadelActive) {
       hud.update(
         input.isPointerLocked,
         waveManager.enemyManager.livePositions(),
@@ -562,7 +625,7 @@ async function boot(): Promise<void> {
       );
     }
 
-    if (botty && !paused && !rangeActive) {
+    if (botty && !paused && !rangeActive && !citadelActive) {
       bottyMarker.update(game.scene, player.camera, botty.position.add(new Vector3(0, 1.75, 0)), botty.isDown);
     } else {
       bottyMarker.hide();

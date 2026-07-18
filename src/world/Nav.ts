@@ -23,9 +23,18 @@ export function clampToPlayable(pos: Vector3): Vector3 {
 }
 
 /**
- * True if `pos` sits on open ground inside the playable area. Drops a ray from
- * high above the point: if the first solid thing it meets is the ground plane
- * (not a building roof, prop, container or vehicle), the spot is walkable.
+ * True if `pos` sits on a walkable surface inside the playable area. Drops a
+ * ray from high above the point and inspects the first solid thing it meets:
+ *
+ *  - The flat outdoor ground plane (named "ground", below 0.8m) — the original
+ *    single-storey city map's only walkable surface.
+ *  - Any mesh explicitly tagged `metadata.walkable === true` at ANY height —
+ *    lets interior maps (Iron Citadel) build one continuous nav mesh out of a
+ *    ground floor plus ramps, mezzanines, split-levels and raised platforms
+ *    while still treating walls / cover / furniture as blocking obstacles.
+ *
+ * Ceilings/roofs in interior maps must be left non-pickable so this downward
+ * ray passes through them to the floor below.
  */
 export function isNavigable(scene: Scene, pos: Vector3): boolean {
   const h = PLAYABLE_HALF;
@@ -33,8 +42,10 @@ export function isNavigable(scene: Scene, pos: Vector3): boolean {
   const ray = new Ray(new Vector3(pos.x, 200, pos.z), new Vector3(0, -1, 0), 210);
   const pick = scene.pickWithRay(ray, (m) => m.isPickable && m.checkCollisions);
   if (!pick?.hit) return true; // nothing solid at all — open ground
-  // The topmost solid surface must be the ground itself (low, named "ground").
-  return pick.pickedMesh?.name === "ground" && (pick.pickedPoint?.y ?? 99) < 0.8;
+  const mesh = pick.pickedMesh;
+  if (mesh?.metadata?.walkable === true) return true; // tagged interior floor/ramp/platform
+  // Otherwise the topmost solid surface must be the outdoor ground itself.
+  return mesh?.name === "ground" && (pick.pickedPoint?.y ?? 99) < 0.8;
 }
 
 /**
