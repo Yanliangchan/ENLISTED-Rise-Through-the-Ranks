@@ -100,6 +100,9 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     return m;
   };
 
+  let idc = 0;
+  const uid = (p: string) => `ic_${p}_${idc++}`;
+
   // ---------------- procedural surface textures -----------------------------
   // Small seeded canvas textures (same technique as the city's road/pavement
   // tiles) so floors/walls/ceilings read as real materials instead of flat
@@ -268,8 +271,120 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     led: glow("ic_led", [0.2, 0.9, 0.5]), // rack LEDs
   };
 
-  let idc = 0;
-  const uid = (p: string) => `ic_${p}_${idc++}`;
+  // ---------------- signage & display content (canvas-drawn) ----------------
+  const emissiveTexMat = (tex: DynamicTexture): StandardMaterial => {
+    const m = new StandardMaterial(uid("texmat"), scene);
+    m.emissiveTexture = tex;
+    m.disableLighting = true;
+    // cull back faces: text panels are placed with an explicit facing (and
+    // hanging signs use two opposed panels), so the mirrored back never shows
+    m.backFaceCulling = true;
+    return m;
+  };
+  const signCache = new Map<string, StandardMaterial>();
+  /** Backlit wayfinding sign with real text (shared per unique string). */
+  const signFor = (text: string): StandardMaterial => {
+    let m = signCache.get(text);
+    if (m) return m;
+    const tex = new DynamicTexture(uid("sign"), { width: 512, height: 128 }, scene, true);
+    const ctx = tex.getContext() as CanvasRenderingContext2D;
+    ctx.fillStyle = "#0f1720";
+    ctx.fillRect(0, 0, 512, 128);
+    ctx.strokeStyle = "#3d5a6a";
+    ctx.lineWidth = 6;
+    ctx.strokeRect(5, 5, 502, 118);
+    tex.drawText(text, null, 84, "bold 52px Arial", "#e8f2f8", null, true);
+    m = emissiveTexMat(tex);
+    signCache.set(text, m);
+    return m;
+  };
+  // Singapore flag (crescent + five stars drawn on canvas).
+  const flagMat = (() => {
+    const tex = new DynamicTexture("ic_tex_flag", { width: 300, height: 200 }, scene, true);
+    const ctx = tex.getContext() as CanvasRenderingContext2D;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, 300, 200);
+    ctx.fillStyle = "#ed2939";
+    ctx.fillRect(0, 0, 300, 100);
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath(); ctx.arc(62, 50, 32, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ed2939";
+    ctx.beginPath(); ctx.arc(74, 50, 28, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    const starAt = (sx: number, sy: number) => { ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2); ctx.fill(); };
+    starAt(110, 32); starAt(94, 46); starAt(126, 46); starAt(100, 64); starAt(120, 64);
+    tex.update(); // default invertY keeps the canvas upright (red band on top)
+    return emissiveTexMat(tex);
+  })();
+  // SAF-style unit crest roundel for the reception feature wall.
+  const crestMat = (() => {
+    const tex = new DynamicTexture("ic_tex_crest", { width: 320, height: 320 }, scene, true);
+    const ctx = tex.getContext() as CanvasRenderingContext2D;
+    ctx.fillStyle = "#101820";
+    ctx.fillRect(0, 0, 320, 320);
+    ctx.strokeStyle = "#c8a24a";
+    ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.arc(160, 145, 105, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "#8f1d22";
+    ctx.beginPath(); ctx.arc(160, 145, 92, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#e8d48a";
+    ctx.lineWidth = 6;
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      ctx.beginPath();
+      ctx.moveTo(160 + Math.cos(a) * 30, 145 + Math.sin(a) * 30);
+      ctx.lineTo(160 + Math.cos(a) * 78, 145 + Math.sin(a) * 78);
+      ctx.stroke();
+    }
+    tex.drawText("HQ IRON CITADEL", null, 300, "bold 30px Arial", "#c8a24a", null, true);
+    return emissiveTexMat(tex);
+  })();
+  // Live-looking operations display (grid, traces, contact blips).
+  const nocMat = (() => {
+    const tex = new DynamicTexture("ic_tex_noc", { width: 512, height: 256 }, scene, true);
+    const ctx = tex.getContext() as CanvasRenderingContext2D;
+    const rand = mulberry32(909);
+    ctx.fillStyle = "#06121a";
+    ctx.fillRect(0, 0, 512, 256);
+    ctx.fillStyle = "#0d2a38";
+    ctx.fillRect(0, 0, 512, 30);
+    ctx.strokeStyle = "#12384a";
+    ctx.lineWidth = 1;
+    for (let gx = 0; gx <= 512; gx += 32) { ctx.beginPath(); ctx.moveTo(gx, 30); ctx.lineTo(gx, 256); ctx.stroke(); }
+    for (let gy = 30; gy <= 256; gy += 32) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(512, gy); ctx.stroke(); }
+    for (const col of ["#2fd27a", "#38b6e0", "#e0b638"]) {
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      let y = 100 + rand() * 100;
+      ctx.moveTo(0, y);
+      for (let x = 32; x <= 512; x += 32) { y = Math.max(40, Math.min(250, y + (rand() - 0.5) * 60)); ctx.lineTo(x, y); }
+      ctx.stroke();
+    }
+    for (let i = 0; i < 7; i++) {
+      ctx.fillStyle = rand() < 0.4 ? "#e04438" : "#2fd27a";
+      ctx.beginPath(); ctx.arc(30 + rand() * 450, 50 + rand() * 190, 5, 0, Math.PI * 2); ctx.fill();
+    }
+    tex.drawText("SECTOR OVERWATCH — LIVE", 14, 23, "bold 18px Arial", "#7fd4e8", null, true);
+    return emissiveTexMat(tex);
+  })();
+  // Yellow/black hazard chevrons for sunken-edge marking.
+  const texHazard = makeTex("hazard", (ctx, s) => {
+    ctx.fillStyle = "#d8b021";
+    ctx.fillRect(0, 0, s, s);
+    ctx.fillStyle = "#17181a";
+    for (let x = -s; x < s * 2; x += 64) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0); ctx.lineTo(x + 32, 0); ctx.lineTo(x + 32 - s, s); ctx.lineTo(x - s, s);
+      ctx.closePath(); ctx.fill();
+    }
+  }, 128);
+  const hazardMat = pbrTex("ic_hazard", texHazard, 0.8);
+  tileSize.set(hazardMat, 0.8);
+  // Exterior surround materials (seen through the curtain-wall glazing).
+  const asphaltMat = pbr("ic_asphalt", [0.15, 0.15, 0.16], 0.95);
+  const towerMat = pbr("ic_tower", [0.1, 0.12, 0.16], 0.35, 0.3);
+
   const add = (m: Mesh, walkable: boolean, pickable = true, collide = true): Mesh => {
     m.position.addInPlace(BASE);
     m.parent = root;
@@ -577,7 +692,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   };
   const whiteboard = (cx: number, cz: number, rotY: number, y = Y0): void => { panel(2.4, 1.3, cx, cz, y + 1.6, rotY, glow(uid("wb"), [0.9, 0.92, 0.9])); };
   const missionBoard = (cx: number, cz: number, rotY: number, y = Y0): void => { panel(1.8, 1.2, cx, cz, y + 1.8, rotY, G.poster); };
-  const flag = (cx: number, cz: number, rotY: number, y = Y0): void => { panel(1.1, 1.7, cx, cz, y + 2.4, rotY, G.flagRed); };
+  const flag = (cx: number, cz: number, rotY: number, y = Y0): void => { panel(1.95, 1.3, cx, cz, y + 2.6, rotY, flagMat); };
   const exitSign = (cx: number, cz: number, rotY: number, y = Y0): void => { panel(0.7, 0.28, cx, cz, y + 2.7, rotY, G.exit); };
   const cctv = (cx: number, cz: number, rotY = 0): void => inst(cctvSrc, cx, WALL_H - 0.7, cz, rotY);
   const ext = (cx: number, cz: number): void => inst(extSrc, cx, Y0 + 0.4, cz);
@@ -604,6 +719,30 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     inst(plantSrc, cx + (axis === "x" ? 0.6 : 0), Y0 + 0.95, cz + (axis === "z" ? 0.6 : 0));
   };
   const emergencyLight = (cx: number, cz: number, rotY = 0): void => inst(emergSrc, cx, Y0 + 2.8, cz, rotY);
+  /** Door / room name plaque mounted on a wall face. */
+  const plaque = (text: string, cx: number, cz: number, rotY: number, y = Y0 + 2.55): void => {
+    panel(1.7, 0.42, cx, cz, y, rotY, signFor(text));
+  };
+  /** Double-sided wayfinding sign hung from the services zone on drop rods. */
+  const hangingSign = (text: string, cx: number, cz: number, rotY = 0, y = 2.95): void => {
+    // two opposed faces so the text reads correctly from both directions
+    panel(3.2, 0.8, cx + Math.sin(rotY) * 0.02, cz + Math.cos(rotY) * 0.02, y, rotY, signFor(text));
+    panel(3.2, 0.8, cx - Math.sin(rotY) * 0.02, cz - Math.cos(rotY) * 0.02, y, rotY + Math.PI, signFor(text));
+    for (const o of [-1.2, 1.2]) {
+      const rod = MeshBuilder.CreateBox(uid("rod"), { width: 0.05, height: 0.55, depth: 0.05 }, scene);
+      rod.position.set(cx + Math.cos(rotY) * o, y + 0.62, cz - Math.sin(rotY) * o);
+      rod.material = M.alu;
+      add(rod, false, false, false);
+    }
+  };
+  /** Flat yellow/black chevron strip marking a sunken edge (non-colliding). */
+  const hazardStrip = (w: number, d: number, cx: number, cz: number, y = Y0): void => {
+    const m = MeshBuilder.CreateBox(uid("hz"), { width: w, height: 0.06, depth: d }, scene);
+    m.position.set(cx, y + 0.03, cz);
+    m.material = hazardMat;
+    scaleUV(m, hazardMat, Math.max(w, d), Math.min(w, d));
+    add(m, false, false, false);
+  };
   const photocopier = (cx: number, cz: number, rotY = 0, y = Y0): void => {
     void rotY;
     cover(0.95, 1.05, 0.7, cx, cz, y, M.steel);
@@ -818,7 +957,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   counter(1.2, 4, -6, -33);
   counter(1.2, 4, 2, -33);
   inst(monitorSrc, -2, Y0 + 1.35, -35.4, Math.PI);
-  flag(-2, -38.4, 0);
+  flag(-2, -38.4, Math.PI); // faces the reception hall
   missionBoard(6, -39.6, 0);
   // Visitor waiting lounge (west of reception): sofas + low tables + plants.
   sofa(-40, -37, 0);
@@ -873,6 +1012,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     whiteboard(cx, cz + 3.6, Math.PI);
     missionBoard(cx - 7.6, cz, Math.PI / 2);
     ceiling(cx - 8, cz - 4, cx + 8, cz + 4);
+    plaque(label, cx + 8.3, cz, -Math.PI / 2); // readable from the corridor (east)
     fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 8, cz - 4, cx + 8, cz + 4);
   }
   // East department rooms (Logistics / Intelligence / meeting rooms / breakout):
@@ -891,7 +1031,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
       // half-finished meeting: cups on the table + conference display
       inst(cupSrc, cx - 0.8, Y0 + 0.83, cz - 0.3);
       inst(cupSrc, cx + 1.1, Y0 + 0.83, cz + 0.2);
-      panel(2.2, 1.3, cx, cz + 3.55, Y0 + 1.9, Math.PI, G.screen); // conference display
+      panel(2.2, 1.3, cx, cz + 3.55, Y0 + 1.9, 0, nocMat); // conference display (faces the table)
       whiteboard(cx - 7.6, cz, Math.PI / 2);
       plant(cx + 6.5, cz - 3.5);
     } else {
@@ -902,6 +1042,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
       bin(cx - 6.5, cz + 3);
     }
     ceiling(cx - 8, cz - 4, cx + 8, cz + 4, ROOM_H, glassy); // warm light in meeting/breakout
+    plaque(label, cx - 8.3, cz, Math.PI / 2);
     fp(label.toLowerCase().replace(/[\s()]+/g, "-"), cx - 8, cz - 4, cx + 8, cz + 4);
   }
   // Open-plan office + cubicle maze (central-south, between the room columns).
@@ -996,7 +1137,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     { side: "e", at: 26, width: 2.2 },
     { side: "w", at: 26, width: 2.2 },
   ]);
-  for (const sx of [-6, -2, 2, 6]) panel(3.4, 2.0, sx, 31.7, Y0 + 2.0, Math.PI, G.screen); // NOC screen wall
+  for (const sx of [-6, -2, 2, 6]) panel(3.4, 2.0, sx, 31.7, Y0 + 2.0, 0, nocMat); // NOC screen wall (faces the room)
   cover(10, 0.85, 1.4, 0, 26, Y0, M.wood); // ops console row
   for (const o of [-3, 0, 3]) inst(monitorSrc, o, Y0 + 1.25, 26.6, Math.PI);
   for (const o of [-3, 0, 3]) inst(chairSrc, o, Y0 + 0.25, 24.6, 0);
@@ -1030,6 +1171,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     missionBoard(cx, cz + 4.6, Math.PI);
     ceiling(cx - 7, cz - 5, cx + 7, cz + 5);
     cardReader(cx + 6.9, cz - 1.4);
+    plaque(label, cx + 7.3, cz, -Math.PI / 2); // readable from the east approach
     fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 7, cz - 5, cx + 7, cz + 5);
   }
   // East secure rooms: Command office / Armoury / Equipment issue.
@@ -1045,7 +1187,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     if (label === "COMMAND OFFICE") {
       cover(2.6, 0.78, 1.4, cx, cz, Y0, M.wood);
       inst(monitorSrc, cx, Y0 + 1.1, cz - 0.3, 0);
-      flag(cx, cz + 4.6, Math.PI);
+      flag(cx, cz + 4.6, 0); // faces into the command office
     } else if (label === "ARMOURY" || label === "EQUIPMENT ISSUE") {
       locker(cx, cz + 3.6, 10, "x");
       locker(cx - 5, cz, 6, "z");
@@ -1056,6 +1198,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     }
     ceiling(cx - 7, cz - 5, cx + 7, cz + 5, ROOM_H, label === "COMMAND OFFICE");
     cardReader(cx - 6.9, cz - 1.4, Math.PI);
+    plaque(label, cx - 7.3, cz, Math.PI / 2);
     fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 7, cz - 5, cx + 7, cz + 5);
   }
   // Briefing room label (the sunken pit is its floor) + command projector board.
@@ -1187,6 +1330,75 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // Atrium planters + corridor bins for lived-in occupancy.
   for (const [px, pz] of [[-14, -6], [14, -6], [-14, 8], [14, 8]] as const) plant(px, pz);
   for (const [bx, bz] of [[-48, -2], [48.8, -2], [-6, -16], [6, 14]] as const) bin(bx, bz);
+
+  // =========================================================================
+  // WAYFINDING SIGNAGE — hanging signs at junctions + plaques on named rooms
+  // the dept loops didn't cover, and the reception crest feature wall.
+  // =========================================================================
+  hangingSign("SECURITY SCREENING", 0, -26.5);
+  hangingSign("RECEPTION", 0, -33.5);
+  hangingSign("OPERATIONS ATRIUM", 0, -10.5);
+  hangingSign("OPERATIONS CENTRE", 0, 15.3);
+  hangingSign("TECHNICAL WING", -40, 9.5, Math.PI / 2);
+  hangingSign("STAFF FACILITIES", 40, 9.5, Math.PI / 2);
+  hangingSign("LIFT LOBBY", 40, -36.5);
+  hangingSign("LOADING DOCK", -42.5, -30.5, Math.PI / 2);
+  plaque("CAFETERIA", 35.7, -2, Math.PI / 2);
+  plaque("KITCHEN", 52.3, 8, -Math.PI / 2);
+  plaque("PANTRY", 40, 17.3, Math.PI);
+  plaque("WASHROOMS", 48, 17.3, Math.PI);
+  plaque("MEDICAL CLINIC", -35.7, 2, -Math.PI / 2);
+  plaque("TRAINING ROOM", -32, 5.7, 0);
+  plaque("OPERATIONS CENTRE", 0, 19.7, 0);
+  panel(2.4, 2.4, 0, -41.6, Y0 + 3.6, Math.PI, crestMat); // reception crest wall (faces north)
+
+  // Hazard chevron edging around the three sunken openings (split around the
+  // ramp / bridge approaches so the markings never cross a walk line).
+  hazardStrip(14.6, 0.3, 0, 7.3); // courtyard north rim
+  hazardStrip(14.6, 0.3, 0, -7.3); // courtyard south rim
+  for (const zz of [-4.7, 4.7] as const) hazardStrip(0.3, 4.6, 7.3, zz); // east rim (gap at bridge)
+  for (const zz of [-4.7, 4.7] as const) hazardStrip(0.3, 4.6, -7.3, zz); // west rim (gap at ramp)
+  hazardStrip(14, 0.3, -17, 13.7); // briefing pit south rim
+  hazardStrip(5, 0.3, -21.5, 24.3); // pit north rim west of ramp
+  hazardStrip(5, 0.3, -12.5, 24.3); // pit north rim east of ramp
+  hazardStrip(0.3, 10, -24.3, 19); // pit west rim
+  hazardStrip(0.3, 10, -9.7, 19); // pit east rim
+  hazardStrip(0.3, 9, -39.7, -32.5); // dock rim beside the ramp
+  hazardStrip(16, 0.3, -48, -27.7); // dock north rim
+
+  // =========================================================================
+  // EXTERIOR SURROUND — concrete apron + asphalt ring + skyline silhouettes,
+  // so the curtain-wall windows look out onto a real compound instead of
+  // empty void. All non-colliding, outside the playable shell.
+  // =========================================================================
+  const outSlab = (w: number, d: number, cx: number, cz: number, mtl: WorldMaterial, y = -0.02): void => {
+    const m = MeshBuilder.CreateBox(uid("out"), { width: w, height: 0.25, depth: d }, scene);
+    m.position.set(cx, y - 0.125, cz);
+    m.material = mtl;
+    scaleUV(m, mtl, w, d);
+    add(m, false, false, false);
+  };
+  // concrete apron ring (8m) directly around the building
+  outSlab(HALF_W * 2 + 16, 8, 0, -HALF_D - 4, M.concrete);
+  outSlab(HALF_W * 2 + 16, 8, 0, HALF_D + 4, M.concrete);
+  outSlab(8, HALF_D * 2, -HALF_W - 4, 0, M.concrete);
+  outSlab(8, HALF_D * 2, HALF_W + 4, 0, M.concrete);
+  // asphalt compound ground beyond the apron
+  outSlab(320, 110, 0, -HALF_D - 63, asphaltMat, -0.05);
+  outSlab(320, 110, 0, HALF_D + 63, asphaltMat, -0.05);
+  outSlab(110, HALF_D * 2 + 16, -HALF_W - 63, 0, asphaltMat, -0.05);
+  outSlab(110, HALF_D * 2 + 16, HALF_W + 63, 0, asphaltMat, -0.05);
+  // distant tower silhouettes (visible through the glazing / skylights)
+  const towers: Array<[number, number, number]> = [
+    [-95, -90, 38], [0, -115, 55], [85, -100, 30], [125, -15, 62], [105, 55, 42],
+    [55, 105, 35], [-15, 125, 50], [-95, 85, 28], [-130, 10, 45], [60, -90, 24],
+  ];
+  for (const [tx, tz, th] of towers) {
+    const t = MeshBuilder.CreateBox(uid("tower"), { width: 16 + (th % 12), height: th, depth: 16 + ((th * 7) % 10) }, scene);
+    t.position.set(tx, th / 2 - 0.05, tz);
+    t.material = towerMat;
+    add(t, false, false, false);
+  }
 
   // The complex is fully enclosed: curtain-wall glazing + two skylights admit
   // the daylight/IBL; ceilings' LED panels, light strips, screen glow and
