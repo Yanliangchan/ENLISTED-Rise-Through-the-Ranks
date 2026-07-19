@@ -200,6 +200,12 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
         if (isGlass) glassPanel(segW, segD, px, pz, Y0, h - 0.4);
         else wall(segW, segD, px, pz, Y0, h, mtl);
       };
+      // Framed doorway: a header wall above the gap (2.1m clear opening) so
+      // doors read as real architectural openings, not wall slots.
+      const header = (hw: number, hd: number, px: number, pz: number) => {
+        if (isGlass || h - 2.1 < 0.15) return;
+        wall(hw, hd, px, pz, Y0 + 2.1, h - 2.1, mtl);
+      };
       const door = doors.find((dr) => dr.side === side);
       if (side === "n" || side === "s") {
         const pz = side === "n" ? z1 : z0;
@@ -209,6 +215,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
           const rightW = x1 - (door.at + door.width / 2);
           if (leftW > 0.1) put(leftW, WALL_T, x0 + leftW / 2, pz);
           if (rightW > 0.1) put(rightW, WALL_T, x1 - rightW / 2, pz);
+          header(door.width, WALL_T, door.at, pz);
         }
       } else {
         const px = side === "e" ? x1 : x0;
@@ -218,6 +225,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
           const farW = z1 - (door.at + door.width / 2);
           if (nearW > 0.1) put(WALL_T, nearW, px, z0 + nearW / 2);
           if (farW > 0.1) put(WALL_T, farW, px, z1 - farW / 2);
+          header(WALL_T, door.width, px, door.at);
         }
       }
     };
@@ -266,6 +274,58 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     c.material = M.wallPaint;
     return c;
   });
+  // Ceiling fixtures (instanced by the hundreds — one draw call per source).
+  const ledPanelSrc = makeSource("ic_src_ledpanel", () => {
+    const p = MeshBuilder.CreateBox("lp", { width: 0.95, height: 0.05, depth: 0.95 }, scene);
+    p.material = G.strip;
+    return p;
+  });
+  const ventSrc = makeSource("ic_src_vent", () => {
+    const v = MeshBuilder.CreateBox("v", { width: 0.55, height: 0.07, depth: 0.55 }, scene);
+    v.material = M.alu;
+    return v;
+  });
+  const sprinklerSrc = makeSource("ic_src_sprinkler", () => {
+    const s = MeshBuilder.CreateCylinder("sp", { diameter: 0.07, height: 0.16, tessellation: 6 }, scene);
+    s.material = M.steel;
+    return s;
+  });
+  const detectorSrc = makeSource("ic_src_detector", () => {
+    const d = MeshBuilder.CreateCylinder("dt", { diameter: 0.16, height: 0.06, tessellation: 8 }, scene);
+    d.material = M.wallPaint;
+    return d;
+  });
+  const speakerSrc = makeSource("ic_src_speaker", () => {
+    const s = MeshBuilder.CreateCylinder("sk", { diameter: 0.26, height: 0.06, tessellation: 8 }, scene);
+    s.material = M.serverDark;
+    return s;
+  });
+  // Desk / office clutter.
+  const keyboardSrc = makeSource("ic_src_keyboard", () => {
+    const k = MeshBuilder.CreateBox("kb", { width: 0.46, height: 0.03, depth: 0.16 }, scene);
+    k.material = M.serverDark;
+    return k;
+  });
+  const phoneSrc = makeSource("ic_src_phone", () => {
+    const p = MeshBuilder.CreateBox("ph", { width: 0.24, height: 0.08, depth: 0.2 }, scene);
+    p.material = M.serverDark;
+    return p;
+  });
+  const plantSrc = makeSource("ic_src_plant", () => {
+    const p = MeshBuilder.CreateCylinder("pl", { diameterBottom: 0.34, diameterTop: 0.95, height: 1.3, tessellation: 8 }, scene);
+    p.material = M.olive;
+    return p;
+  });
+  const binSrc = makeSource("ic_src_bin", () => {
+    const b = MeshBuilder.CreateCylinder("bn", { diameter: 0.36, height: 0.6, tessellation: 8 }, scene);
+    b.material = M.steel;
+    return b;
+  });
+  const cardReaderSrc = makeSource("ic_src_cardreader", () => {
+    const c = MeshBuilder.CreateBox("cr", { width: 0.1, height: 0.17, depth: 0.05 }, scene);
+    c.material = G.led;
+    return c;
+  });
   const inst = (src: Mesh, x: number, y: number, z: number, rotY = 0, sy = 1): void => {
     const i = src.createInstance(uid("i"));
     i.position.set(BASE.x + x, y, BASE.z + z);
@@ -281,8 +341,10 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   const desk = (cx: number, cz: number, rotY = 0, y = Y0): void => {
     cover(1.6, 0.75, 0.8, cx, cz, y, M.wood); // desktop (cover)
     inst(monitorSrc, cx, y + 1.05, cz + (rotY === 0 ? -0.2 : 0), rotY);
+    inst(keyboardSrc, cx, y + 0.78, cz + (rotY === 0 ? 0.12 : -0.12), rotY);
     inst(chairSrc, cx + Math.sin(rotY + Math.PI) * 0.7, y + 0.25, cz + Math.cos(rotY + Math.PI) * 0.7, rotY);
     if (Math.random() < 0.5) inst(cupSrc, cx + 0.4, y + 0.83, cz + 0.2);
+    if (Math.random() < 0.35) inst(phoneSrc, cx - 0.55, y + 0.8, cz + 0.15, rotY);
   };
   const cabinet = (cx: number, cz: number, y = Y0): void => {
     cover(1.0, 1.5, 0.6, cx, cz, y, M.steel);
@@ -328,6 +390,48 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   const boxStack = (cx: number, cz: number, n = 2): void => {
     for (let i = 0; i < n; i++) inst(boxSrc, cx + (Math.random() - 0.5) * 0.3, Y0 + 0.25 + i * 0.5, cz + (Math.random() - 0.5) * 0.3, Math.random());
   };
+  const plant = (cx: number, cz: number, y = Y0): void => inst(plantSrc, cx, y + 0.65, cz);
+  const bin = (cx: number, cz: number, y = Y0): void => inst(binSrc, cx, y + 0.3, cz);
+  const cardReader = (cx: number, cz: number, rotY = 0): void => inst(cardReaderSrc, cx, Y0 + 1.2, cz, rotY);
+  const waterCooler = (cx: number, cz: number, y = Y0): void => {
+    cover(0.45, 1.15, 0.45, cx, cz, y, M.wallPaint);
+    const bottle = MeshBuilder.CreateCylinder(uid("bottle"), { diameter: 0.32, height: 0.4, tessellation: 8 }, scene);
+    bottle.position.set(cx, y + 1.35, cz);
+    bottle.material = G.glass;
+    add(bottle, false, false, false);
+  };
+  const photocopier = (cx: number, cz: number, rotY = 0, y = Y0): void => {
+    void rotY;
+    cover(0.95, 1.05, 0.7, cx, cz, y, M.steel);
+    cover(0.7, 0.12, 0.5, cx, cz, y + 1.05, M.serverDark); // scanner lid
+  };
+  const coffeeMachine = (cx: number, cz: number, topY: number): void => {
+    cover(0.42, 0.55, 0.4, cx, cz, topY, M.serverDark);
+    inst(cupSrc, cx + 0.35, topY + 0.06, cz);
+    inst(cupSrc, cx + 0.45, topY + 0.06, cz + 0.1);
+  };
+
+  /**
+   * Finished room ceiling: an acoustic-panel slab at partition height carrying
+   * recessed LED light panels, AC vents, fire sprinklers, a smoke detector and
+   * a ceiling speaker. Non-pickable + non-colliding so nav probe rays and
+   * gameplay raycasts pass through the plenum above.
+   */
+  const ceiling = (x0: number, z0: number, x1: number, z1: number, h = ROOM_H): void => {
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    const c = MeshBuilder.CreateBox(uid("ceil"), { width: x1 - x0, height: 0.12, depth: z1 - z0 }, scene);
+    c.position.set(cx, h + 0.06, cz);
+    c.material = M.wallPaint;
+    add(c, false, false, false);
+    for (let px = x0 + 1.6; px < x1 - 0.8; px += 3.2)
+      for (let pz = z0 + 1.6; pz < z1 - 0.8; pz += 3.2) inst(ledPanelSrc, px, h - 0.03, pz);
+    inst(ventSrc, x0 + 1.0, h - 0.05, z0 + 1.0);
+    inst(ventSrc, x1 - 1.0, h - 0.05, z1 - 1.0);
+    for (let px = x0 + 2; px < x1; px += 4.5) inst(sprinklerSrc, px, h - 0.09, cz);
+    inst(detectorSrc, cx, h - 0.04, cz + Math.min(1.5, (z1 - z0) / 4));
+    inst(speakerSrc, x0 + 1.4, h - 0.04, z1 - 1.0);
+  };
 
   // ---- ceiling light strip (emissive bar, mounted high) --------------------
   const lightStrip = (w: number, d: number, cx: number, cz: number): void => {
@@ -341,21 +445,105 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     footprints.push({ x: BASE.x + (x0 + x1) / 2, z: BASE.z + (z0 + z1) / 2, w: x1 - x0, d: z1 - z0, kind });
 
   // =========================================================================
-  // PERIMETER + STRUCTURE
+  // PERIMETER + STRUCTURE — glass curtain walls (sill / continuous window
+  // band / header) so daylight enters through the facade, not an open roof.
+  // Perimeter glazing is NON-breakable: the shell stays sealed in combat.
   // =========================================================================
-  wall(HALF_W * 2 + WALL_T, WALL_T, 0, -HALF_D, 0, WALL_H, M.wallPaint); // south
-  wall(HALF_W * 2 + WALL_T, WALL_T, 0, HALF_D, 0, WALL_H, M.wallPaint); // north
-  wall(WALL_T, HALF_D * 2 + WALL_T, -HALF_W, 0, 0, WALL_H, M.wallPaint); // west
-  wall(WALL_T, HALF_D * 2 + WALL_T, HALF_W, 0, 0, WALL_H, M.wallPaint); // east
+  const SILL_H = 1.0;
+  const GLAZE_H = 2.0; // window band 1.0 → 3.0
+  const curtainWall = (w: number, d: number, cx: number, cz: number): void => {
+    wall(w, d, cx, cz, 0, SILL_H, M.wallPaint); // sill
+    glassPanel(w, d, cx, cz, SILL_H, GLAZE_H, false); // curtain glazing (sealed)
+    wall(w, d, cx, cz, SILL_H + GLAZE_H, WALL_H - SILL_H - GLAZE_H, M.wallPaint); // header
+  };
+  curtainWall(HALF_W * 2 + WALL_T, WALL_T, 0, -HALF_D); // south
+  curtainWall(HALF_W * 2 + WALL_T, WALL_T, 0, HALF_D); // north
+  curtainWall(WALL_T, HALF_D * 2 + WALL_T, -HALF_W, 0); // west
+  curtainWall(WALL_T, HALF_D * 2 + WALL_T, HALF_W, 0); // east
+  // Aluminium mullions dividing the curtain glazing into window bays.
+  for (let mx = -HALF_W + 8; mx < HALF_W; mx += 8) {
+    wall(0.24, WALL_T + 0.08, mx, -HALF_D, SILL_H, GLAZE_H, M.alu);
+    wall(0.24, WALL_T + 0.08, mx, HALF_D, SILL_H, GLAZE_H, M.alu);
+  }
+  for (let mz = -HALF_D + 7; mz < HALF_D; mz += 7) {
+    wall(WALL_T + 0.08, 0.24, -HALF_W, mz, SILL_H, GLAZE_H, M.alu);
+    wall(WALL_T + 0.08, 0.24, HALF_W, mz, SILL_H, GLAZE_H, M.alu);
+  }
   fp("complex", -HALF_W, -HALF_D, HALF_W, HALF_D);
 
-  // Ceiling beam grid (decorative, non-colliding so nav/bullets pass) + light
-  // strips slung under it — reads as a lit drop-ceiling without enclosing.
+  // =========================================================================
+  // ROOF — a complete slab over the whole footprint, composed around two
+  // deliberate glass skylights (operations atrium + reception). Non-pickable
+  // and non-colliding so nav rays / gameplay raycasts pass through the plenum,
+  // but fully opaque from below: the building reads as enclosed.
+  // =========================================================================
+  const roofY = WALL_H + 0.12;
+  const roofPiece = (x0: number, z0: number, x1: number, z1: number): void => {
+    if (x1 - x0 < 0.2 || z1 - z0 < 0.2) return;
+    const r = MeshBuilder.CreateBox(uid("roof"), { width: x1 - x0, height: 0.35, depth: z1 - z0 }, scene);
+    r.position.set((x0 + x1) / 2, roofY, (z0 + z1) / 2);
+    r.material = M.concrete;
+    add(r, false, false, false);
+  };
+  const skylight = (x0: number, z0: number, x1: number, z1: number): void => {
+    const g = MeshBuilder.CreateBox(uid("skylight"), { width: x1 - x0, height: 0.14, depth: z1 - z0 }, scene);
+    g.position.set((x0 + x1) / 2, roofY, (z0 + z1) / 2);
+    g.material = G.glass;
+    add(g, false, false, false);
+    // ridge mullions across the glazing
+    for (let mx = x0 + 4; mx < x1; mx += 4) {
+      const m = MeshBuilder.CreateBox(uid("skmul"), { width: 0.22, height: 0.3, depth: z1 - z0 }, scene);
+      m.position.set(mx, roofY, (z0 + z1) / 2);
+      m.material = M.alu;
+      add(m, false, false, false);
+    }
+  };
+  // Skylight A over the operations atrium/courtyard; skylight B over reception.
+  const SKY_A = { x0: -12, z0: -9, x1: 12, z1: 11 };
+  const SKY_B = { x0: -9, z0: -42, x1: 9, z1: -29 };
+  roofPiece(-HALF_W, -HALF_D, SKY_B.x0, -29); // SW of reception skylight
+  roofPiece(SKY_B.x1, -HALF_D, HALF_W, -29); // SE of reception skylight
+  roofPiece(-HALF_W, -29, HALF_W, SKY_A.z0); // mid band between skylights
+  roofPiece(-HALF_W, SKY_A.z0, SKY_A.x0, SKY_A.z1); // west of atrium skylight
+  roofPiece(SKY_A.x1, SKY_A.z0, HALF_W, SKY_A.z1); // east of atrium skylight
+  roofPiece(-HALF_W, SKY_A.z1, HALF_W, HALF_D); // north band
+  skylight(SKY_A.x0, SKY_A.z0, SKY_A.x1, SKY_A.z1);
+  skylight(SKY_B.x0, SKY_B.z0, SKY_B.x1, SKY_B.z1);
+
+  // Structural beam grid under the roof slab + slung light strips (the open
+  // areas keep an exposed-services industrial ceiling; rooms get finished
+  // acoustic ceilings below).
   for (let gx = -HALF_W + 12; gx < HALF_W; gx += 24) {
     const beam = MeshBuilder.CreateBox(uid("beam"), { width: 0.4, height: 0.4, depth: HALF_D * 2 }, scene);
     beam.position.set(gx, WALL_H - 0.2, 0);
     beam.material = M.alu;
     add(beam, false, false, false);
+  }
+  // HVAC trunk ducts + electrical cable trays running the length of the plenum.
+  for (const dx of [-26, 2, 30]) {
+    const duct = MeshBuilder.CreateBox(uid("duct"), { width: 1.0, height: 0.6, depth: HALF_D * 2 - 4 }, scene);
+    duct.position.set(dx, WALL_H - 0.7, 0);
+    duct.material = M.steel;
+    add(duct, false, false, false);
+  }
+  for (const tz of [-26, 14]) {
+    const tray = MeshBuilder.CreateBox(uid("tray"), { width: HALF_W * 2 - 6, height: 0.1, depth: 0.5 }, scene);
+    tray.position.set(0, WALL_H - 1.1, tz);
+    tray.material = M.serverDark;
+    add(tray, false, false, false);
+  }
+  // Maintenance access hatches + ventilation shaft drops (visual roof services).
+  for (const [hx, hz] of [[-38, -20], [38, 18]] as const) {
+    const hatch = MeshBuilder.CreateBox(uid("hatch"), { width: 1.0, height: 0.12, depth: 1.0 }, scene);
+    hatch.position.set(hx, WALL_H - 0.08, hz);
+    hatch.material = M.alu;
+    add(hatch, false, false, false);
+  }
+  for (const [vx, vz] of [[-44, 30], [44, -24]] as const) {
+    const shaft = MeshBuilder.CreateBox(uid("shaft"), { width: 1.4, height: 1.6, depth: 1.4 }, scene);
+    shaft.position.set(vx, WALL_H - 0.8, vz);
+    shaft.material = M.steel;
+    add(shaft, false, false, false);
   }
   for (let gz = -HALF_D + 8; gz < HALF_D; gz += 12)
     for (let gx = -HALF_W + 14; gx < HALF_W; gx += 20) lightStrip(6, 0.6, gx, gz);
@@ -426,8 +614,17 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   cover(1.2, 1.8, 1.2, 8, -28, Y0, M.alu);
   sandbags(-11, -27, 3, "z");
   sandbags(11, -27, 3, "z");
+  cardReader(-9.4, -27.6);
+  cardReader(9.4, -27.6, Math.PI);
   cctv(-20, -29, 0.5);
   cctv(20, -29, -0.5);
+  // Reception greenery + bins under the entrance skylight.
+  plant(-8, -38);
+  plant(8, -38);
+  plant(-36, -30);
+  bin(-6, -34);
+  bin(12, -34);
+  waterCooler(-48, -33);
 
   // =========================================================================
   // MID — OFFICE DEPARTMENTS (west & east) + open-plan + cubicle maze
@@ -447,9 +644,12 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     desk(cx - 4, cz + 1, 0);
     desk(cx + 3, cz - 1, Math.PI);
     cabinet(cx - 6, cz - 2.5);
+    photocopier(cx + 6, cz + 2.5);
+    bin(cx + 6.5, cz - 3);
+    plant(cx - 7, cz + 3);
     whiteboard(cx, cz + 3.6, Math.PI);
     missionBoard(cx - 7.6, cz, Math.PI / 2);
-    lightStrip(5, 0.5, cx, cz);
+    ceiling(cx - 8, cz - 4, cx + 8, cz + 4);
     fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 8, cz - 4, cx + 8, cz + 4);
   }
   // East department rooms (Logistics / Intelligence / meeting rooms / breakout):
@@ -465,14 +665,20 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     if (glassy) {
       cover(4, 0.75, 1.4, cx, cz, Y0, M.wood); // meeting table
       for (const o of [-1.6, 1.6]) inst(chairSrc, cx + o, Y0 + 0.25, cz + 1.4, 0);
-      whiteboard(cx, cz + 3.6, Math.PI);
+      // half-finished meeting: cups on the table + conference display
+      inst(cupSrc, cx - 0.8, Y0 + 0.83, cz - 0.3);
+      inst(cupSrc, cx + 1.1, Y0 + 0.83, cz + 0.2);
+      panel(2.2, 1.3, cx, cz + 3.55, Y0 + 1.9, Math.PI, G.screen); // conference display
+      whiteboard(cx - 7.6, cz, Math.PI / 2);
+      plant(cx + 6.5, cz - 3.5);
     } else {
       desk(cx - 4, cz + 1, 0);
       desk(cx + 3, cz - 1, Math.PI);
       cabinet(cx + 6, cz + 2.5);
       boxStack(cx - 6, cz - 2, 3);
+      bin(cx - 6.5, cz + 3);
     }
-    lightStrip(5, 0.5, cx, cz);
+    ceiling(cx - 8, cz - 4, cx + 8, cz + 4);
     fp(label.toLowerCase().replace(/[\s()]+/g, "-"), cx - 8, cz - 4, cx + 8, cz + 4);
   }
   // Open-plan office + cubicle maze (central-south, between the room columns).
@@ -539,7 +745,11 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   cover(10, 0.85, 1.4, 0, 26, Y0, M.wood); // ops console row
   for (const o of [-3, 0, 3]) inst(monitorSrc, o, Y0 + 1.25, 26.6, Math.PI);
   for (const o of [-3, 0, 3]) inst(chairSrc, o, Y0 + 0.25, 24.6, 0);
-  lightStrip(9, 0.5, 0, 26);
+  // Ops centre uses a taller exposed-services ceiling (beams/ducts visible
+  // above the partitions) for visual variety over the standard office rooms.
+  ceiling(-12, 20, 12, 32, 4.6);
+  cardReader(1.8, 19.7, Math.PI); // controlled entry off the secure gate
+  cctv(-10, 30, 2.4);
 
   // West secure rooms: Signals / Communications / Secure archive.
   const westSecure: Array<[string, number, number]> = [
@@ -563,7 +773,8 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
       desk(cx, cz - 2, 0);
     }
     missionBoard(cx, cz + 4.6, Math.PI);
-    lightStrip(5, 0.5, cx, cz);
+    ceiling(cx - 7, cz - 5, cx + 7, cz + 5);
+    cardReader(cx + 6.9, cz - 1.4);
     fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 7, cz - 5, cx + 7, cz + 5);
   }
   // East secure rooms: Command office / Armoury / Equipment issue.
@@ -588,7 +799,8 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
       for (let i = 0; i < 3; i++) cabinet(cx - 4 + i * 3, cz + 3);
       boxStack(cx, cz - 2, 2);
     }
-    lightStrip(5, 0.5, cx, cz);
+    ceiling(cx - 7, cz - 5, cx + 7, cz + 5);
+    cardReader(cx - 6.9, cz - 1.4, Math.PI);
     fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 7, cz - 5, cx + 7, cz + 5);
   }
   // Briefing room label (the sunken pit is its floor) + command projector board.
@@ -603,6 +815,8 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   fp("server-room", -56, 34, -40, 44);
   roomShell(-56, 34, -40, 44, M.wallCool, [{ side: "e", at: 39, width: 2.2 }]);
   for (let a = 0; a < 3; a++) serverRack(-52 + a * 5, 38);
+  ceiling(-56, 34, -40, 44);
+  cardReader(-39.3, 37.4);
   slab(10, 5, -50, 41.5, Y_MEZZ, M.alu);
   glassPanel(10, 0.12, -50, 39.2, Y_MEZZ, 1.0);
   ramp(3, 6, -54, 35, Y0, Y_MEZZ, "z");
@@ -651,16 +865,27 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     } else {
       sofa(cx - 3, cz, 0);
       sofa(cx + 3, cz, Math.PI);
+      plant(cx, cz + 3.5);
     }
-    lightStrip(5, 0.5, cx, cz);
+    if (label === "CAFETERIA") {
+      waterCooler(cx - 6, cz + 4);
+      bin(cx + 6, cz + 4);
+      bin(cx + 6, cz - 4);
+    }
+    ceiling(cx - 7, cz - 5, cx + 7, cz + 5);
     exitSign(cx, cz - 4.6, 0);
     fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 7, cz - 5, cx + 7, cz + 5);
   }
   // Washrooms + pantry as small side rooms off the corridor.
   roomShell(52, -14, 56, -8, M.tile, [{ side: "w", at: -11, width: 1.6 }]);
+  ceiling(52, -14, 56, -8);
   fp("washrooms", 52, -14, 56, -8);
   roomShell(52, -6, 56, 0, M.tile, [{ side: "w", at: -3, width: 1.6 }]);
   counter(3.5, 0.9, 54, -1);
+  coffeeMachine(54.8, -1, Y0 + 1.1); // machine on the pantry counter
+  waterCooler(52.8, -5);
+  bin(55.4, -5.4);
+  ceiling(52, -6, 56, 0);
   fp("pantry", 52, -6, 56, 0);
 
   // =========================================================================
@@ -688,6 +913,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
       ext(cx - 3, cz - 2);
       ext(cx + 3, cz - 2);
     }
+    ceiling(cx - 6, cz - 4, cx + 6, cz + 4);
     exitSign(cx, cz + 3.6, Math.PI);
     fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 6, cz - 4, cx + 6, cz + 4);
   }
@@ -700,9 +926,14 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // Scatter a few CCTV cameras + exit signs + extinguishers along the spine for occupancy.
   for (const [cx, cz, ry] of [[-6, -12, 0.4], [6, 4, -0.4], [-6, 20, 0.4], [6, 30, -0.4]] as const) cctv(cx, cz, ry);
   for (const [cx, cz] of [[-6, -30], [6, -8], [-6, 12], [6, 22]] as const) ext(cx, cz);
+  // Atrium planters + corridor bins for lived-in occupancy.
+  for (const [px, pz] of [[-14, -6], [14, -6], [-14, 8], [14, 8]] as const) plant(px, pz);
+  for (const [bx, bz] of [[-48, -2], [48.8, -2], [-6, -16], [6, 14]] as const) bin(bx, bz);
 
-  // Open-top: lit by the scene's global sun + IBL; material emissive + the
-  // light strips / screen glow / signage carry the interior lighting read.
+  // The complex is fully enclosed: curtain-wall glazing + two skylights admit
+  // the daylight/IBL; ceilings' LED panels, light strips, screen glow and
+  // signage carry the interior lighting read. Roof/ceiling meshes are
+  // non-pickable + non-colliding so nav rays and hitscans pass cleanly.
   return {
     spawn: new Vector3(BASE.x + 0, 1.2, BASE.z - 40), // reception staging, just above the y=0 floor
     root,
