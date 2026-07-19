@@ -47,7 +47,8 @@ export class LandingPage {
   onDeploy?: () => void;
   onProfile?: () => void;
   onTrainingRange?: () => void;
-  onIronCitadel?: () => void;
+  /** Multiplayer entry — currently opens the Iron Citadel map for free exploration (match logic to come). */
+  onMultiplayer?: () => void;
   onLeaderboards?: () => void;
 
   private targetMx = 0;
@@ -231,7 +232,7 @@ export class LandingPage {
     nav.className = "lp-nav";
     const actions: Array<[string, () => void]> = [
       ["TRAINING RANGE", () => this.onTrainingRange?.()],
-      ["IRON CITADEL", () => this.onIronCitadel?.()],
+      ["MULTIPLAYER", () => this.onMultiplayer?.()],
       ["PROFILE", () => this.onProfile?.()],
       ["LEADERBOARDS", () => this.onLeaderboards?.()],
       ["SETTINGS", () => this.showSettingsModal()],

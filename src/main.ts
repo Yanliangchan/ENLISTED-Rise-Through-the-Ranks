@@ -410,7 +410,7 @@ async function boot(): Promise<void> {
 
     if (!citadelExitBtn) {
       const btn = document.createElement("button");
-      btn.textContent = "◀ EXIT PREVIEW";
+      btn.textContent = "◀ EXIT MULTIPLAYER";
       btn.style.cssText =
         "position:fixed; top:14px; left:14px; z-index:70; background:rgba(20,26,20,0.85); color:#cfe6c0;" +
         "border:1px solid #3c4a34; padding:8px 14px; font-family:Consolas,monospace; font-size:12px; letter-spacing:1px; cursor:pointer;";
@@ -422,7 +422,7 @@ async function boot(): Promise<void> {
       citadelExitBtn = btn;
     }
     citadelExitBtn.style.display = "block";
-    hud.showCenterMessage("IRON CITADEL — MULTIPLAYER MAP PREVIEW · walk the complex · ESC to exit", 5000);
+    hud.showCenterMessage("MULTIPLAYER — OPERATION IRON CITADEL · map exploration (matches coming soon) · ESC to exit", 5000);
     input.lockPointer();
   }
 
@@ -452,7 +452,7 @@ async function boot(): Promise<void> {
       input.lockPointer();
     };
     landingPage.onTrainingRange = () => enterTrainingRange();
-    landingPage.onIronCitadel = () => enterIronCitadel();
+    landingPage.onMultiplayer = () => enterIronCitadel();
     if (profilePage) {
       landingPage.onProfile = () => profilePage!.show();
       landingPage.onLeaderboards = () => profilePage!.show();
