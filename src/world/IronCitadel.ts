@@ -74,18 +74,23 @@ export interface IronCitadelHandles {
 type Door = { side: "n" | "s" | "e" | "w"; at: number; width: number };
 
 /**
- * Global footprint scale: the whole complex is compressed ~10% per axis
- * (≈19% less floor area) via the root transform, tightening travel times
- * and combat pacing while preserving the layout 1:1. Heights are untouched
- * so ceilings, cover and sightlines keep their proportions.
+ * The complex is authored in local coordinates and offset to BASE by the root
+ * transform. The root scale is IDENTITY: a previous pass shrank the footprint
+ * with a non-uniform root scale (0.9,1,0.9), but Babylon's collision is
+ * unreliable under non-uniform parent scale + frozen world matrices, which let
+ * the player's collision ellipsoid slip through floor seams (the "falling
+ * forever" bug). Size reduction, if wanted again, must be baked into geometry.
  */
-const S = 0.9;
+const S = 1;
 
 export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   const root = new TransformNode("ironCitadel", scene);
   root.position.copyFrom(BASE);
-  root.scaling.set(S, 1, S);
+  root.scaling.set(1, 1, 1);
   const footprints: IronCitadelHandles["footprints"] = [];
+  // Room rectangles, registered by roomShell, checked for overlaps after the
+  // build so layout regressions surface immediately in the console.
+  const roomRects: Array<{ name: string; x0: number; z0: number; x1: number; z1: number }> = [];
   const meshes: Mesh[] = [];
   const instances: InstancedMesh[] = [];
 
@@ -489,7 +494,8 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   };
 
   /** Build a room's perimeter (partition walls) with door gaps on the given sides. */
-  const roomShell = (x0: number, z0: number, x1: number, z1: number, mtl: WorldMaterial, doors: Door[], h = ROOM_H, glassSides: Array<Door["side"]> = []): void => {
+  const roomShell = (x0: number, z0: number, x1: number, z1: number, mtl: WorldMaterial, doors: Door[], h = ROOM_H, glassSides: Array<Door["side"]> = [], name = ""): void => {
+    roomRects.push({ name: name || `room@${((x0 + x1) / 2).toFixed(0)},${((z0 + z1) / 2).toFixed(0)}`, x0, z0, x1, z1 });
     const cx = (x0 + x1) / 2;
     const cz = (z0 + z1) / 2;
     const w = x1 - x0;
@@ -564,7 +570,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     return b;
   });
   const extSrc = makeSource("ic_src_ext", () => {
-    const e = MeshBuilder.CreateCylinder("e", { diameter: 0.2, height: 0.55 }, scene);
+    const e = MeshBuilder.CreateCylinder("e", { diameter: 0.2, height: 0.55, tessellation: 14 }, scene);
     e.material = G.emergency;
     return e;
   });
@@ -574,7 +580,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     return c;
   });
   const cupSrc = makeSource("ic_src_cup", () => {
-    const c = MeshBuilder.CreateCylinder("cu", { diameter: 0.09, height: 0.11 }, scene);
+    const c = MeshBuilder.CreateCylinder("cu", { diameter: 0.09, height: 0.11, tessellation: 12 }, scene);
     c.material = M.wallPaint;
     return c;
   });
@@ -616,12 +622,12 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     return p;
   });
   const plantSrc = makeSource("ic_src_plant", () => {
-    const p = MeshBuilder.CreateCylinder("pl", { diameterBottom: 0.34, diameterTop: 0.95, height: 1.3, tessellation: 8 }, scene);
+    const p = MeshBuilder.CreateCylinder("pl", { diameterBottom: 0.34, diameterTop: 0.95, height: 1.3, tessellation: 12 }, scene);
     p.material = M.olive;
     return p;
   });
   const binSrc = makeSource("ic_src_bin", () => {
-    const b = MeshBuilder.CreateCylinder("bn", { diameter: 0.36, height: 0.6, tessellation: 8 }, scene);
+    const b = MeshBuilder.CreateCylinder("bn", { diameter: 0.36, height: 0.6, tessellation: 12 }, scene);
     b.material = M.steel;
     return b;
   });
@@ -675,7 +681,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   /** Round structural column: concrete shaft on an aluminium plinth, with an
    *  optional coloured wayfinding band at eye height (zone identity). */
   const pillar = (cx: number, cz: number, y = Y0, h = WALL_H, accent?: WorldMaterial): void => {
-    const shaft = MeshBuilder.CreateCylinder(uid("pillar"), { diameter: 1.1, height: h - y, tessellation: 14 }, scene);
+    const shaft = MeshBuilder.CreateCylinder(uid("pillar"), { diameter: 1.1, height: h - y, tessellation: 20 }, scene);
     shaft.position.set(cx, y + (h - y) / 2, cz);
     shaft.material = M.concrete;
     add(shaft, false);
@@ -816,6 +822,21 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     c.material = M.ceil;
     scaleUV(c, M.ceil, x1 - x0, z1 - z0);
     add(c, false, false, false);
+    // Finishing trim (non-colliding, thin) so rooms read less blocky: a dark
+    // skirting board at the floor line and an aluminium cornice at the ceiling.
+    const trim = (y: number, th: number, mtl: WorldMaterial) => {
+      for (const [w, d, px, pz] of [
+        [x1 - x0, th, cx, z0], [x1 - x0, th, cx, z1],
+        [th, z1 - z0, x0, cz], [th, z1 - z0, x1, cz],
+      ] as const) {
+        const t = MeshBuilder.CreateBox(uid("trim"), { width: w, height: y < 0.3 ? 0.16 : 0.1, depth: d }, scene);
+        t.position.set(px, y, pz);
+        t.material = mtl;
+        add(t, false, false, false);
+      }
+    };
+    trim(Y0 + 0.08, 0.09, M.serverDark); // skirting board
+    trim(h - 0.06, 0.06, M.alu); // cornice
     const panelSrc = warm ? warmPanelSrc : ledPanelSrc;
     for (let px = x0 + 1.6; px < x1 - 0.8; px += 3.2)
       for (let pz = z0 + 1.6; pz < z1 - 0.8; pz += 3.2) inst(panelSrc, px, h - 0.03, pz);
@@ -951,26 +972,23 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // MAIN FLOOR — flat y=0, composed slabs with holes for the sunken dock,
   // sunken courtyard, and sunken briefing pit.
   // =========================================================================
-  // Floor plates are composed edge-to-edge with REAL holes for the three
-  // sunken features (dock x[-56,-40]z[-42,-28], courtyard x[-7,7]z[-7,7],
-  // briefing pit x[-24,-10]z[14,24]) — no Y0 plate covers a sunken area, so
-  // the ramps genuinely descend into open pits instead of sealed voids.
-  slab(96, 14, 8, -35, Y0, M.tile); // south public band z[-42,-28], x[-40,56] (dock hole west of it)
-  slab(48, 20, 8, -18, Y0, M.carpetA); // south-office east of centre x[-16,32] z[-28,-8]
-  slab(32, 20, -40, -18, Y0, M.carpetA); // south-office west x[-56,-24] z[-28,-8]
-  slab(8, 6, -20, -11, Y0, M.carpetA); // infill x[-24,-16] z[-14,-8]
-  slab(25, 15, 19.5, -0.5, Y0, M.carpetA); // atrium east of courtyard x[7,32] z[-8,7]
-  slab(25, 15, -19.5, -0.5, Y0, M.carpetA); // atrium west of courtyard x[-32,-7] z[-8,7]
-  slab(14, 1, 0, -7.5, Y0, M.carpetA); // sliver joining office band to courtyard rim x[-7,7] z[-8,-7]
-  slab(24, 15, -44, -0.5, Y0, M.carpetB); // west wing infill x[-56,-32] z[-8,7]
-  slab(24, 21, 44, -3.5, Y0, M.tile); // east wing infill x[32,56] z[-14,7]
-  slab(32, 10, -40, 12, Y0, M.carpetB); // secure approach west x[-56,-24] z[7,17]
-  slab(66, 10, 23, 12, Y0, M.carpetB); // secure approach east x[-10,56] z[7,17]
-  slab(14, 7, -17, 10.5, Y0, M.carpetB); // approach infill above pit x[-24,-10] z[7,14]
-  slab(32, 20, -40, 27, Y0, M.carpetB); // secure band west x[-56,-24] z[17,37]
-  slab(66, 20, 23, 27, Y0, M.carpetB); // secure band east x[-10,56] z[17,37]
-  slab(14, 13, -17, 30.5, Y0, M.carpetB); // secure infill north of pit x[-24,-10] z[24,37]
-  slab(HALF_W * 2, 5, 0, 39.5, Y0, M.carpetB); // north band z[37,42]
+  // GAP-FREE FLOOR — a horizontal-band decomposition. Bands are split at the
+  // z-edges of the three sunken features, and within each band at the x-edges
+  // of any hole (and at material boundaries). Every rectangle abuts its
+  // neighbours edge-to-edge with no overlap and no gap, so there is nowhere to
+  // fall through. Holes left open: dock x[-56,-40]z[-42,-28], courtyard
+  // x[-7,7]z[-7,7], briefing pit x[-24,-10]z[14,24].
+  //
+  // `band(z0,z1, segments)` lays one row; each segment is [x0,x1,material].
+  const band = (z0: number, z1: number, segs: Array<[number, number, WorldMaterial]>): void => {
+    for (const [x0, x1, mtl] of segs) slab(x1 - x0, z1 - z0, (x0 + x1) / 2, (z0 + z1) / 2, Y0, mtl);
+  };
+  band(-42, -28, [[-40, 36, M.tile], [36, 56, M.tile]]); // public concourse (dock hole west of x=-40)
+  band(-28, -7, [[-56, -20, M.carpetA], [-20, 36, M.carpetA], [36, 56, M.tile]]); // offices + east staff tile
+  band(-7, 7, [[-56, -7, M.carpetA], [7, 36, M.carpetA], [36, 56, M.tile]]); // atrium sides (courtyard hole x[-7,7])
+  band(7, 14, [[-56, 36, M.carpetB], [36, 56, M.tile]]); // secure approach
+  band(14, 24, [[-56, -24, M.carpetB], [-10, 36, M.carpetB], [36, 56, M.tile]]); // pit band (pit hole x[-24,-10])
+  band(24, 42, [[-56, 56, M.carpetB]]); // secure + technical north
 
   // Sunken loading dock (SW), own floor + ramp rising east to the public band.
   slab(16, 14, -48, -35, Y_DOCK, M.concrete);
@@ -1052,15 +1070,17 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // breaks) — blue wayfinding bands mark the office zone.
   for (const px of [-30, -14, 14, 30]) for (const pz of [-20, -8, 4]) pillar(px, pz, Y0, WALL_H, M.accentBlue);
 
-  // West department rooms (glass-fronted, doors onto a west corridor at x=-6):
+  // West department rooms in two columns with a 2m corridor between them.
+  // Inner column x[-33,-17], outer column x[-51,-35] (abuts the cable corridor
+  // wall at x=-51) — no overlap with the corridor or each other.
   const westRooms: Array<[string, number, number]> = [
-    ["HR OFFICE", -26, -22],
-    ["FINANCE OFFICE", -26, -12],
-    ["ADMIN OFFICE", -44, -22],
-    ["PLANNING OFFICE", -44, -12],
+    ["HR OFFICE", -25, -22],
+    ["FINANCE OFFICE", -25, -12],
+    ["ADMIN OFFICE", -43, -22],
+    ["PLANNING OFFICE", -43, -12],
   ];
   for (const [label, cx, cz] of westRooms) {
-    roomShell(cx - 8, cz - 4, cx + 8, cz + 4, M.wallCool, [{ side: "e", at: cz, width: 2.2 }], ROOM_H, ["e"]);
+    roomShell(cx - 8, cz - 4, cx + 8, cz + 4, M.wallCool, [{ side: "e", at: cz, width: 2.2 }], ROOM_H, ["e"], label);
     desk(cx - 4, cz + 1, 0);
     desk(cx + 3, cz - 1, Math.PI);
     cabinet(cx - 6, cz - 2.5);
@@ -1211,32 +1231,30 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   cardReader(1.8, 19.7, Math.PI); // controlled entry off the secure gate
   cctv(-10, 30, 2.4);
 
-  // West secure rooms: Signals / Communications / Secure archive.
-  const westSecure: Array<[string, number, number]> = [
-    ["COMMS ROOM", -30, 24],
-    ["SIGNALS ROOM", -46, 24],
-    ["SECURE ARCHIVE", -46, 34],
-    ["INTEL VAULT", -30, 34],
+  // West secure block — two columns: outer x[-50,-37] rooms open WEST onto the
+  // cable corridor, inner x[-37,-24] rooms open EAST onto the secure spine, so
+  // every room has access and nothing overlaps the corridor, ops centre or pit.
+  const westSecure: Array<[string, number, number, number, number, "w" | "e"]> = [
+    ["SIGNALS ROOM", -50, 19, -37, 30, "w"],
+    ["COMMS ROOM", -37, 19, -24, 30, "e"],
+    ["SERVER ROOM", -50, 30, -37, 42, "w"],
+    ["SECURE ARCHIVE", -37, 30, -24, 42, "e"],
   ];
-  for (const [label, cx, cz] of westSecure) {
-    const vault = label.includes("VAULT") || label.includes("ARCHIVE");
-    roomShell(cx - 7, cz - 5, cx + 7, cz + 5, vault ? M.steel : M.wallCool, [
-      { side: "e", at: cz, width: 2.0 },
-      ...(vault ? [] : [{ side: "s" as const, at: cx, width: 2.0 }]),
-    ]);
-    if (vault) {
-      for (let i = 0; i < 3; i++) cabinet(cx - 5 + i * 1.4, cz + 3);
-      boxStack(cx + 4, cz - 3, 3);
-    } else {
-      serverRack(cx - 4, cz + 2);
-      serverRack(cx + 4, cz + 2);
-      desk(cx, cz - 2, 0);
-    }
-    missionBoard(cx, cz + 4.6, Math.PI);
-    ceiling(cx - 7, cz - 5, cx + 7, cz + 5);
-    cardReader(cx + 6.9, cz - 1.4);
-    plaque(label, cx + 7.3, cz, -Math.PI / 2); // readable from the east approach
-    fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 7, cz - 5, cx + 7, cz + 5);
+  for (const [label, x0, z0, x1, z1, doorSide] of westSecure) {
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    const steelRoom = label === "SECURE ARCHIVE" || label === "SERVER ROOM";
+    roomShell(x0, z0, x1, z1, steelRoom ? M.steel : M.wallCool, [{ side: doorSide, at: cz, width: 2.0 }], ROOM_H, [], label);
+    if (label === "SERVER ROOM") for (let a = 0; a < 3; a++) serverRack(x0 + 2.6 + a * 2.7, cz);
+    else if (label === "SECURE ARCHIVE") { for (let i = 0; i < 3; i++) cabinet(x0 + 2.5 + i * 1.6, z1 - 2); boxStack(x1 - 3, z0 + 2.5, 3); }
+    else if (label === "SIGNALS ROOM") { serverRack(x0 + 3, cz + 1.5); desk(cx, cz - 2, 0); }
+    else { desk(cx, cz + 1, Math.PI); cabinet(x0 + 2, z1 - 2); }
+    missionBoard(cx, z1 - 0.35, Math.PI);
+    ceiling(x0, z0, x1, z1);
+    const doorX = doorSide === "e" ? x1 : x0;
+    cardReader(doorX + (doorSide === "e" ? -0.3 : 0.3), cz - 1.4, doorSide === "e" ? 0 : Math.PI);
+    plaque(label, doorX + (doorSide === "e" ? 0.3 : -0.3), cz, doorSide === "e" ? -Math.PI / 2 : Math.PI / 2);
+    fp(label.toLowerCase().replace(/\s+/g, "-"), x0, z0, x1, z1);
   }
   // East secure rooms: Command office / Armoury / Equipment issue.
   const eastSecure: Array<[string, number, number]> = [
@@ -1272,33 +1290,29 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   fp("briefing-room", -24, 14, -10, 24);
 
   // =========================================================================
-  // WEST TECHNICAL EDGE — Server room / NOC / UPS / IT / cable corridor
+  // WEST TECHNICAL SPINE — cable/utility maintenance corridor (x[-56,-50]).
+  // The old standalone utility rooms (Electrical / AC Plant / Fire Control /
+  // Storage / Workshop) overlapped the west offices and are folded into this
+  // service spine as open plant bays. Its east wall is solid south of the
+  // secure block with one mid-run door (z 6-10) to the west approach; north of
+  // z=19 the outer secure rooms' west walls close it.
   // =========================================================================
-  // Server room occupies the NW behind the secure rooms via the cable corridor;
-  // rack aisles + a raised server mezzanine (overwatch), reached by a ramp.
-  fp("server-room", -56, 34, -40, 44);
-  roomShell(-56, 34, -40, 44, M.wallCool, [{ side: "e", at: 39, width: 2.2 }]);
-  for (let a = 0; a < 3; a++) serverRack(-52 + a * 5, 38);
-  ceiling(-56, 34, -40, 44);
-  cardReader(-39.3, 37.4);
-  slab(10, 5, -50, 41.5, Y_MEZZ, M.alu);
-  guardRail(10, -50, 39.2, Y_MEZZ, "x");
-  for (const [lx, lz] of [[-54, 40], [-46, 40], [-54, 43.4], [-46, 43.4]] as const)
-    cover(0.35, Y_MEZZ, 0.35, lx, lz, Y0, M.steel); // mezzanine legs
-  ramp(3, 6, -54, 35, Y0, Y_MEZZ, "z");
-  // Cable maintenance corridor (west flank spine). The corridor wall is
-  // segmented so it no longer slices through the Electrical / AC Plant /
-  // Signals rooms on the same line, and a mid-run doorway (z≈8) links the
-  // corridor to the west wing — a real flanking loop instead of a 62m tube.
-  fp("cable-corridor", -56, -28, -50, 34);
-  wall(WALL_T, 4, -50, -26, Y0, ROOM_H, M.concrete); // z[-28,-24]
-  wall(WALL_T, 4, -50, -14, Y0, ROOM_H, M.concrete); // z[-16,-12]
-  wall(WALL_T, 11, -50, 1.5, Y0, ROOM_H, M.concrete); // z[-4,7]
-  wall(WALL_T, 10, -50, 14, Y0, ROOM_H, M.concrete); // z[9,19] (door gap at z 7-9)
-  for (const cz of [-27, -14, 8, 26]) cabinet(-53, cz);
-  for (const cz of [-24, -2, 20]) ext(-53.5, cz);
-  for (const cz of [-18, 2, 24]) emergencyLight(-50.4, cz, Math.PI); // service-corridor emergency lighting
-  exitSign(-53, 33.4, 0);
+  fp("cable-corridor", -56, -28, -50, 42);
+  wall(WALL_T, 34, -50, -11, Y0, ROOM_H, M.concrete); // east wall z[-28,6]
+  wall(WALL_T, 9, -50, 14.5, Y0, ROOM_H, M.concrete); // east wall z[10,19] (door gap z[6,10])
+  // Plant bays lining the corridor (open — no room shells).
+  const plantBays: Array<[number, "elec" | "ac" | "fire" | "store"]> = [
+    [-24, "elec"], [-14, "ac"], [-4, "fire"], [16, "store"], [28, "store"],
+  ];
+  for (const [pz, kind] of plantBays) {
+    if (kind === "elec" || kind === "ac") cover(2.2, 2.2, 1.3, -53.6, pz, Y0, M.steel); // switchgear / AC plant
+    else if (kind === "fire") { cover(1.4, 1.6, 0.5, -54.6, pz, Y0, M.steel); ext(-52.5, pz - 1.4); ext(-52.5, pz + 1.4); } // fire panel
+    else boxStack(-53.6, pz, 3); // storage
+  }
+  for (const cz of [-27, -8, 22]) cabinet(-54.6, cz);
+  for (const cz of [-18, 4, 26]) emergencyLight(-50.4, cz, Math.PI); // service-corridor emergency lighting
+  plaque("PLANT & UTILITIES", -50.3, -20, Math.PI / 2);
+  exitSign(-53, -27.4, 0);
 
   // =========================================================================
   // EAST STAFF-FACILITIES WING — cafeteria / kitchen / pantry / washrooms in
@@ -1357,35 +1371,8 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   exitSign(54, -27.4, 0);
   cctv(54, 15, Math.PI);
 
-  // =========================================================================
-  // WEST UTILITY (storage / janitor / electrical / AC plant / fire control /
-  // workshop) clustered around the loading dock.
-  // =========================================================================
-  const utility: Array<[string, number, number]> = [
-    ["STORAGE", -30, -34],
-    ["WORKSHOP", -14, -34],
-    ["ELECTRICAL", -48, -20],
-    ["AC PLANT", -48, -8],
-    ["FIRE CONTROL", -34, -6],
-  ];
-  for (const [label, cx, cz] of utility) {
-    roomShell(cx - 6, cz - 4, cx + 6, cz + 4, M.concrete, [{ side: "n", at: cx, width: 2.0 }]);
-    if (label === "STORAGE" || label === "WORKSHOP") {
-      boxStack(cx - 3, cz, 3);
-      boxStack(cx + 3, cz - 1, 2);
-      cover(4, 1.8, 0.6, cx, cz + 3, Y0, M.steel); // storage shelf
-    } else if (label === "AC PLANT" || label === "ELECTRICAL") {
-      cover(3, 2.4, 1.6, cx, cz, Y0, M.steel); // plant unit
-      ext(cx + 4, cz + 2);
-    } else {
-      cover(2, 1.8, 0.5, cx, cz + 2.5, Y0, M.steel); // fire panel cabinet
-      ext(cx - 3, cz - 2);
-      ext(cx + 3, cz - 2);
-    }
-    ceiling(cx - 6, cz - 4, cx + 6, cz + 4);
-    exitSign(cx, cz + 3.6, Math.PI);
-    fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 6, cz - 4, cx + 6, cz + 4);
-  }
+  // (West utility rooms removed — they overlapped the west offices; utility is
+  // now the open plant bays along the cable corridor, above.)
   // Loading dock props (crates, roller door, fork of boxes) — on the DOCK floor.
   boxStack(-50, -34, 3, Y_DOCK);
   boxStack(-46, -32, 2, Y_DOCK);
@@ -1467,6 +1454,18 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     t.material = towerMat;
     add(t, false, false, false);
   }
+
+  // Build-time layout validation: warn on any pair of room rectangles that
+  // overlap (shared edges are fine). Surfaces layout regressions immediately.
+  for (let i = 0; i < roomRects.length; i++)
+    for (let j = i + 1; j < roomRects.length; j++) {
+      const a = roomRects[i];
+      const b = roomRects[j];
+      const ox = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+      const oz = Math.min(a.z1, b.z1) - Math.max(a.z0, b.z0);
+      if (ox > 0.05 && oz > 0.05)
+        console.warn(`[IronCitadel] room overlap: "${a.name}" ∩ "${b.name}" = ${ox.toFixed(1)}×${oz.toFixed(1)}m`);
+    }
 
   // The complex is fully enclosed: curtain-wall glazing + two skylights admit
   // the daylight/IBL; ceilings' LED panels, light strips, screen glow and
