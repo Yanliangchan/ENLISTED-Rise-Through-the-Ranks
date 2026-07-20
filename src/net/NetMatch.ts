@@ -7,50 +7,121 @@ import type { PlayerNetState, ServerMsg, Team, LobbyPlayer, MatchPlayerResult } 
 import { NetFlag } from "@/net/protocol";
 import { IRON_CITADEL_BASE } from "@/world/IronCitadel";
 
-/** Local visual + net state for one remote player. */
-class Avatar {
+/** Damage hook shared by an avatar's hittable meshes; NetMatch wires takeDamage. */
+interface DmgHook { takeDamage: (dmg: number, headshot: boolean, origin?: unknown, fmj?: boolean) => void }
+
+/**
+ * Local visual + net state for one remote player. Renders as a proper SAF
+ * soldier (torso / plate carrier / head / helmet / arms / legs) in the team
+ * colour, carrying a large roster number (1-4) on the chest, helmet and
+ * nameplate so teammates and opponents are instantly identifiable.
+ */
+export class Avatar {
   root: TransformNode;
-  body: Mesh;
+  private model: TransformNode;
+  /** Shared damageable — NetMatch sets .takeDamage to emit a server hit-claim. */
+  readonly dmg: DmgHook = { takeDamage: () => {} };
   target = new Vector3();
   targetYaw = 0;
   hp = 100;
   dead = false;
-  constructor(scene: Scene, public readonly info: LobbyPlayer, teamColor: Color3, private readonly base: Vector3) {
+
+  constructor(scene: Scene, public readonly info: LobbyPlayer, teamColor: Color3, public readonly number: number, private readonly base: Vector3) {
     this.root = new TransformNode(`avatar_${info.id}`, scene);
-    const body = MeshBuilder.CreateCapsule(`av_${info.id}`, { height: 1.8, radius: 0.35 }, scene);
-    const mat = new StandardMaterial(`avm_${info.id}`, scene);
-    mat.diffuseColor = teamColor;
-    mat.emissiveColor = teamColor.scale(0.25);
-    body.material = mat;
-    body.parent = this.root;
-    body.position.y = 0.9;
-    // Damageable hook: the real WeaponController hitscan reports damage here; we
-    // forward it to the server as a hit-claim (server is authoritative).
-    body.metadata = {
-      damageable: {
-        takeDamage: (_dmg: number, _hs: boolean) => {}, // wired by NetMatch
-      },
+    this.model = new TransformNode(`avmodel_${info.id}`, scene);
+    this.model.parent = this.root;
+
+    const mat = (name: string, rgb: Color3, glow = 0.12): StandardMaterial => {
+      const m = new StandardMaterial(name, scene);
+      m.diffuseColor = rgb;
+      m.emissiveColor = rgb.scale(glow);
+      m.specularColor = new Color3(0.08, 0.08, 0.08);
+      return m;
     };
-    this.body = body;
-    // nameplate
-    const plate = MeshBuilder.CreatePlane(`np_${info.id}`, { width: 2.2, height: 0.5 }, scene);
-    plate.parent = this.root;
-    plate.position.y = 2.3;
-    plate.billboardMode = Mesh.BILLBOARDMODE_ALL;
-    const tex = new DynamicTexture(`npt_${info.id}`, { width: 256, height: 58 }, scene, true);
+    const uniform = mat(`av_uni_${info.id}`, teamColor, 0.22);
+    const gear = mat(`av_gear_${info.id}`, teamColor.scale(0.45), 0.05);
+    const skin = mat(`av_skin_${info.id}`, new Color3(0.62, 0.46, 0.36), 0.05);
+    const helmetMat = mat(`av_hel_${info.id}`, teamColor.scale(0.6), 0.1);
+    const numTex = this.numberTexture(scene, teamColor);
+    const numMat = new StandardMaterial(`av_num_${info.id}`, scene);
+    numMat.emissiveTexture = numTex; numMat.diffuseTexture = numTex; numMat.disableLighting = true;
+
+    const box = (n: string, w: number, h: number, d: number, y: number, m: StandardMaterial, hz?: "body" | "head" | "limb", hs = false): Mesh => {
+      const mesh = MeshBuilder.CreateBox(`${info.id}_${n}`, { width: w, height: h, depth: d }, scene);
+      mesh.position.y = y; mesh.material = m; mesh.parent = this.model;
+      if (hz) mesh.metadata = { damageable: this.dmg, hitZone: hz, isHeadshotMesh: hs };
+      else mesh.isPickable = false;
+      return mesh;
+    };
+    // torso + plate carrier (hittable body)
+    box("body", 0.56, 1.0, 0.36, 0.98, uniform, "body");
+    box("vest", 0.54, 0.58, 0.16, 1.06, gear);
+    // shoulders + arms + hands
+    box("shoulders", 0.66, 0.16, 0.38, 1.42, uniform);
+    for (const x of [-0.36, 0.36]) {
+      const arm = box("arm", 0.16, 0.66, 0.2, 1.06, uniform, "limb");
+      arm.position.x = x;
+      const hand = MeshBuilder.CreateBox(`${info.id}_hand`, { width: 0.13, height: 0.14, depth: 0.15 }, scene);
+      hand.position.set(x, 0.72, 0.06); hand.material = gear; hand.parent = this.model; hand.isPickable = false;
+    }
+    // legs + boots
+    for (const x of [-0.15, 0.15]) {
+      const leg = box("leg", 0.2, 0.78, 0.24, 0.42, uniform, "limb");
+      leg.position.x = x;
+      const boot = MeshBuilder.CreateBox(`${info.id}_boot`, { width: 0.22, height: 0.14, depth: 0.3 }, scene);
+      boot.position.set(x, 0.07, 0.05); boot.material = gear; boot.parent = this.model; boot.isPickable = false;
+    }
+    // neck + head (headshot) + helmet + team band
+    const neck = MeshBuilder.CreateCylinder(`${info.id}_neck`, { diameter: 0.15, height: 0.12 }, scene);
+    neck.position.y = 1.52; neck.material = skin; neck.parent = this.model; neck.isPickable = false;
+    box("head", 0.27, 0.3, 0.27, 1.67, skin, "head", true);
+    const helmet = MeshBuilder.CreateSphere(`${info.id}_helmet`, { diameter: 0.34, slice: 0.62 }, scene);
+    helmet.position.y = 1.78; helmet.material = helmetMat; helmet.parent = this.model; helmet.isPickable = false;
+    const band = MeshBuilder.CreateTorus(`${info.id}_band`, { diameter: 0.33, thickness: 0.035, tessellation: 12 }, scene);
+    band.position.y = 1.72; band.rotation.x = Math.PI / 2; band.material = numMat; band.parent = this.model; band.isPickable = false;
+
+    // roster number: on the chest and the helmet front + a rifle prop.
+    const chestNum = MeshBuilder.CreatePlane(`${info.id}_cn`, { width: 0.34, height: 0.34 }, scene);
+    chestNum.position.set(0, 1.12, 0.28); chestNum.material = numMat; chestNum.parent = this.model; chestNum.isPickable = false;
+    const helmNum = MeshBuilder.CreatePlane(`${info.id}_hn`, { width: 0.18, height: 0.18 }, scene);
+    helmNum.position.set(0, 1.8, 0.2); helmNum.material = numMat; helmNum.parent = this.model; helmNum.isPickable = false;
+    const rifle = MeshBuilder.CreateBox(`${info.id}_rifle`, { width: 0.08, height: 0.12, depth: 0.7 }, scene);
+    rifle.position.set(0.28, 1.02, 0.35); rifle.material = gear; rifle.parent = this.model; rifle.isPickable = false;
+
+    // billboard nameplate: [#N] RANK NAME
+    const plate = MeshBuilder.CreatePlane(`np_${info.id}`, { width: 2.4, height: 0.55 }, scene);
+    plate.parent = this.root; plate.position.y = 2.35; plate.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    const tex = new DynamicTexture(`npt_${info.id}`, { width: 300, height: 64 }, scene, true);
     const ctx = tex.getContext() as CanvasRenderingContext2D;
-    ctx.fillStyle = "rgba(10,14,10,0.6)"; ctx.fillRect(0, 0, 256, 58);
-    tex.drawText(`${info.rankInsignia} ${info.name}`, null, 40, "bold 26px Arial", teamColor.toHexString(), null, true);
+    ctx.fillStyle = "rgba(8,12,8,0.62)"; ctx.fillRect(0, 0, 300, 64);
+    ctx.fillStyle = teamColor.toHexString(); ctx.fillRect(0, 0, 46, 64);
+    ctx.fillStyle = "#ffffff"; ctx.font = "bold 40px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(String(number), 23, 34);
+    tex.drawText(`${info.rankInsignia} ${info.name}`, 58, 40, "bold 24px Arial", teamColor.toHexString(), null, true, true);
     const pm = new StandardMaterial(`npm_${info.id}`, scene);
     pm.emissiveTexture = tex; pm.opacityTexture = tex; pm.disableLighting = true; pm.backFaceCulling = false;
     plate.material = pm;
   }
+
+  /** Big roster number on a translucent team-tinted plate. */
+  private numberTexture(scene: Scene, teamColor: Color3): DynamicTexture {
+    const t = new DynamicTexture(`num_${this.info.id}`, { width: 128, height: 128 }, scene, true);
+    const c = t.getContext() as CanvasRenderingContext2D;
+    c.clearRect(0, 0, 128, 128);
+    c.fillStyle = teamColor.scale(0.7).toHexString(); c.fillRect(8, 8, 112, 112);
+    c.fillStyle = "#ffffff"; c.font = "bold 96px Arial"; c.textAlign = "center"; c.textBaseline = "middle";
+    c.fillText(String(this.number), 64, 70);
+    t.update(true);
+    t.hasAlpha = true;
+    return t;
+  }
+
   setState(s: PlayerNetState): void {
     this.target.set(this.base.x + s.x, s.y, this.base.z + s.z);
     this.targetYaw = s.yaw;
     this.hp = s.hp;
     const nowDead = (s.flags & NetFlag.Dead) !== 0;
-    if (nowDead !== this.dead) { this.dead = nowDead; this.body.setEnabled(!nowDead); }
+    if (nowDead !== this.dead) { this.dead = nowDead; this.model.setEnabled(!nowDead); }
   }
   interpolate(dt: number): void {
     const p = this.root.position;
@@ -60,6 +131,7 @@ class Avatar {
     p.z += (this.target.z - p.z) * a;
     this.root.rotation.y += (this.targetYaw - this.root.rotation.y) * a;
   }
+  setEnabled(on: boolean): void { this.model.setEnabled(on); this.dead = !on; }
   dispose(): void { this.root.dispose(false, true); }
 }
 
@@ -134,8 +206,9 @@ export class NetMatch {
   }
 
   private spawnAvatar(p: LobbyPlayer): void {
-    const av = new Avatar(this.scene, p, this.teamColor(p.team), IRON_CITADEL_BASE);
-    (av.body.metadata.damageable as { takeDamage: (d: number, hs: boolean) => void }).takeDamage = (dmg, hs) => {
+    const num = this.roster.findIndex((r) => r.id === p.id) + 1; // 1-4 roster number
+    const av = new Avatar(this.scene, p, this.teamColor(p.team), num, IRON_CITADEL_BASE);
+    av.dmg.takeDamage = (dmg, hs) => {
       if (av.dead || this.ended) return;
       this.net.send({ t: "hit", targetId: p.id, damage: dmg, headshot: hs });
     };
@@ -173,7 +246,7 @@ export class NetMatch {
           this.weapon.resetAllAmmo();
         } else {
           const av = this.avatars.get(m.playerId);
-          if (av) { av.dead = false; av.body.setEnabled(true); av.root.position.copyFrom(pos); av.target.copyFrom(pos); }
+          if (av) { av.setEnabled(true); av.root.position.copyFrom(pos); av.target.copyFrom(pos); }
         }
         break;
       }
@@ -252,7 +325,9 @@ export class NetMatch {
           const r = results?.find((x) => x.id === p.id);
           const av = this.avatars.get(p.id);
           const ping = p.id === this.net.playerId ? this.net.ping : (av?.info.ping ?? 0);
-          return `<tr><td class="ins">${p.rankInsignia}</td><td class="nm">${p.name}${r?.mvp ? " ★" : ""}</td><td>${r?.kills ?? 0}</td><td>${r?.deaths ?? 0}</td><td>${r?.assists ?? 0}</td><td>${ping}ms</td></tr>`;
+          const num = this.roster.findIndex((x) => x.id === p.id) + 1;
+          const meMark = p.id === this.net.playerId ? ' style="background:rgba(255,255,255,0.06)"' : "";
+          return `<tr${meMark}><td class="no">${num}</td><td class="ins">${p.rankInsignia}</td><td class="nm">${p.name}${r?.mvp ? " ★" : ""}</td><td>${r?.kills ?? 0}</td><td>${r?.deaths ?? 0}</td><td>${r?.assists ?? 0}</td><td>${ping}ms</td></tr>`;
         })
         .join("");
     };

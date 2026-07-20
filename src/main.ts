@@ -29,11 +29,11 @@ import { SafeZoneManager } from "@/world/SafeZone";
 import { UAVSupport } from "@/world/UAVSupport";
 import { MedKitController } from "@/player/MedKit";
 import { Ambience } from "@/world/Ambience";
-import { Vector3, Ray } from "@babylonjs/core";
+import { Vector3, Ray, Color3 } from "@babylonjs/core";
 import { buildTrainingRange, RANGE_FIRING_LINE, RANGE_DISTANCES_M } from "@/world/TrainingRange";
 import { buildIronCitadel, type IronCitadelHandles } from "@/world/IronCitadel";
 import { MultiplayerMenu, type MatchStartInfo } from "@/ui/MultiplayerMenu";
-import { NetMatch } from "@/net/NetMatch";
+import { NetMatch, Avatar as NetAvatar } from "@/net/NetMatch";
 import type { NetClient } from "@/net/NetClient";
 import { RangeTargetController } from "@/world/RangeTarget";
 import { TrainingRangeUI, type RangeWeaponOption } from "@/ui/TrainingRangeUI";
@@ -744,6 +744,18 @@ async function boot(): Promise<void> {
       enterIronCitadel,
       exitIronCitadelToMenu,
       citadel: () => citadel,
+      /** Test helper: spawn soldier avatars near a world point to verify netplay rendering. */
+      spawnTestSoldiers: (x: number, y: number, z: number) => {
+        const mk = (team: "blue" | "red", num: number, dx: number) => {
+          const color = team === "blue" ? new Color3(0.3, 0.56, 0.85) : new Color3(0.85, 0.36, 0.3);
+          const info = { id: `t${num}`, name: team === "blue" ? "Yanliang" : "OPFOR", rankInsignia: team === "blue" ? "ME4" : "CPL", rankName: "", team, ready: true, isHost: num === 1, ping: 20 };
+          const av = new NetAvatar(game.scene, info, color, num, new Vector3(0, 0, 0));
+          av.root.position.set(x + dx, y, z);
+          av.root.rotation.y = Math.PI;
+        };
+        mk("blue", 1, -1.2);
+        mk("red", 2, 1.2);
+      },
       weaponController,
       input,
       botty: () => botty,
