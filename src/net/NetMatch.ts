@@ -85,6 +85,8 @@ export class NetMatch {
   private prevOnFire?: (w: unknown) => void;
 
   onExit?: () => void;
+  /** Persist the local player's result (XP/currency/rank/badges) — wired to the backend by main. */
+  onSubmitResult?: (r: { mode: "tdm" | "elim"; won: boolean; result: MatchPlayerResult }) => Promise<{ xpGained: number; currency: number; rankUp: { from: string; to: string } | null } | null>;
 
   constructor(
     private readonly scene: Scene,
@@ -282,11 +284,25 @@ export class NetMatch {
         <div style="font-size:38px;letter-spacing:6px;color:${winner === "draw" ? "#e8c86a" : won ? "#6ee06e" : "#ff5b4d"}">${winner === "draw" ? "DRAW" : won ? "VICTORY" : "DEFEAT"}</div>
         <div style="font-size:22px;margin:6px 0 18px"><span style="color:#6db4ff">BLUE ${blue}</span>  —  <span style="color:#ff8f7a">${red} RED</span></div>
         ${me ? `<div style="font-size:13px;color:#8fa47e;letter-spacing:1px;margin-bottom:16px">YOUR MATCH${me.mvp ? " · ★ MVP" : ""}<br><br>Kills ${me.kills} · Deaths ${me.deaths} · Assists ${me.assists}<br>Headshots ${me.headshots} · Damage ${Math.round(me.damage)} · Accuracy ${acc}%</div>` : ""}
+        <div id="mp-rewards" style="font-size:12px;color:#e8c86a;letter-spacing:1px;min-height:18px;margin-bottom:14px">Recording match…</div>
         <button id="mp-end-btn" style="background:#3f6b2f;color:#eaffdc;border:1px solid #5c9a45;padding:12px 26px;font-family:inherit;letter-spacing:2px;cursor:pointer">RETURN TO LOBBY</button>
       </div>`;
     document.body.appendChild(overlay);
     document.exitPointerLock();
     overlay.querySelector("#mp-end-btn")?.addEventListener("click", () => { overlay.remove(); this.exit(); });
+    // Persist result → XP / currency / rank / badges (server-authoritative).
+    const rewardsEl = overlay.querySelector("#mp-rewards") as HTMLElement | null;
+    if (me && this.onSubmitResult) {
+      this.onSubmitResult({ mode: this.info.settings.mode, won: !!won, result: me })
+        .then((r) => {
+          if (!rewardsEl) return;
+          if (!r) { rewardsEl.textContent = ""; return; }
+          rewardsEl.innerHTML = `+${r.xpGained} XP · +$${r.currency}${r.rankUp ? ` · PROMOTED → ${r.rankUp.to}` : ""}`;
+        })
+        .catch(() => { if (rewardsEl) rewardsEl.textContent = ""; });
+    } else if (rewardsEl) {
+      rewardsEl.textContent = "";
+    }
   }
 
   exit(): void {

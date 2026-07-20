@@ -473,6 +473,25 @@ async function boot(): Promise<void> {
     player.camera.rotation.x = 0;
     netMatch = new NetMatch(game.scene, player, weaponController, net, info, uiRoot);
     netMatch.onExit = () => exitNetMatch();
+    // Persist results before returning to the lobby: XP/rank/badges server-side,
+    // currency applied to the local economy save (auto-persists).
+    netMatch.onSubmitResult = async ({ mode, won, result }) => {
+      if (!backend) return null;
+      try {
+        const resp = await backend.submitMultiplayerMatch({
+          mode, won,
+          kills: result.kills, deaths: result.deaths, assists: result.assists,
+          headshots: result.headshots, shotsFired: result.shotsFired, shotsHit: result.shotsHit,
+          durationSec: Math.round(info.settings.timeLimitSec),
+        });
+        gameState.addCredits(resp.currency);
+        stats.applyServerProfile(resp.profile.stats);
+        return { xpGained: resp.xpGained, currency: resp.currency, rankUp: resp.rankUp };
+      } catch (e) {
+        console.warn("[mp] result submit failed", e);
+        return null;
+      }
+    };
     hud.showCenterMessage(`MULTIPLAYER — ${info.settings.mode === "tdm" ? "TEAM DEATHMATCH" : "ELIMINATION"} · hold TAB for scoreboard`, 4000);
     input.lockPointer();
   }

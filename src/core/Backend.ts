@@ -72,6 +72,22 @@ export interface MatchSubmitResponse {
   profile: Profile;
 }
 
+export interface MpMatchResult {
+  mode: "tdm" | "elim";
+  won: boolean;
+  kills: number;
+  deaths: number;
+  assists: number;
+  headshots: number;
+  shotsFired: number;
+  shotsHit: number;
+  durationSec: number;
+}
+
+export interface MpSubmitResponse extends MatchSubmitResponse {
+  currency: number;
+}
+
 export interface LeaderboardEntry {
   rank: number;
   username: string;
@@ -208,6 +224,13 @@ export class Backend {
   /** Save one completed deployment's results; updates `this.profile` from the authoritative server response. */
   async submitMatch(result: MatchResult): Promise<MatchSubmitResponse> {
     const resp = await this.request<MatchSubmitResponse>("POST", "/api/matches", result);
+    this.profile = resp.profile;
+    return resp;
+  }
+
+  /** Record one private multiplayer match; awards XP/currency/badges and refreshes `this.profile`. */
+  async submitMultiplayerMatch(result: MpMatchResult): Promise<MpSubmitResponse> {
+    const resp = await this.request<MpSubmitResponse>("POST", "/api/matches/mp", result);
     this.profile = resp.profile;
     return resp;
   }

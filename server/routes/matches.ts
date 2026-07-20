@@ -172,3 +172,116 @@ matchesRouter.post("/matches", requireAuth, asyncHandler(async (req: AuthedReque
   const profile = await loadProfile(userId);
   res.json({ ...result, profile });
 }));
+
+interface MpPayload {
+  mode: "tdm" | "elim";
+  won: boolean;
+  kills: number;
+  deaths: number;
+  assists: number;
+  headshots: number;
+  shotsFired: number;
+  shotsHit: number;
+  durationSec: number;
+}
+
+function sanitizeMp(body: unknown): MpPayload {
+  const b = (body ?? {}) as Record<string, unknown>;
+  return {
+    mode: b.mode === "elim" ? "elim" : "tdm",
+    won: b.won === true,
+    kills: toNonNegInt(b.kills),
+    deaths: toNonNegInt(b.deaths),
+    assists: toNonNegInt(b.assists),
+    headshots: toNonNegInt(b.headshots),
+    shotsFired: toNonNegInt(b.shotsFired),
+    shotsHit: toNonNegInt(b.shotsHit),
+    durationSec: Math.min(3600, toNonNegInt(b.durationSec)),
+  };
+}
+
+/**
+ * POST /api/matches/mp — record the results of one private multiplayer match.
+ * Awards XP (kills/headshots/assists + a win/participation bonus) and currency,
+ * increments the same lifetime player_stats aggregates as wave mode (but by the
+ * real MP deaths, and without touching wave-only columns), evaluates badges and
+ * refreshes the leaderboard — all in one transaction. The authoritative result
+ * comes from the game server; the client relays its own row here.
+ */
+matchesRouter.post("/matches/mp", requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
+  const userId = req.user!.sub;
+  const m = sanitizeMp(req.body);
+  const currency = m.kills * 80 + m.assists * 25 + (m.won ? 600 : 200);
+  const xpGained = Math.round(m.kills * 7 + m.headshots * 11 + m.assists * 3 + (m.won ? 150 : 40));
+
+  const result = await withTransaction(async (client) => {
+    const before = await client.query<{ kills: number; headshots: number; games_played: number }>(
+      "SELECT kills, headshots, games_played FROM player_stats WHERE user_id = $1 FOR UPDATE",
+      [userId]
+    );
+    void before;
+    const updated = await client.query<{ kills: number; headshots: number; games_played: number }>(
+      `UPDATE player_stats SET
+         games_played = games_played + 1,
+         kills = kills + $2,
+         headshots = headshots + $3,
+         shots_fired = shots_fired + $4,
+         shots_hit = shots_hit + $5,
+         best_game_kills = GREATEST(best_game_kills, $2),
+         deaths = deaths + $6,
+         credits_earned = credits_earned + $7,
+         playtime_sec = playtime_sec + $8,
+         updated_at = now()
+       WHERE user_id = $1
+       RETURNING kills, headshots, games_played`,
+      [userId, m.kills, m.headshots, m.shotsFired, m.shotsHit, m.deaths, currency, m.durationSec]
+    );
+    const stats = updated.rows[0];
+
+    const progRows = await client.query<{ xp: string }>(
+      "UPDATE progression SET xp = xp + $2, updated_at = now() WHERE user_id = $1 RETURNING xp",
+      [userId, xpGained]
+    );
+    const xpAfter = Number(progRows.rows[0].xp);
+    const xpBefore = xpAfter - xpGained;
+    const careerPathRow = await client.query<{ career_path: CareerPath | null }>("SELECT career_path FROM users WHERE id = $1", [userId]);
+    const careerPath = careerPathRow.rows[0]?.career_path ?? null;
+    const rankBefore = rankForXp(xpBefore, careerPath);
+    const rankAfter = rankForXp(xpAfter, careerPath);
+
+    await client.query(
+      `INSERT INTO match_history
+         (user_id, wave_reached, kills, headshots, shots_fired, shots_hit, credits_earned, duration_sec, xp_gained)
+       VALUES ($1, 0, $2, $3, $4, $5, $6, $7, $8)`,
+      [userId, m.kills, m.headshots, m.shotsFired, m.shotsHit, currency, m.durationSec, xpGained]
+    );
+
+    const newBadges: UnlockedBadge[] = await evaluateAndUnlockBadges(client, userId, {
+      lifetime: { kills: stats.kills, headshots: stats.headshots, gamesPlayed: stats.games_played },
+      match: { kills: m.kills, waveReached: 0, shotsFired: m.shotsFired, shotsHit: m.shotsHit },
+    });
+
+    for (const { category, column } of LEADERBOARD_CATEGORIES) {
+      await client.query("DELETE FROM leaderboard_cache WHERE category = $1", [category]);
+      await client.query(
+        `INSERT INTO leaderboard_cache (category, rank, user_id, username, value)
+         SELECT $1, ROW_NUMBER() OVER (ORDER BY ps.${column} DESC), u.id, u.username, ps.${column}
+         FROM player_stats ps JOIN users u ON u.id = ps.user_id
+         WHERE ps.${column} > 0
+         ORDER BY ps.${column} DESC
+         LIMIT 100`,
+        [category]
+      );
+    }
+
+    return {
+      xpGained,
+      currency,
+      newBadges,
+      rankUp: rankAfter.index > rankBefore.index ? { from: rankBefore.name, to: rankAfter.name } : null,
+    };
+  });
+
+  const profile = await loadProfile(userId);
+  res.json({ ...result, profile });
+}));
