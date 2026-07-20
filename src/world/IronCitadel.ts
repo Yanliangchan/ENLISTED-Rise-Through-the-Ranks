@@ -73,8 +73,18 @@ export interface IronCitadelHandles {
 
 type Door = { side: "n" | "s" | "e" | "w"; at: number; width: number };
 
+/**
+ * Global footprint scale: the whole complex is compressed ~10% per axis
+ * (≈19% less floor area) via the root transform, tightening travel times
+ * and combat pacing while preserving the layout 1:1. Heights are untouched
+ * so ceilings, cover and sightlines keep their proportions.
+ */
+const S = 0.9;
+
 export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   const root = new TransformNode("ironCitadel", scene);
+  root.position.copyFrom(BASE);
+  root.scaling.set(S, 1, S);
   const footprints: IronCitadelHandles["footprints"] = [];
   const meshes: Mesh[] = [];
   const instances: InstancedMesh[] = [];
@@ -260,6 +270,15 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   glassMat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
   glassMat.backFaceCulling = false;
   glassMat.environmentIntensity = 1.0;
+  glassMat.alpha = 0.22; // clearer panes: partitions must read as glass, not walls
+  // Near-clear infill for guard rails (even lighter than partition glass).
+  const railGlassMat = new WorldMaterial("ic_railGlass", scene);
+  railGlassMat.albedoColor = new Color3(0.7, 0.8, 0.85);
+  railGlassMat.alpha = 0.1;
+  railGlassMat.roughness = 0.06;
+  railGlassMat.metallic = 0;
+  railGlassMat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+  railGlassMat.backFaceCulling = false;
   const G = {
     glass: glow("ic_glass", [0.5, 0.66, 0.78], 0.24), // partition / window glass
     screen: glow("ic_screen", [0.25, 0.6, 0.85]), // monitor / NOC screen glow
@@ -385,8 +404,9 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   const asphaltMat = pbr("ic_asphalt", [0.15, 0.15, 0.16], 0.95);
   const towerMat = pbr("ic_tower", [0.1, 0.12, 0.16], 0.35, 0.3);
 
+  // Meshes are authored in LOCAL map coordinates; the root transform applies
+  // the BASE offset and the global S footprint scale to everything at once.
   const add = (m: Mesh, walkable: boolean, pickable = true, collide = true): Mesh => {
-    m.position.addInPlace(BASE);
     m.parent = root;
     m.checkCollisions = collide;
     m.isPickable = pickable;
@@ -446,12 +466,14 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     const dh = y1 - y0;
     const len = Math.hypot(run, dh);
     const ang = Math.atan2(dh, run);
-    const m = MeshBuilder.CreateBox(uid("ramp"), { width: axis === "z" ? w : len, height: 0.3, depth: axis === "z" ? len : w }, scene);
+    // Thin deck sunk a few cm so the tilted box's end corners never poke a
+    // lip above the flat floors it meets — transitions feel smooth on foot.
+    const m = MeshBuilder.CreateBox(uid("ramp"), { width: axis === "z" ? w : len, height: 0.26, depth: axis === "z" ? len : w }, scene);
     if (axis === "z") {
-      m.position.set(cross, (y0 + y1) / 2, start + run / 2);
+      m.position.set(cross, (y0 + y1) / 2 - 0.05, start + run / 2);
       m.rotation.x = -ang;
     } else {
-      m.position.set(start + run / 2, (y0 + y1) / 2, cross);
+      m.position.set(start + run / 2, (y0 + y1) / 2 - 0.05, cross);
       m.rotation.z = ang;
     }
     m.material = M.ramp;
@@ -625,7 +647,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   });
   const inst = (src: Mesh, x: number, y: number, z: number, rotY = 0, sy = 1): void => {
     const i = src.createInstance(uid("i"));
-    i.position.set(BASE.x + x, y, BASE.z + z);
+    i.position.set(x, y, z);
     i.rotation.y = rotY;
     if (sy !== 1) i.scaling.y = sy;
     i.parent = root;
@@ -694,10 +716,12 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   const missionBoard = (cx: number, cz: number, rotY: number, y = Y0): void => { panel(1.8, 1.2, cx, cz, y + 1.8, rotY, G.poster); };
   const flag = (cx: number, cz: number, rotY: number, y = Y0): void => { panel(1.95, 1.3, cx, cz, y + 2.6, rotY, flagMat); };
   const exitSign = (cx: number, cz: number, rotY: number, y = Y0): void => { panel(0.7, 0.28, cx, cz, y + 2.7, rotY, G.exit); };
-  const cctv = (cx: number, cz: number, rotY = 0): void => inst(cctvSrc, cx, WALL_H - 0.7, cz, rotY);
+  // CCTV mounts at drop-ceiling height so cameras read as ceiling-mounted
+  // rather than floating in the plenum void.
+  const cctv = (cx: number, cz: number, rotY = 0): void => inst(cctvSrc, cx, ROOM_H - 0.15, cz, rotY);
   const ext = (cx: number, cz: number): void => inst(extSrc, cx, Y0 + 0.4, cz);
-  const boxStack = (cx: number, cz: number, n = 2): void => {
-    for (let i = 0; i < n; i++) inst(boxSrc, cx + (Math.random() - 0.5) * 0.3, Y0 + 0.25 + i * 0.5, cz + (Math.random() - 0.5) * 0.3, Math.random());
+  const boxStack = (cx: number, cz: number, n = 2, y = Y0): void => {
+    for (let i = 0; i < n; i++) inst(boxSrc, cx + (Math.random() - 0.5) * 0.3, y + 0.25 + i * 0.5, cz + (Math.random() - 0.5) * 0.3, Math.random());
   };
   const plant = (cx: number, cz: number, y = Y0): void => inst(plantSrc, cx, y + 0.65, cz);
   const bin = (cx: number, cz: number, y = Y0): void => inst(binSrc, cx, y + 0.3, cz);
@@ -735,6 +759,30 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
       add(rod, false, false, false);
     }
   };
+  /**
+   * Low guard rail: aluminium handrail on posts with a near-clear glass
+   * infill. Replaces the old chest-high tinted glass slabs on the platforms,
+   * which stacked up visually into a huge blue wall across the atrium.
+   */
+  const guardRail = (len: number, cx: number, cz: number, y: number, axis: "x" | "z" = "x"): void => {
+    const bar = MeshBuilder.CreateBox(uid("rail"), { width: axis === "x" ? len : 0.09, height: 0.07, depth: axis === "x" ? 0.09 : len }, scene);
+    bar.position.set(cx, y + 1.02, cz);
+    bar.material = M.alu;
+    add(bar, false);
+    const posts = Math.max(2, Math.round(len / 2.4));
+    for (let i = 0; i < posts; i++) {
+      const t = len * (i / (posts - 1) - 0.5) * 0.96;
+      const p = MeshBuilder.CreateBox(uid("post"), { width: 0.07, height: 1.0, depth: 0.07 }, scene);
+      p.position.set(cx + (axis === "x" ? t : 0), y + 0.5, cz + (axis === "z" ? t : 0));
+      p.material = M.alu;
+      add(p, false, false, false);
+    }
+    const g = MeshBuilder.CreateBox(uid("railglass"), { width: axis === "x" ? len : 0.05, height: 0.92, depth: axis === "x" ? 0.05 : len }, scene);
+    g.position.set(cx, y + 0.5, cz);
+    g.material = railGlassMat;
+    add(g, false, false); // collides: still prevents walking off the edge
+  };
+
   /** Flat yellow/black chevron strip marking a sunken edge (non-colliding). */
   const hazardStrip = (w: number, d: number, cx: number, cz: number, y = Y0): void => {
     const m = MeshBuilder.CreateBox(uid("hz"), { width: w, height: 0.06, depth: d }, scene);
@@ -787,7 +835,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   };
 
   const fp = (kind: string, x0: number, z0: number, x1: number, z1: number) =>
-    footprints.push({ x: BASE.x + (x0 + x1) / 2, z: BASE.z + (z0 + z1) / 2, w: x1 - x0, d: z1 - z0, kind });
+    footprints.push({ x: BASE.x + ((x0 + x1) / 2) * S, z: BASE.z + ((z0 + z1) / 2) * S, w: (x1 - x0) * S, d: (z1 - z0) * S, kind });
 
   // =========================================================================
   // PERIMETER + STRUCTURE — glass curtain walls (sill / continuous window
@@ -926,7 +974,11 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
 
   // Sunken loading dock (SW), own floor + ramp rising east to the public band.
   slab(16, 14, -48, -35, Y_DOCK, M.concrete);
-  ramp(5, 6, -40, -46, Y_DOCK, Y0, "x"); // dock floor at x=-46 up to Y0 at x=-40
+  ramp(4, 6, -39.5, -46, Y_DOCK, Y0, "x"); // dock floor at x=-46 up to Y0 at x=-40, clear of the south wall
+  // Skirt walls: the perimeter walls start at Y0, so close the 1.6m gap
+  // beneath them where they cross the sunken dock.
+  wall(WALL_T, 14, -56, -35, Y_DOCK, -Y_DOCK, M.concrete);
+  wall(16, WALL_T, -48, -42, Y_DOCK, -Y_DOCK, M.concrete);
   fp("dock", -56, -42, -40, -28);
 
   // Sunken courtyard (atrium centre) + ramp down (west edge) + glass bridge.
@@ -934,15 +986,19 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   ramp(4, 4, 0, -7, Y0, Y_PIT, "x"); // descends eastward from the west rim
   const bridge = slab(14, 3.6, 0, 0, Y0, M.alu);
   bridge.material = M.alu;
-  glassPanel(14, 0.12, 0, -1.8, Y0, 1.0);
-  glassPanel(14, 0.12, 0, 1.8, Y0, 1.0);
+  guardRail(14, 0, -1.8, Y0, "x");
+  guardRail(14, 0, 1.8, Y0, "x");
+  cover(0.5, 1.0, 0.5, -4, 0, Y_PIT, M.steel); // bridge support columns
+  cover(0.5, 1.0, 0.5, 4, 0, Y_PIT, M.steel);
   fp("courtyard", -7, -7, 7, 7);
 
   // Sunken briefing pit (military zone, tiered seating look) + ramp rising to
   // the secure zone at the pit's north edge.
   slab(14, 10, -17, 19, Y_PIT, M.carpetB);
   ramp(4, 4, -17, 20, Y_PIT, Y0, "z"); // pit floor at z=20 up to Y0 at z=24
-  for (let t = 0; t < 3; t++) cover(12, 0.35, 1.2, -17, 15.5 + t * 1.4, Y_PIT + t * 0.35, M.wood); // tiered benches
+  // Tiered benches: each tier is a solid block from the pit floor up (the old
+  // stacked thin planks left the upper tiers floating in mid-air).
+  for (let t = 0; t < 3; t++) cover(12, 0.35 * (t + 1), 1.2, -17, 15.5 + t * 1.4, Y_PIT, M.wood);
 
   // =========================================================================
   // SOUTH — PUBLIC AREAS (reception / lounge / screening / lift lobby)
@@ -959,11 +1015,13 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   inst(monitorSrc, -2, Y0 + 1.35, -35.4, Math.PI);
   flag(-2, -38.4, Math.PI); // faces the reception hall
   missionBoard(6, -39.6, 0);
-  // Visitor waiting lounge (west of reception): sofas + low tables + plants.
-  sofa(-40, -37, 0);
-  sofa(-46, -37, 0);
-  sofa(-43, -31, Math.PI);
-  cover(1.6, 0.5, 1.0, -43, -34, Y0, M.wood); // coffee table
+  // Visitor waiting lounge (east of reception, on the tile concourse — the
+  // old west spot floated over the sunken loading dock).
+  sofa(16, -36, 0);
+  sofa(22, -36, 0);
+  sofa(19, -31, Math.PI);
+  cover(1.6, 0.5, 1.0, 19, -33.5, Y0, M.wood); // coffee table
+  plant(25, -32);
   // Lift lobby (east): decorative lift doors (aluminium) + call panel.
   wall(10, 0.4, 40, -39.4, Y0, ROOM_H, M.alu);
   for (const lx of [36, 40, 44]) panel(1.8, 2.4, lx, -39.15, Y0 + 1.4, 0, M.alu);
@@ -982,10 +1040,10 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // Reception greenery + bins under the entrance skylight.
   plant(-8, -38);
   plant(8, -38);
-  plant(-36, -30);
+  plant(-38.5, -29);
   bin(-6, -34);
   bin(12, -34);
-  waterCooler(-48, -33);
+  waterCooler(-44, -27); // beside the dock rim, on the tile concourse
 
   // =========================================================================
   // MID — OFFICE DEPARTMENTS (west & east) + open-plan + cubicle maze
@@ -1060,7 +1118,8 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // Split-level open office (east-south raised bay reached by a ramp) — adds vertical interest.
   slab(16, 10, 44, -33, Y_SPLIT, M.carpetA);
   ramp(4, 5, 44, -30, Y0, Y_SPLIT, "z");
-  glassPanel(16, 0.12, 44, -28.2, Y_SPLIT, 1.0);
+  guardRail(16, 44, -28.2, Y_SPLIT, "x");
+  cover(16, Y_SPLIT, 0.3, 44, -28.35, Y0, M.concrete); // front skirt closes the underside gap
   desk(40, -35, 0, Y_SPLIT);
   desk(48, -35, Math.PI, Y_SPLIT);
   fp("raised-office-bay", 36, -38, 52, -28);
@@ -1073,7 +1132,9 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   for (const [cx, cz] of [[-10, 4], [10, 4], [-10, -4], [10, -4]] as const) counter(2.2, 1.2, cx, cz);
   // Raised command platform on the north side of the atrium (elevated overwatch).
   slab(20, 6, 0, 6, Y_CMD, M.alu);
-  glassPanel(20, 0.12, 0, 3.2, Y_CMD, 1.0);
+  guardRail(20, 0, 3.2, Y_CMD, "x");
+  for (const [lx, lz] of [[-9, 4], [9, 4], [-9, 8.4], [9, 8.4]] as const)
+    cover(0.4, Y_CMD, 0.4, lx, lz, Y0, M.steel); // platform legs
   ramp(3.5, 6, -9, 0, Y0, Y_CMD, "z");
   ramp(3.5, 6, 9, 0, Y0, Y_CMD, "z");
   cover(3, 0.9, 1.4, 0, 7, Y_CMD, M.wood); // command console
@@ -1081,7 +1142,8 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   inst(monitorSrc, 1, Y_CMD + 1.2, 7, 0);
   // Overwatch balcony above the command platform (highest point), 2 ramps.
   slab(14, 4, 0, 9, Y_BALC, M.alu);
-  glassPanel(14, 0.12, 0, 7.2, Y_BALC, 1.0);
+  guardRail(14, 0, 7.2, Y_BALC, "x");
+  for (const lx of [-6, 6]) cover(0.4, Y_BALC, 0.4, lx, 10.6, Y0, M.steel); // balcony rear legs
   ramp(3, 5, -8, 6, Y_CMD, Y_BALC, "z");
   ramp(3, 5, 8, 6, Y_CMD, Y_BALC, "z");
   for (const px of [-16, 16]) pillar(px, 6, Y0, WALL_H, M.accentTeal);
@@ -1123,7 +1185,9 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // archive / vault / armoury / equipment) behind a security barrier.
   // =========================================================================
   // Secure barrier line at z=17 with a controlled central gate + side flanks.
-  wall(20, WALL_T, -22, 17, Y0, ROOM_H, M.olive);
+  // The west segment stops at the briefing pit (x=-24) instead of floating
+  // across it — the pit itself is the covert route under the secure line.
+  wall(8, WALL_T, -28, 17, Y0, ROOM_H, M.olive);
   wall(20, WALL_T, 22, 17, Y0, ROOM_H, M.olive);
   sandbags(0, 16, 4, "x");
   cctv(0, 18, 0);
@@ -1201,8 +1265,10 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     plaque(label, cx - 7.3, cz, Math.PI / 2);
     fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 7, cz - 5, cx + 7, cz + 5);
   }
-  // Briefing room label (the sunken pit is its floor) + command projector board.
+  // Briefing room label (the sunken pit is its floor) + command projector board
+  // on a floor stand (it used to float unsupported in front of the pit).
   missionBoard(-17, 13.8, 0);
+  for (const px of [-19.1, -14.9]) cover(0.12, 1.25, 0.12, px, 13.8, Y0, M.steel); // board stand legs
   fp("briefing-room", -24, 14, -10, 24);
 
   // =========================================================================
@@ -1216,7 +1282,9 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   ceiling(-56, 34, -40, 44);
   cardReader(-39.3, 37.4);
   slab(10, 5, -50, 41.5, Y_MEZZ, M.alu);
-  glassPanel(10, 0.12, -50, 39.2, Y_MEZZ, 1.0);
+  guardRail(10, -50, 39.2, Y_MEZZ, "x");
+  for (const [lx, lz] of [[-54, 40], [-46, 40], [-54, 43.4], [-46, 43.4]] as const)
+    cover(0.35, Y_MEZZ, 0.35, lx, lz, Y0, M.steel); // mezzanine legs
   ramp(3, 6, -54, 35, Y0, Y_MEZZ, "z");
   // Cable maintenance corridor (west flank spine). The corridor wall is
   // segmented so it no longer slices through the Electrical / AC Plant /
@@ -1318,9 +1386,9 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     exitSign(cx, cz + 3.6, Math.PI);
     fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 6, cz - 4, cx + 6, cz + 4);
   }
-  // Loading dock props (crates, roller door, fork of boxes).
-  boxStack(-50, -34, 3);
-  boxStack(-46, -32, 2);
+  // Loading dock props (crates, roller door, fork of boxes) — on the DOCK floor.
+  boxStack(-50, -34, 3, Y_DOCK);
+  boxStack(-46, -32, 2, Y_DOCK);
   cover(2, 2.6, 0.4, -55.6, -35, Y_DOCK, M.steel); // roller-door face
   exitSign(-48, -41.4, 0);
 
@@ -1405,7 +1473,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // signage carry the interior lighting read. Roof/ceiling meshes are
   // non-pickable + non-colliding so nav rays and hitscans pass cleanly.
   return {
-    spawn: new Vector3(BASE.x + 0, 1.2, BASE.z - 40), // reception staging, just above the y=0 floor
+    spawn: new Vector3(BASE.x + 0, 1.2, BASE.z - 40 * S), // reception staging, just above the y=0 floor
     root,
     footprints,
     dispose(): void {
