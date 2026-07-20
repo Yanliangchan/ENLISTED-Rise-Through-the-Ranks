@@ -284,15 +284,24 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   railGlassMat.metallic = 0;
   railGlassMat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
   railGlassMat.backFaceCulling = false;
-  // Frosted glass for the perimeter facade + wet-room partitions: mostly
-  // opaque so the boundary is sealed (no clear view into void / gaps between
-  // the exterior silhouettes), while still reading as glass and admitting a
-  // soft daylight glow. Backed by a 2D skyline billboard just outside.
+  // Perimeter facade glazing: clear enough to show the Singapore exterior
+  // (which is now a complete, sealed world — no void behind it), tinted and
+  // slightly reflective so it reads as a real curtain wall.
+  const windowMat = new WorldMaterial("ic_window", scene);
+  windowMat.albedoColor = new Color3(0.52, 0.64, 0.72);
+  windowMat.alpha = 0.34;
+  windowMat.roughness = 0.05;
+  windowMat.metallic = 0.1;
+  windowMat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+  windowMat.backFaceCulling = false;
+  windowMat.environmentIntensity = 1.2;
+  // Frosted spandrel band (opaque, obscured) for the base of the facade + wet
+  // rooms — the "frosted sections" that break the glass wall.
   const frostedMat = new StandardMaterial("ic_frosted", scene);
-  frostedMat.diffuseColor = new Color3(0.62, 0.7, 0.76);
-  frostedMat.emissiveColor = new Color3(0.34, 0.4, 0.46);
-  frostedMat.alpha = 0.82;
-  frostedMat.specularColor = new Color3(0.15, 0.15, 0.15);
+  frostedMat.diffuseColor = new Color3(0.66, 0.72, 0.77);
+  frostedMat.emissiveColor = new Color3(0.28, 0.33, 0.38);
+  frostedMat.alpha = 0.9;
+  frostedMat.specularColor = new Color3(0.1, 0.1, 0.1);
   frostedMat.backFaceCulling = false;
   const G = {
     glass: glow("ic_glass", [0.5, 0.66, 0.78], 0.24), // partition / window glass
@@ -651,6 +660,21 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     p.material = glow("ic_stripWarm", [1.0, 0.85, 0.62]);
     return p;
   });
+  const coolPanelSrc = makeSource("ic_src_coolpanel", () => {
+    const p = MeshBuilder.CreateBox("cp", { width: 0.95, height: 0.05, depth: 0.95 }, scene);
+    p.material = glow("ic_stripCool", [0.42, 0.6, 0.95]); // server / technical blue
+    return p;
+  });
+  const brightPanelSrc = makeSource("ic_src_brightpanel", () => {
+    const p = MeshBuilder.CreateBox("bp", { width: 0.95, height: 0.05, depth: 0.95 }, scene);
+    p.material = glow("ic_stripBright", [1.0, 1.0, 1.0]); // clinical white (medical)
+    return p;
+  });
+  const dimPanelSrc = makeSource("ic_src_dimpanel", () => {
+    const p = MeshBuilder.CreateBox("dp", { width: 0.95, height: 0.05, depth: 0.95 }, scene);
+    p.material = glow("ic_stripDim", [0.45, 0.46, 0.42]); // dim storage / plant
+    return p;
+  });
   const jambSrc = makeSource("ic_src_jamb", () => {
     const j = MeshBuilder.CreateBox("jb", { width: 0.14, height: 2.1, depth: 0.64 }, scene);
     j.material = M.alu;
@@ -824,7 +848,10 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
    * a ceiling speaker. Non-pickable + non-colliding so nav probe rays and
    * gameplay raycasts pass through the plenum above.
    */
-  const ceiling = (x0: number, z0: number, x1: number, z1: number, h = ROOM_H, warm = false): void => {
+  type LightTone = "normal" | "warm" | "cool" | "bright" | "dim";
+  const ceiling = (x0: number, z0: number, x1: number, z1: number, h = ROOM_H, tone: LightTone | boolean = "normal"): void => {
+    // legacy boolean = warm
+    const t: LightTone = tone === true ? "warm" : tone === false ? "normal" : tone;
     const cx = (x0 + x1) / 2;
     const cz = (z0 + z1) / 2;
     const c = MeshBuilder.CreateBox(uid("ceil"), { width: x1 - x0, height: 0.12, depth: z1 - z0 }, scene);
@@ -847,7 +874,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     };
     trim(Y0 + 0.08, 0.09, M.serverDark); // skirting board
     trim(h - 0.06, 0.06, M.alu); // cornice
-    const panelSrc = warm ? warmPanelSrc : ledPanelSrc;
+    const panelSrc = { normal: ledPanelSrc, warm: warmPanelSrc, cool: coolPanelSrc, bright: brightPanelSrc, dim: dimPanelSrc }[t];
     for (let px = x0 + 1.6; px < x1 - 0.8; px += 3.2)
       for (let pz = z0 + 1.6; pz < z1 - 0.8; pz += 3.2) inst(panelSrc, px, h - 0.03, pz);
     inst(ventSrc, x0 + 1.0, h - 0.05, z0 + 1.0);
@@ -877,11 +904,16 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   const GLAZE_H = 2.0; // window band 1.0 → 3.0
   const curtainWall = (w: number, d: number, cx: number, cz: number): void => {
     wall(w, d, cx, cz, 0, SILL_H, M.wallPaint); // sill
-    // Frosted curtain glazing (sealed + mostly opaque so the boundary can't be
-    // seen through into the void between the exterior silhouettes).
-    const g = MeshBuilder.CreateBox(uid("frost"), { width: w, height: GLAZE_H, depth: d }, scene);
-    g.position.set(cx, SILL_H + GLAZE_H / 2, cz);
-    g.material = frostedMat;
+    // Frosted spandrel band (0.5m) above the sill, then clear vision glazing to
+    // the header. The clear band shows the sealed Singapore exterior; the
+    // spandrel + mullions break the glass wall so it isn't one flat sheet.
+    const spandrel = MeshBuilder.CreateBox(uid("spandrel"), { width: w, height: 0.5, depth: d }, scene);
+    spandrel.position.set(cx, SILL_H + 0.25, cz);
+    spandrel.material = frostedMat;
+    add(spandrel, false);
+    const g = MeshBuilder.CreateBox(uid("vision"), { width: w, height: GLAZE_H - 0.5, depth: d }, scene);
+    g.position.set(cx, SILL_H + 0.5 + (GLAZE_H - 0.5) / 2, cz);
+    g.material = windowMat;
     add(g, false); // collides — sealed shell
     wall(w, d, cx, cz, SILL_H + GLAZE_H, WALL_H - SILL_H - GLAZE_H, M.wallPaint); // header
   };
@@ -1194,7 +1226,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   cabinet(-38, 4.5);
   cabinet(-46.5, 4.8);
   panel(1.0, 1.0, -42, 5.6, Y0 + 1.8, Math.PI, G.emergency); // clinic cross sign
-  ceiling(-48, -2, -36, 6);
+  ceiling(-48, -2, -36, 6, ROOM_H, "bright");
   fp("medical-clinic", -48, -2, -36, 6);
   roomShell(-40, 6, -24, 14, M.wallCool, [{ side: "s", at: -32, width: 2.2 }], ROOM_H, ["s"]);
   for (const rz of [9, 11.5] as const)
@@ -1265,7 +1297,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     else if (label === "SIGNALS ROOM") { serverRack(x0 + 3, cz + 1.5); desk(cx, cz - 2, 0); }
     else { desk(cx, cz + 1, Math.PI); cabinet(x0 + 2, z1 - 2); }
     missionBoard(cx, z1 - 0.35, Math.PI);
-    ceiling(x0, z0, x1, z1);
+    ceiling(x0, z0, x1, z1, ROOM_H, label === "SERVER ROOM" ? "cool" : "normal");
     const doorX = doorSide === "e" ? x1 : x0;
     cardReader(doorX + (doorSide === "e" ? -0.3 : 0.3), cz - 1.4, doorSide === "e" ? 0 : Math.PI);
     plaque(label, doorX + (doorSide === "e" ? 0.3 : -0.3), cz, doorSide === "e" ? -Math.PI / 2 : Math.PI / 2);
@@ -1536,30 +1568,109 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   skylineTex.uScale = 4; // repeat the city band a few times across each billboard
   const skylineMat = emissiveTexMat(skylineTex);
   skylineMat.backFaceCulling = false;
-  const SKY_DIST = 46;
-  const SKY_H = 60;
+  const SKY_DIST = 150; // push the painted skyline far back so 3D blocks read as mid-ground
+  const SKY_H = 120;
   const billboard = (w: number, cx: number, cz: number, rotY: number): void => {
     const m = MeshBuilder.CreatePlane(uid("skyline"), { width: w, height: SKY_H }, scene);
-    m.position.set(cx, SKY_H / 2 - 6, cz);
+    m.position.set(cx, SKY_H / 2 - 8, cz);
     m.rotation.y = rotY;
     m.material = skylineMat;
     add(m, false, false, false);
   };
-  const spanW = HALF_W * 2 + SKY_DIST * 2;
-  const spanD = HALF_D * 2 + SKY_DIST * 2;
-  billboard(spanW, 0, -HALF_D - SKY_DIST, 0); // south
-  billboard(spanW, 0, HALF_D + SKY_DIST, Math.PI); // north
-  billboard(spanD, -HALF_W - SKY_DIST, 0, -Math.PI / 2); // west
-  billboard(spanD, HALF_W + SKY_DIST, 0, Math.PI / 2); // east
-  // A few solid tower blocks between the shell and the billboard for parallax depth.
-  const towers: Array<[number, number, number]> = [
-    [-78, -70, 34], [70, -74, 28], [82, 40, 40], [-40, 78, 30], [-84, 30, 24],
+  const spanFar = HALF_W * 2 + SKY_DIST * 2 + 40;
+  billboard(spanFar, 0, -HALF_D - SKY_DIST, 0); // south
+  billboard(spanFar, 0, HALF_D + SKY_DIST, Math.PI); // north
+  billboard(spanFar, -HALF_W - SKY_DIST, 0, -Math.PI / 2); // west
+  billboard(spanFar, HALF_W + SKY_DIST, 0, Math.PI / 2); // east
+
+  // ---- believable Singapore exterior (mid-ground 3D, non-colliding) --------
+  // Materials for the outside world.
+  const roadMat = pbr("ic_extRoad", [0.12, 0.12, 0.13], 0.95);
+  const laneMat = glow("ic_lane", [0.85, 0.82, 0.5]);
+  const grassMat = pbr("ic_grass", [0.22, 0.34, 0.16], 0.95);
+  const hdbBody = (rgb: [number, number, number]) => pbr(uid("hdb"), rgb, 0.85);
+  const hdbWinTex = makeTex("hdbwin", (ctx, s) => {
+    ctx.fillStyle = "#c9cdc7"; ctx.fillRect(0, 0, s, s);
+    for (let wy = 6; wy < s; wy += 22)
+      for (let wx = 6; wx < s; wx += 20) {
+        ctx.fillStyle = "#33465a"; ctx.fillRect(wx, wy, 13, 14);
+        ctx.fillStyle = "#7d94a8"; ctx.fillRect(wx + 1, wy + 1, 11, 5); // glazing highlight
+      }
+  }, 256);
+  hdbWinTex.wrapU = hdbWinTex.wrapV = Texture.WRAP_ADDRESSMODE;
+  const glassTowerTex = makeTex("cbdwin", (ctx, s) => {
+    const grd = ctx.createLinearGradient(0, 0, 0, s);
+    grd.addColorStop(0, "#7fa8c8"); grd.addColorStop(1, "#3d5a72");
+    ctx.fillStyle = grd; ctx.fillRect(0, 0, s, s);
+    ctx.fillStyle = "rgba(20,30,42,0.5)";
+    for (let x = 0; x < s; x += 12) ctx.fillRect(x, 0, 6, s);
+    for (let y = 0; y < s; y += 16) ctx.fillRect(0, y, s, 5);
+  }, 256);
+  glassTowerTex.wrapU = glassTowerTex.wrapV = Texture.WRAP_ADDRESSMODE;
+  const towerGlassMat = pbrTex("ic_cbd", glassTowerTex, 0.2, 0.3);
+  const hdbWinMat = pbrTex("ic_hdbwin", hdbWinTex, 0.8);
+  const extMesh = (m: Mesh): void => { m.parent = root; m.isPickable = false; m.checkCollisions = false; m.freezeWorldMatrix(); meshes.push(m); };
+  // Ground: grass fill under everything, then a ring road with lane markings.
+  for (const [gx, gz] of [[0, -HALF_D - 90], [0, HALF_D + 90], [-HALF_W - 90, 0], [HALF_W + 90, 0]] as const) {
+    const g = MeshBuilder.CreateGround(uid("grass"), { width: 260, height: 200 }, scene);
+    g.position.set(gx, -0.18, gz); g.material = grassMat; extMesh(g);
+  }
+  const road = (w: number, d: number, cx: number, cz: number): void => {
+    const r = MeshBuilder.CreateBox(uid("road"), { width: w, height: 0.12, depth: d }, scene);
+    r.position.set(cx, -0.08, cz); r.material = roadMat; extMesh(r);
+    const along = w > d ? w : d;
+    for (let t = -along / 2 + 3; t < along / 2; t += 7) {
+      const dash = MeshBuilder.CreateBox(uid("lane"), { width: w > d ? 2.4 : 0.25, height: 0.03, depth: w > d ? 0.25 : 2.4 }, scene);
+      dash.position.set(cx + (w > d ? t : 0), -0.01, cz + (w > d ? 0 : t)); dash.material = laneMat; extMesh(dash);
+    }
+  };
+  road(360, 12, 0, -HALF_D - 20); // south perimeter road
+  road(360, 12, 0, HALF_D + 20); // north perimeter road
+  road(12, 300, -HALF_W - 20, 0); // west road
+  road(12, 300, HALF_W + 20, 0); // east road
+  // Trees along the roads (trunk + two foliage tiers).
+  const tree = (cx: number, cz: number, h = 5): void => {
+    const trunk = MeshBuilder.CreateCylinder(uid("trunk"), { diameter: 0.5, height: h * 0.5, tessellation: 8 }, scene);
+    trunk.position.set(cx, h * 0.25, cz); trunk.material = M.wood; extMesh(trunk);
+    for (let i = 0; i < 2; i++) {
+      const f = MeshBuilder.CreateCylinder(uid("foliage"), { diameterTop: 0.4, diameterBottom: 3.4 - i, height: 2.4, tessellation: 8 }, scene);
+      f.position.set(cx, h * 0.5 + 1 + i * 1.6, cz); f.material = grassMat; extMesh(f);
+    }
+  };
+  for (let t = -HALF_W; t <= HALF_W; t += 16) { tree(t, -HALF_D - 13); tree(t, HALF_D + 13); }
+  for (let t = -HALF_D + 8; t <= HALF_D - 8; t += 16) { tree(-HALF_W - 13, t); tree(HALF_W + 13, t); }
+  // Carpark on the south-west grass: rows of parked-car boxes.
+  const carMat = [pbr("ic_car0", [0.7, 0.72, 0.74], 0.4, 0.3), pbr("ic_car1", [0.2, 0.24, 0.3], 0.4, 0.3), pbr("ic_car2", [0.5, 0.12, 0.12], 0.4, 0.3)];
+  for (let row = 0; row < 2; row++)
+    for (let i = 0; i < 8; i++) {
+      const c = MeshBuilder.CreateBox(uid("car"), { width: 2, height: 1.4, depth: 4.2 }, scene);
+      c.position.set(-HALF_W - 34 - row * 6, 0.55, -HALF_D - 30 + i * 5.2); c.material = carMat[(row + i) % 3]; extMesh(c);
+    }
+  // HDB residential blocks (north + east): coloured mid-rise slabs with window grids.
+  const hdbCols: Array<[number, number, number, number, [number, number, number]]> = [
+    [-70, HALF_D + 55, 26, 42, [0.78, 0.74, 0.62]], [10, HALF_D + 62, 30, 50, [0.7, 0.62, 0.55]],
+    [78, HALF_D + 50, 24, 38, [0.66, 0.7, 0.72]], [HALF_W + 55, -50, 40, 44, [0.75, 0.68, 0.6]],
+    [HALF_W + 62, 30, 34, 52, [0.62, 0.66, 0.7]],
   ];
-  for (const [tx, tz, th] of towers) {
-    const t = MeshBuilder.CreateBox(uid("tower"), { width: 14 + (th % 10), height: th, depth: 14 + ((th * 7) % 8) }, scene);
-    t.position.set(tx, th / 2 - 0.05, tz);
-    t.material = towerMat;
-    add(t, false, false, false);
+  for (const [bx, bz, bw, bh, rgb] of hdbCols) {
+    const body = MeshBuilder.CreateBox(uid("hdbb"), { width: bw, height: bh, depth: bw * 0.7 }, scene);
+    body.position.set(bx, bh / 2 - 0.1, bz); body.material = hdbBody(rgb); extMesh(body);
+    const facing = bz > 0 ? bw * 0.35 : (Math.abs(bx) > HALF_W ? 0 : -bw * 0.35);
+    const win = MeshBuilder.CreateBox(uid("hdbw"), { width: bw - 1, height: bh - 4, depth: 0.2 }, scene);
+    win.position.set(bx, bh / 2, bz + (Math.abs(bx) > HALF_W ? 0 : (bz > 0 ? -bw * 0.35 : bw * 0.35)));
+    if (Math.abs(bx) > HALF_W) { win.rotation.y = Math.PI / 2; win.position.set(bx + (bx > 0 ? -bw * 0.35 : bw * 0.35), bh / 2, bz); }
+    win.material = hdbWinMat; extMesh(win); void facing;
+  }
+  // CBD glass towers (south + west, toward "downtown") — taller, reflective.
+  const cbd: Array<[number, number, number, number]> = [
+    [-60, -HALF_D - 70, 22, 88], [20, -HALF_D - 82, 26, 110], [80, -HALF_D - 66, 20, 74],
+    [-HALF_W - 70, -20, 24, 96], [-HALF_W - 78, 45, 20, 80],
+  ];
+  for (const [tx, tz, tw, th] of cbd) {
+    const t = MeshBuilder.CreateBox(uid("cbd"), { width: tw, height: th, depth: tw }, scene);
+    t.position.set(tx, th / 2 - 0.1, tz); t.material = towerGlassMat; extMesh(t);
+    const cap = MeshBuilder.CreateBox(uid("cbdcap"), { width: tw * 0.5, height: 4, depth: tw * 0.5 }, scene);
+    cap.position.set(tx, th + 2, tz); cap.material = M.steel; extMesh(cap);
   }
 
   // Build-time layout validation: warn on any pair of room rectangles that
