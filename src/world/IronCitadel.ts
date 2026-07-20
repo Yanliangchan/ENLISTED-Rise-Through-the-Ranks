@@ -47,6 +47,8 @@ import { WorldMaterial } from "@/world/WorldMaterial";
 
 /** Far-field origin so the complex never overlaps the city (±100) or the range (Z≈250+). */
 const BASE = new Vector3(430, 0, 0);
+/** World-space origin the complex is offset to — multiplayer maps local spawn coords to this. */
+export const IRON_CITADEL_BASE = BASE;
 
 // Interior footprint (local coords, centred on BASE). ~+55% area vs the first pass.
 const HALF_W = 56; // X → 112m wide

@@ -108,6 +108,11 @@ export class Backend {
     this.profile = profile;
   }
 
+  /** Session token, for authenticating side channels such as the multiplayer socket. */
+  get sessionToken(): string {
+    return this.token;
+  }
+
   /** Auto-login: if a token is remembered, validate it against the server and load the profile. Returns null if none/invalid. */
   static async tryResume(): Promise<Backend | null> {
     const token = localStorage.getItem(TOKEN_KEY);

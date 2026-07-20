@@ -32,6 +32,9 @@ import { Ambience } from "@/world/Ambience";
 import { Vector3, Ray } from "@babylonjs/core";
 import { buildTrainingRange, RANGE_FIRING_LINE, RANGE_DISTANCES_M } from "@/world/TrainingRange";
 import { buildIronCitadel, type IronCitadelHandles } from "@/world/IronCitadel";
+import { MultiplayerMenu, type MatchStartInfo } from "@/ui/MultiplayerMenu";
+import { NetMatch } from "@/net/NetMatch";
+import type { NetClient } from "@/net/NetClient";
 import { RangeTargetController } from "@/world/RangeTarget";
 import { TrainingRangeUI, type RangeWeaponOption } from "@/ui/TrainingRangeUI";
 import { WEAPONS } from "@/data/weapons";
@@ -124,6 +127,9 @@ async function boot(): Promise<void> {
   // the wave-survival players never pay for its geometry.
   let citadelActive = false;
   let citadel: IronCitadelHandles | null = null;
+  // Private-room multiplayer: lobby menu (lazily built) + active in-match controller.
+  let mpMenu: MultiplayerMenu | null = null;
+  let netMatch: NetMatch | null = null;
 
   const player = new PlayerController(game.scene, input, SPAWN_POINT, audio);
   attachCinematicPipeline(game.scene, player.camera);
@@ -436,6 +442,54 @@ async function boot(): Promise<void> {
     showMainMenu();
   }
 
+  // ---- Private-room multiplayer (1v1 / 2v2) -----------------------------
+  function openMultiplayer(): void {
+    if (!mpMenu) {
+      mpMenu = new MultiplayerMenu(uiRoot, {
+        token: backend?.sessionToken,
+        name: backend?.profile.username ?? "Recruit",
+        rankInsignia: backend?.profile.rank.insignia ?? "REC",
+        rankName: backend?.profile.rank.name ?? "Recruit",
+      });
+      mpMenu.onClose = () => showMainMenu();
+      mpMenu.onViewProfile = () => profilePage?.show();
+      mpMenu.onStartMatch = (net, info) => enterNetMatch(net, info);
+    }
+    landingPage.hide();
+    mpMenu.open();
+  }
+
+  function enterNetMatch(net: NetClient, info: MatchStartInfo): void {
+    if (!citadel) citadel = buildIronCitadel(game.scene);
+    landingPage.hide();
+    game.renderingPaused = false;
+    citadelActive = true; // reuse the "movement + weapons only, no waves" update branch
+    hud.setVisible(true); // multiplayer wants the health/ammo HUD
+    loadout.switchTo("primary");
+    weaponController.resetAllAmmo();
+    player.inSafeZone = false;
+    player.spawnProtected = false;
+    (player as unknown as { collider: { rotation: { y: number } } }).collider.rotation.y = 0;
+    player.camera.rotation.x = 0;
+    netMatch = new NetMatch(game.scene, player, weaponController, net, info, uiRoot);
+    netMatch.onExit = () => exitNetMatch();
+    hud.showCenterMessage(`MULTIPLAYER — ${info.settings.mode === "tdm" ? "TEAM DEATHMATCH" : "ELIMINATION"} · hold TAB for scoreboard`, 4000);
+    input.lockPointer();
+  }
+
+  function exitNetMatch(): void {
+    netMatch?.dispose();
+    netMatch = null;
+    citadelActive = false;
+    game.renderingPaused = true;
+    document.exitPointerLock();
+    player.respawn(SPAWN_POINT);
+    player.health = 100;
+    // reopen the lobby menu so players can run another round
+    if (mpMenu) mpMenu.open();
+    else showMainMenu();
+  }
+
   // ---- Main menu (landing page) -----------------------------------------
   let profilePage: ProfilePage | undefined;
   if (backend) profilePage = new ProfilePage(uiRoot, backend);
@@ -452,7 +506,7 @@ async function boot(): Promise<void> {
       input.lockPointer();
     };
     landingPage.onTrainingRange = () => enterTrainingRange();
-    landingPage.onMultiplayer = () => enterIronCitadel();
+    landingPage.onMultiplayer = () => openMultiplayer();
     if (profilePage) {
       landingPage.onProfile = () => profilePage!.show();
       landingPage.onLeaderboards = () => profilePage!.show();
@@ -573,18 +627,20 @@ async function boot(): Promise<void> {
       pauseMenu.visible ||
       armoury.visible ||
       gameOverScreen.visible ||
-      landingPage.visible ||
+      (landingPage.visible && !netMatch) ||
+      (mpMenu?.visible ?? false) ||
       tacticalMap.visible ||
       commandWheel.visible;
 
     if (!paused) {
       if (rangeActive || citadelActive) {
-        // Range / Iron Citadel preview only need movement, aiming/firing, and
-        // weapon-slot switching — no waves, crates, UAV, medkits, safe zone,
-        // or rain ambience.
+        // Range / Iron Citadel preview / multiplayer only need movement,
+        // aiming/firing, and weapon-slot switching — no waves, crates, UAV,
+        // medkits, safe zone, or rain ambience.
         player.update(dt);
         loadout.update();
         weaponController.update(dt);
+        netMatch?.update(dt);
       } else {
         player.update(dt);
         ambience.update(dt);

@@ -21,7 +21,8 @@
     "express": "^4.21.1",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.13.1",
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.2",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@babylonjs/serializers": "^7.54.3",
@@ -30,6 +31,7 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.9.0",
     "@types/pg": "^8.11.10",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.5.4",
     "vite": "^5.4.10"
   }

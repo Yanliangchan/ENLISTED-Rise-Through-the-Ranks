@@ -11,6 +11,7 @@ import { matchesRouter } from "./routes/matches.js";
 import { leaderboardRouter } from "./routes/leaderboard.js";
 import { adminRouter } from "./routes/admin.js";
 import { guardianRouter } from "./routes/guardian.js";
+import { attachRoomServer } from "./multiplayer/RoomServer.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -47,6 +48,10 @@ if (existsSync(distPath)) {
 }
 
 const port = Number(process.env.PORT) || 8080;
-app.listen(port, () => {
+const httpServer = app.listen(port, () => {
   console.log(`[server] listening on :${port}`);
 });
+
+// Private-room multiplayer (WebSocket) shares the same HTTP server / port, so
+// there is still one deployment and one origin (ws:// upgrade on /mp).
+attachRoomServer(httpServer);
