@@ -284,6 +284,16 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   railGlassMat.metallic = 0;
   railGlassMat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
   railGlassMat.backFaceCulling = false;
+  // Frosted glass for the perimeter facade + wet-room partitions: mostly
+  // opaque so the boundary is sealed (no clear view into void / gaps between
+  // the exterior silhouettes), while still reading as glass and admitting a
+  // soft daylight glow. Backed by a 2D skyline billboard just outside.
+  const frostedMat = new StandardMaterial("ic_frosted", scene);
+  frostedMat.diffuseColor = new Color3(0.62, 0.7, 0.76);
+  frostedMat.emissiveColor = new Color3(0.34, 0.4, 0.46);
+  frostedMat.alpha = 0.82;
+  frostedMat.specularColor = new Color3(0.15, 0.15, 0.15);
+  frostedMat.backFaceCulling = false;
   const G = {
     glass: glow("ic_glass", [0.5, 0.66, 0.78], 0.24), // partition / window glass
     screen: glow("ic_screen", [0.25, 0.6, 0.85]), // monitor / NOC screen glow
@@ -867,7 +877,12 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   const GLAZE_H = 2.0; // window band 1.0 → 3.0
   const curtainWall = (w: number, d: number, cx: number, cz: number): void => {
     wall(w, d, cx, cz, 0, SILL_H, M.wallPaint); // sill
-    glassPanel(w, d, cx, cz, SILL_H, GLAZE_H, false); // curtain glazing (sealed)
+    // Frosted curtain glazing (sealed + mostly opaque so the boundary can't be
+    // seen through into the void between the exterior silhouettes).
+    const g = MeshBuilder.CreateBox(uid("frost"), { width: w, height: GLAZE_H, depth: d }, scene);
+    g.position.set(cx, SILL_H + GLAZE_H / 2, cz);
+    g.material = frostedMat;
+    add(g, false); // collides — sealed shell
     wall(w, d, cx, cz, SILL_H + GLAZE_H, WALL_H - SILL_H - GLAZE_H, M.wallPaint); // header
   };
   curtainWall(HALF_W * 2 + WALL_T, WALL_T, 0, -HALF_D); // south
@@ -1387,6 +1402,50 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   for (const [bx, bz] of [[-48, -2], [48.8, -2], [-6, -16], [6, 14]] as const) bin(bx, bz);
 
   // =========================================================================
+  // AAA POLISH — cover in front of exposed glass, sightline breakers in the
+  // open areas, and environmental storytelling.
+  // =========================================================================
+  // Partial cover in front of the glass-fronted east meeting/breakout rooms so
+  // occupants aren't fully exposed through the glazing.
+  bigPlanter(33, -22, "z"); // in front of MEETING glass (west face x=36)
+  bigPlanter(33, -12, "z"); // in front of BREAKOUT glass
+  cover(2.6, 1.1, 0.5, 44, -7.4, Y0, M.alu); // low counter under BREAKOUT south glass
+  // Open-plan cubicle bay (breaks the central sightline + soft cover). A 3x2
+  // grid of half-height pods between the office columns.
+  for (let r = 0; r < 2; r++)
+    for (let c = 0; c < 3; c++) {
+      const px = -6 + c * 6;
+      const pz = -22 + r * 5;
+      cover(2.4, 1.2, 0.12, px, pz + 1.1, Y0, M.wallCool); // pod back
+      cover(0.12, 1.2, 2.2, px - 1.2, pz, Y0, M.wallCool); // pod side
+      desk(px, pz, r === 0 ? 0 : Math.PI);
+    }
+  // Half-height partitions breaking the long secure-approach + concourse runs.
+  for (const [hx, hz, ax] of [[-16, 10, "x"], [16, 10, "x"], [-16, -24, "x"], [16, -24, "x"]] as const)
+    cover(ax === "x" ? 4 : 0.4, 1.1, ax === "x" ? 0.4 : 4, hx, hz, Y0, M.wallCool);
+
+  // Environmental storytelling (non-colliding decals + light props): scattered
+  // documents on the floor, an abandoned equipment case, a barricaded office.
+  const docSrc = makeSource("ic_src_doc", () => {
+    const d = MeshBuilder.CreatePlane("doc", { width: 0.3, height: 0.42 }, scene);
+    d.rotation.x = Math.PI / 2;
+    d.material = glow("ic_paper", [0.9, 0.9, 0.86]);
+    d.bakeCurrentTransformIntoVertices();
+    return d;
+  });
+  const doc = (cx: number, cz: number): void => inst(docSrc, cx, Y0 + 0.02, cz, Math.random() * Math.PI);
+  for (const [dx, dz] of [[-2, -34], [3, -33], [-18, 6], [12, 22], [-30, 26], [42, 6], [1, 12], [-6, -20]] as const) {
+    doc(dx, dz); doc(dx + 0.4, dz + 0.3);
+  }
+  // Abandoned equipment cases (hard cover) at a couple of chokepoints.
+  for (const [cx, cz] of [[-2, -24], [8, 12], [-20, 20]] as const) { boxStack(cx, cz, 2); }
+  // Barricaded HR office: desks shoved against the doorway (story + soft cover).
+  cover(2.2, 0.9, 0.9, -17, -22, Y0, M.wood);
+  cover(0.9, 0.9, 2.0, -18.5, -22, Y0, M.wood);
+  // Evacuation signage at the main junctions.
+  for (const [ex, ez, er] of [[-6, -26, 0], [6, 16, Math.PI], [-30, 12, Math.PI / 2]] as const) exitSign(ex, ez, er);
+
+  // =========================================================================
   // WAYFINDING SIGNAGE — hanging signs at junctions + plaques on named rooms
   // the dept loops didn't cover, and the reception crest feature wall.
   // =========================================================================
@@ -1443,13 +1502,61 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   outSlab(320, 110, 0, HALF_D + 63, asphaltMat, -0.05);
   outSlab(110, HALF_D * 2 + 16, -HALF_W - 63, 0, asphaltMat, -0.05);
   outSlab(110, HALF_D * 2 + 16, HALF_W + 63, 0, asphaltMat, -0.05);
-  // distant tower silhouettes (visible through the glazing / skylights)
+  // 2D skyline billboards: a drawn city facade wrapped around the building on
+  // all four sides, just beyond the apron. Through the frosted glazing this
+  // reads as an adjacent cityscape and completely seals the boundary — no void,
+  // no gaps between silhouettes. Unlit + non-colliding.
+  const skylineTex = makeTex("skyline", (ctx, s) => {
+    const rand = mulberry32(717);
+    const g = ctx.createLinearGradient(0, 0, 0, s);
+    g.addColorStop(0, "#8fb2cc"); g.addColorStop(0.55, "#b9ccd8"); g.addColorStop(1, "#cdd7dd");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, s, s);
+    for (let layer = 0; layer < 3; layer++) {
+      const base = s * (0.42 + layer * 0.16);
+      const shade = [ "#5c6f80", "#47576620", "#33404d" ][layer];
+      ctx.fillStyle = ["#6d8698", "#566a7b", "#42525f"][layer];
+      let x = -20;
+      while (x < s + 20) {
+        const bw = 18 + rand() * 40;
+        const bh = (0.3 + rand() * 0.7) * (s - base);
+        ctx.fillRect(x, base - bh + (s - base), bw, bh + 40);
+        // lit windows
+        ctx.fillStyle = layer === 0 ? "#dfe8b0" : "#c9d4a8";
+        for (let wy = base - bh + (s - base) + 6; wy < s; wy += 9)
+          for (let wx = x + 4; wx < x + bw - 4; wx += 8)
+            if (rand() < 0.5) ctx.fillRect(wx, wy, 3, 4);
+        ctx.fillStyle = ["#6d8698", "#566a7b", "#42525f"][layer];
+        x += bw + 4 + rand() * 8;
+      }
+      void shade;
+    }
+  }, 512);
+  skylineTex.wrapU = Texture.WRAP_ADDRESSMODE;
+  skylineTex.uScale = 4; // repeat the city band a few times across each billboard
+  const skylineMat = emissiveTexMat(skylineTex);
+  skylineMat.backFaceCulling = false;
+  const SKY_DIST = 46;
+  const SKY_H = 60;
+  const billboard = (w: number, cx: number, cz: number, rotY: number): void => {
+    const m = MeshBuilder.CreatePlane(uid("skyline"), { width: w, height: SKY_H }, scene);
+    m.position.set(cx, SKY_H / 2 - 6, cz);
+    m.rotation.y = rotY;
+    m.material = skylineMat;
+    add(m, false, false, false);
+  };
+  const spanW = HALF_W * 2 + SKY_DIST * 2;
+  const spanD = HALF_D * 2 + SKY_DIST * 2;
+  billboard(spanW, 0, -HALF_D - SKY_DIST, 0); // south
+  billboard(spanW, 0, HALF_D + SKY_DIST, Math.PI); // north
+  billboard(spanD, -HALF_W - SKY_DIST, 0, -Math.PI / 2); // west
+  billboard(spanD, HALF_W + SKY_DIST, 0, Math.PI / 2); // east
+  // A few solid tower blocks between the shell and the billboard for parallax depth.
   const towers: Array<[number, number, number]> = [
-    [-95, -90, 38], [0, -115, 55], [85, -100, 30], [125, -15, 62], [105, 55, 42],
-    [55, 105, 35], [-15, 125, 50], [-95, 85, 28], [-130, 10, 45], [60, -90, 24],
+    [-78, -70, 34], [70, -74, 28], [82, 40, 40], [-40, 78, 30], [-84, 30, 24],
   ];
   for (const [tx, tz, th] of towers) {
-    const t = MeshBuilder.CreateBox(uid("tower"), { width: 16 + (th % 12), height: th, depth: 16 + ((th * 7) % 10) }, scene);
+    const t = MeshBuilder.CreateBox(uid("tower"), { width: 14 + (th % 10), height: th, depth: 14 + ((th * 7) % 8) }, scene);
     t.position.set(tx, th / 2 - 0.05, tz);
     t.material = towerMat;
     add(t, false, false, false);
