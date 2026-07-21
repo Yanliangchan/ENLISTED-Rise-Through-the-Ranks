@@ -471,7 +471,7 @@ async function boot(): Promise<void> {
     player.spawnProtected = false;
     (player as unknown as { collider: { rotation: { y: number } } }).collider.rotation.y = 0;
     player.camera.rotation.x = 0;
-    netMatch = new NetMatch(game.scene, player, weaponController, net, info, uiRoot);
+    netMatch = new NetMatch(game.scene, player, weaponController, net, info, hud, () => input.isPointerLocked, uiRoot);
     netMatch.onExit = () => exitNetMatch();
     // Persist results before returning to the lobby: XP/rank/badges server-side,
     // currency applied to the local economy save (auto-persists).
@@ -504,6 +504,7 @@ async function boot(): Promise<void> {
     document.exitPointerLock();
     player.respawn(SPAWN_POINT);
     player.health = 100;
+    player.armour = 0; player.maxArmour = 0; // clear the MP plate carrier
     // reopen the lobby menu so players can run another round
     if (mpMenu) mpMenu.open();
     else showMainMenu();

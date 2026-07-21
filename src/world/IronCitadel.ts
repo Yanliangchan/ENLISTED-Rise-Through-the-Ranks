@@ -258,8 +258,8 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     sofa: pbr("ic_sofa", [0.2, 0.32, 0.34], 0.9), // waiting-lounge sofa
     ramp: pbr("ic_ramp", [0.34, 0.36, 0.4], 0.6, 0.3), // painted-metal ramp (reads distinct)
     rubber: pbr("ic_rubber", [0.12, 0.13, 0.14], 0.95), // gym floor
-    accentTeal: pbr("ic_accentTeal", [0.1, 0.45, 0.45], 0.7), // public-zone wayfinding
-    accentBlue: pbr("ic_accentBlue", [0.16, 0.3, 0.58], 0.7), // office-zone wayfinding
+    accentTeal: pbr("ic_accentTeal", [0.22, 0.34, 0.34], 0.75), // public-zone wayfinding (muted slate)
+    accentBlue: pbr("ic_accentBlue", [0.26, 0.3, 0.36], 0.75), // office-zone wayfinding (muted graphite)
     accentRed: pbr("ic_accentRed", [0.55, 0.16, 0.14], 0.7), // secure-zone wayfinding
   };
   /** World-space texture density per material (metres per texture repeat). */
@@ -270,7 +270,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // Realistic glass: PBR alpha-blend so panes pick up IBL/skyline reflection
   // instead of the old flat emissive tint.
   const glassMat = new WorldMaterial("ic_glassPbr", scene);
-  glassMat.albedoColor = new Color3(0.6, 0.73, 0.8);
+  glassMat.albedoColor = new Color3(0.74, 0.78, 0.79);
   glassMat.alpha = 0.3;
   glassMat.roughness = 0.07;
   glassMat.metallic = 0;
@@ -290,7 +290,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // (which is now a complete, sealed world — no void behind it), tinted and
   // slightly reflective so it reads as a real curtain wall.
   const windowMat = new WorldMaterial("ic_window", scene);
-  windowMat.albedoColor = new Color3(0.52, 0.64, 0.72);
+  windowMat.albedoColor = new Color3(0.66, 0.71, 0.72);
   windowMat.alpha = 0.34;
   windowMat.roughness = 0.05;
   windowMat.metallic = 0.1;
@@ -300,14 +300,14 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // Frosted spandrel band (opaque, obscured) for the base of the facade + wet
   // rooms — the "frosted sections" that break the glass wall.
   const frostedMat = new StandardMaterial("ic_frosted", scene);
-  frostedMat.diffuseColor = new Color3(0.66, 0.72, 0.77);
-  frostedMat.emissiveColor = new Color3(0.28, 0.33, 0.38);
+  frostedMat.diffuseColor = new Color3(0.71, 0.73, 0.75);
+  frostedMat.emissiveColor = new Color3(0.32, 0.34, 0.35);
   frostedMat.alpha = 0.9;
   frostedMat.specularColor = new Color3(0.1, 0.1, 0.1);
   frostedMat.backFaceCulling = false;
   const G = {
-    glass: glow("ic_glass", [0.5, 0.66, 0.78], 0.24), // partition / window glass
-    screen: glow("ic_screen", [0.25, 0.6, 0.85]), // monitor / NOC screen glow
+    glass: glow("ic_glass", [0.6, 0.64, 0.66], 0.18), // partition / window glass (neutral, low glow)
+    screen: glow("ic_screen", [0.16, 0.24, 0.3]), // monitor / NOC screen glow (dimmed, no blue wash)
     strip: glow("ic_strip", [0.95, 0.96, 0.9]), // ceiling light strip
     emergency: glow("ic_emergency", [0.9, 0.2, 0.15]), // emergency light
     exit: glow("ic_exit", [0.2, 0.85, 0.35]), // exit sign

@@ -252,7 +252,10 @@ export function attachRoomServer(server: HttpServer): void {
         if (!victim || !victim.alive) return;
         if (victim.team === c.team && !r.settings.friendlyFire) return; // FF off
         c.stats.shotsHit++;
-        const dmg = Math.max(0, Math.min(150, msg.damage));
+        // The client sends the single-player finalDmg (already hitzone-adjusted),
+        // so the cap is only an anti-tamper ceiling — high enough that sniper /
+        // headshot one-shots still land, keeping time-to-kill identical to SP.
+        const dmg = Math.max(0, Math.min(300, msg.damage));
         c.stats.damage += dmg;
         if (msg.headshot) c.stats.headshots++;
         // apply to armour then health (server-authoritative)

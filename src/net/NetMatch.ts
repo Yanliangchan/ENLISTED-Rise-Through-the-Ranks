@@ -2,6 +2,7 @@ import { Scene, MeshBuilder, StandardMaterial, Color3, Vector3, Mesh, DynamicTex
 import type { NetClient } from "@/net/NetClient";
 import type { PlayerController } from "@/player/PlayerController";
 import type { WeaponController } from "@/weapons/WeaponController";
+import type { HUD } from "@/ui/HUD";
 import type { MatchStartInfo } from "@/ui/MultiplayerMenu";
 import type { PlayerNetState, ServerMsg, Team, LobbyPlayer, MatchPlayerResult } from "@/net/protocol";
 import { NetFlag } from "@/net/protocol";
@@ -38,10 +39,16 @@ export class Avatar {
       m.specularColor = new Color3(0.08, 0.08, 0.08);
       return m;
     };
-    const uniform = mat(`av_uni_${info.id}`, teamColor, 0.22);
-    const gear = mat(`av_gear_${info.id}`, teamColor.scale(0.45), 0.05);
-    const skin = mat(`av_skin_${info.id}`, new Color3(0.62, 0.46, 0.36), 0.05);
-    const helmetMat = mat(`av_hel_${info.id}`, teamColor.scale(0.6), 0.1);
+    // MUTED SAF combat uniform for BOTH teams (olive-drab / pixelised green),
+    // so soldiers blend into the office instead of glowing blue/red. The team
+    // colour appears only on identifiers (helmet band, armband, chest/helmet
+    // number, nameplate) so they stay readable at combat distance.
+    const uniform = mat(`av_uni_${info.id}`, new Color3(0.29, 0.31, 0.23), 0.05);
+    const gear = mat(`av_gear_${info.id}`, new Color3(0.17, 0.18, 0.14), 0.03); // plate carrier / pouches
+    const gearB = mat(`av_gearB_${info.id}`, new Color3(0.11, 0.12, 0.1), 0.02); // dark rubber / boots / rifle
+    const skin = mat(`av_skin_${info.id}`, new Color3(0.58, 0.44, 0.34), 0.03);
+    const helmetMat = mat(`av_hel_${info.id}`, new Color3(0.23, 0.25, 0.19), 0.04);
+    const accent = mat(`av_acc_${info.id}`, teamColor, 0.35); // team identifier
     const numTex = this.numberTexture(scene, teamColor);
     const numMat = new StandardMaterial(`av_num_${info.id}`, scene);
     numMat.emissiveTexture = numTex; numMat.diffuseTexture = numTex; numMat.disableLighting = true;
@@ -53,23 +60,31 @@ export class Avatar {
       else mesh.isPickable = false;
       return mesh;
     };
-    // torso + plate carrier (hittable body)
+    // torso + plate carrier with pouches (hittable body)
     box("body", 0.56, 1.0, 0.36, 0.98, uniform, "body");
-    box("vest", 0.54, 0.58, 0.16, 1.06, gear);
-    // shoulders + arms + hands
+    box("vest", 0.54, 0.6, 0.17, 1.08, gear);
+    for (const px of [-0.16, 0.16]) { const p = box("pouch", 0.16, 0.2, 0.1, 0.86, gearB); p.position.x = px; p.position.z = 0.22; }
+    // backpack + radio antenna
+    box("pack", 0.4, 0.5, 0.2, 1.12, gear).position.z = -0.26;
+    const ant = MeshBuilder.CreateCylinder(`${info.id}_ant`, { diameter: 0.03, height: 0.5, tessellation: 5 }, scene);
+    ant.position.set(-0.18, 1.55, -0.28); ant.material = gearB; ant.parent = this.model; ant.isPickable = false;
+    // shoulders + arms + hands + team armband
     box("shoulders", 0.66, 0.16, 0.38, 1.42, uniform);
     for (const x of [-0.36, 0.36]) {
       const arm = box("arm", 0.16, 0.66, 0.2, 1.06, uniform, "limb");
       arm.position.x = x;
       const hand = MeshBuilder.CreateBox(`${info.id}_hand`, { width: 0.13, height: 0.14, depth: 0.15 }, scene);
-      hand.position.set(x, 0.72, 0.06); hand.material = gear; hand.parent = this.model; hand.isPickable = false;
+      hand.position.set(x, 0.72, 0.06); hand.material = gearB; hand.parent = this.model; hand.isPickable = false;
     }
-    // legs + boots
+    const armband = MeshBuilder.CreateCylinder(`${info.id}_arm_b`, { diameter: 0.19, height: 0.1, tessellation: 10 }, scene);
+    armband.position.set(0.36, 1.28, 0.02); armband.material = accent; armband.parent = this.model; armband.isPickable = false;
+    // legs + knee pads + boots
     for (const x of [-0.15, 0.15]) {
       const leg = box("leg", 0.2, 0.78, 0.24, 0.42, uniform, "limb");
       leg.position.x = x;
+      const knee = box("knee", 0.2, 0.14, 0.1, 0.5, gearB); knee.position.x = x; knee.position.z = 0.12;
       const boot = MeshBuilder.CreateBox(`${info.id}_boot`, { width: 0.22, height: 0.14, depth: 0.3 }, scene);
-      boot.position.set(x, 0.07, 0.05); boot.material = gear; boot.parent = this.model; boot.isPickable = false;
+      boot.position.set(x, 0.07, 0.05); boot.material = gearB; boot.parent = this.model; boot.isPickable = false;
     }
     // neck + head (headshot) + helmet + team band
     const neck = MeshBuilder.CreateCylinder(`${info.id}_neck`, { diameter: 0.15, height: 0.12 }, scene);
@@ -78,15 +93,15 @@ export class Avatar {
     const helmet = MeshBuilder.CreateSphere(`${info.id}_helmet`, { diameter: 0.34, slice: 0.62 }, scene);
     helmet.position.y = 1.78; helmet.material = helmetMat; helmet.parent = this.model; helmet.isPickable = false;
     const band = MeshBuilder.CreateTorus(`${info.id}_band`, { diameter: 0.33, thickness: 0.035, tessellation: 12 }, scene);
-    band.position.y = 1.72; band.rotation.x = Math.PI / 2; band.material = numMat; band.parent = this.model; band.isPickable = false;
+    band.position.y = 1.72; band.rotation.x = Math.PI / 2; band.material = accent; band.parent = this.model; band.isPickable = false;
 
-    // roster number: on the chest and the helmet front + a rifle prop.
-    const chestNum = MeshBuilder.CreatePlane(`${info.id}_cn`, { width: 0.34, height: 0.34 }, scene);
-    chestNum.position.set(0, 1.12, 0.28); chestNum.material = numMat; chestNum.parent = this.model; chestNum.isPickable = false;
-    const helmNum = MeshBuilder.CreatePlane(`${info.id}_hn`, { width: 0.18, height: 0.18 }, scene);
+    // roster number: chest + helmet front + a slung rifle.
+    const chestNum = MeshBuilder.CreatePlane(`${info.id}_cn`, { width: 0.3, height: 0.3 }, scene);
+    chestNum.position.set(0, 1.16, 0.29); chestNum.material = numMat; chestNum.parent = this.model; chestNum.isPickable = false;
+    const helmNum = MeshBuilder.CreatePlane(`${info.id}_hn`, { width: 0.16, height: 0.16 }, scene);
     helmNum.position.set(0, 1.8, 0.2); helmNum.material = numMat; helmNum.parent = this.model; helmNum.isPickable = false;
-    const rifle = MeshBuilder.CreateBox(`${info.id}_rifle`, { width: 0.08, height: 0.12, depth: 0.7 }, scene);
-    rifle.position.set(0.28, 1.02, 0.35); rifle.material = gear; rifle.parent = this.model; rifle.isPickable = false;
+    const rifle = MeshBuilder.CreateBox(`${info.id}_rifle`, { width: 0.07, height: 0.11, depth: 0.7 }, scene);
+    rifle.position.set(0.26, 1.02, 0.34); rifle.material = gearB; rifle.parent = this.model; rifle.isPickable = false;
 
     // billboard nameplate: [#N] RANK NAME
     const plate = MeshBuilder.CreatePlane(`np_${info.id}`, { width: 2.4, height: 0.55 }, scene);
@@ -150,11 +165,12 @@ export class NetMatch {
   private red = 0;
   private round = 1;
   private ended = false;
-  private myArmor = 100;
-  private hud: HTMLDivElement;
+  private topHud: HTMLDivElement;
   private scoreboard: HTMLDivElement;
   private roster: LobbyPlayer[];
   private prevOnFire?: (w: unknown) => void;
+  private prevHp = 100;
+  private prevArmor = 100;
 
   onExit?: () => void;
   /** Persist the local player's result (XP/currency/rank/badges) — wired to the backend by main. */
@@ -166,15 +182,21 @@ export class NetMatch {
     private readonly weapon: WeaponController,
     private readonly net: NetClient,
     private readonly info: MatchStartInfo,
+    private readonly hud: HUD,
+    private readonly isPointerLocked: () => boolean,
     parent: HTMLElement,
   ) {
     this.roster = info.players;
     this.timeLeft = info.settings.timeLimitSec;
     const base = IRON_CITADEL_BASE;
-    // place local player at spawn
+    // place local player at spawn; give everyone a plate carrier (armour) so
+    // the armour bar + absorption match the single-player loadout feel.
     player.respawn(new Vector3(base.x + info.spawn.x, info.spawn.y, base.z + info.spawn.z));
     player.inSafeZone = false;
     (player as unknown as { spawnProtected: boolean }).spawnProtected = false;
+    player.maxHealth = 100; player.health = 100;
+    player.maxArmour = 100; player.armour = 100;
+    this.prevHp = 100; this.prevArmor = 100;
 
     for (const p of info.players) {
       if (p.id === net.playerId) continue;
@@ -195,7 +217,7 @@ export class NetMatch {
     }
 
     this.off = net.on((m) => this.onServer(m));
-    this.hud = this.buildHud(parent);
+    this.topHud = this.buildHud(parent);
     this.scoreboard = this.buildScoreboard(parent);
     window.addEventListener("keydown", this.onKey);
     window.addEventListener("keyup", this.onKey);
@@ -211,6 +233,7 @@ export class NetMatch {
     av.dmg.takeDamage = (dmg, hs) => {
       if (av.dead || this.ended) return;
       this.net.send({ t: "hit", targetId: p.id, damage: dmg, headshot: hs });
+      this.hud.notifyHit(hs); // instant client-side hitmarker (responsive)
     };
     this.avatars.set(p.id, av);
   }
@@ -224,25 +247,40 @@ export class NetMatch {
         }
         break;
       case "hurt": {
+        // Damage the amount actually lost this hit (health + armour delta).
+        const dmg = Math.max(1, this.prevHp + this.prevArmor - m.hp - m.armor);
         this.player.health = m.hp;
-        this.myArmor = m.armor;
-        this.player.shakeCamera(20);
+        this.player.armour = m.armor;
+        this.prevHp = m.hp; this.prevArmor = m.armor;
+        // Subtle feedback (no big screen shake): directional arrow + vignette +
+        // blood scaled to damage, and only a tiny camera nudge.
+        const from = this.avatars.get(m.fromId);
+        if (from) {
+          const bearing = Math.atan2(from.root.position.x - this.player.position.x, from.root.position.z - this.player.position.z);
+          this.hud.notifyDamageFrom(bearing);
+        }
+        this.hud.notifyPlayerHurt(dmg);
+        this.player.shakeCamera(Math.min(6, dmg * 0.12)); // minor recoil, never disruptive
         break;
       }
-      case "kill":
+      case "kill": {
+        const victim = this.roster.find((p) => p.id === m.victimId);
+        const killer = m.killerId ? this.roster.find((p) => p.id === m.killerId) : null;
+        if (m.killerId === this.net.playerId && victim) this.hud.notifyKill(victim.name, m.headshot);
         if (m.victimId === this.net.playerId) {
-          this.player.health = 0;
-          this.showCenter(m.killerId ? "ELIMINATED" : "DOWN", 2500);
+          this.player.health = 0; this.prevHp = 0; this.prevArmor = 0;
+          this.showCenter(killer ? `ELIMINATED BY ${killer.rankInsignia} ${killer.name}` : "ELIMINATED", 2800);
         }
         this.avatars.get(m.victimId)?.setState({ id: m.victimId, x: 0, y: -50, z: 0, yaw: 0, pitch: 0, flags: NetFlag.Dead, weapon: 0, hp: 0, armor: 0 });
         break;
+      }
       case "respawn": {
         const base = IRON_CITADEL_BASE;
         const pos = new Vector3(base.x + m.spawn.x, m.spawn.y, base.z + m.spawn.z);
         if (m.playerId === this.net.playerId) {
           this.player.respawn(pos);
-          this.player.health = 100;
-          this.myArmor = 100;
+          this.player.health = 100; this.player.armour = 100;
+          this.prevHp = 100; this.prevArmor = 100;
           this.weapon.resetAllAmmo();
         } else {
           const av = this.avatars.get(m.playerId);
@@ -277,12 +315,15 @@ export class NetMatch {
       if (this.player.health <= 0) flags |= NetFlag.Dead;
       this.net.send({
         t: "state",
-        p: { x: pos.x - base.x, y: pos.y, z: pos.z - base.z, yaw: this.player.yaw, pitch: this.player.camera.rotation.x, flags, weapon: 0, hp: this.player.health, armor: this.myArmor },
+        p: { x: pos.x - base.x, y: pos.y, z: pos.z - base.z, yaw: this.player.yaw, pitch: this.player.camera.rotation.x, flags, weapon: 0, hp: this.player.health, armor: this.player.armour },
       });
     }
     // timer
     this.timeLeft = Math.max(0, this.timeLeft - dt);
-    this.updateHud();
+    this.updateTopHud();
+    // Drive the full combat HUD (health/armour/ammo/hitmarker/vignette/blood/
+    // directional indicators) — main's loop skips hud.update in this mode.
+    this.hud.update(this.isPointerLocked(), [], null, [], null);
   }
 
   // ---- HUD -----------------------------------------------------------------
@@ -294,10 +335,10 @@ export class NetMatch {
     parent.appendChild(el);
     return el;
   }
-  private updateHud(): void {
+  private updateTopHud(): void {
     const mm = Math.floor(this.timeLeft / 60), ss = Math.floor(this.timeLeft % 60);
     const mode = this.info.settings.mode === "tdm" ? "TDM" : `ELIM R${this.round}`;
-    this.hud.innerHTML =
+    this.topHud.innerHTML =
       `<span style="color:#6db4ff;font-size:20px;font-weight:bold">${this.blue}</span>` +
       `<span style="font-size:11px;letter-spacing:2px;color:#8fa47e">${mode}  ${mm}:${ss.toString().padStart(2, "0")}</span>` +
       `<span style="color:#ff8f7a;font-size:20px;font-weight:bold">${this.red}</span>`;
@@ -390,7 +431,7 @@ export class NetMatch {
     this.off?.();
     for (const av of this.avatars.values()) av.dispose();
     this.avatars.clear();
-    this.hud.remove();
+    this.topHud.remove();
     this.scoreboard.remove();
     window.removeEventListener("keydown", this.onKey);
     window.removeEventListener("keyup", this.onKey);
