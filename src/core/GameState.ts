@@ -26,6 +26,8 @@ export interface SaveData {
   hasBotty: boolean;
   /** BOTTY's personal upgrade tree — level 0-3 per category. */
   bottyUpgrades: Record<BottyUpgradeCategory, number>;
+  /** Which owned plate type (hard/soft ballistic plates) is actually worn — null if neither owned/equipped yet. */
+  equippedArmour: string | null;
 }
 
 function defaultBottyUpgrades(): Record<BottyUpgradeCategory, number> {
@@ -67,6 +69,7 @@ export function defaultSave(): SaveData {
     medkitCount: STARTING_MEDKITS,
     hasBotty: false,
     bottyUpgrades: defaultBottyUpgrades(),
+    equippedArmour: null,
   };
 }
 
@@ -98,6 +101,11 @@ export class GameState {
     this.data = loaded ? { ...defaultSave(), ...loaded } : defaultSave();
     this.data.ownedThrowables = this.data.ownedThrowables.filter((id) => THROWABLES[id]);
     for (const cat of BOTTY_UPGRADE_CATEGORIES) this.data.bottyUpgrades[cat] ??= 0;
+    // Migration: saves from before armour was switchable own exactly one plate
+    // type — default straight to wearing it instead of showing bare-chested.
+    if (this.data.equippedArmour === undefined || (this.data.equippedArmour && !this.data.ownedGear.includes(this.data.equippedArmour))) {
+      this.data.equippedArmour = this.data.ownedGear.find((id) => GEAR[id]?.plateType) ?? null;
+    }
     if (!THROWABLES[this.data.loadout.throwable]) {
       this.data.loadout.throwable = "smoke_red";
       this.data.loadout.throwableCount = 0;
@@ -212,6 +220,13 @@ export class GameState {
     this.data.hasBotty = true;
     this.save();
     return true;
+  }
+
+  /** Switches which owned plate type (hard/soft ballistic plates) is actually worn. */
+  equipArmour(id: string): void {
+    if (!this.data.ownedGear.includes(id) || !GEAR[id]?.plateType) return;
+    this.data.equippedArmour = id;
+    this.save();
   }
 
   bottyUpgradeLevel(category: BottyUpgradeCategory): number {

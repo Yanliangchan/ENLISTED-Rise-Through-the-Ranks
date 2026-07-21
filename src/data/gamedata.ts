@@ -119,6 +119,8 @@ export interface GearItem {
   movementSpeedMult?: number;
   sprintAccelerationMult?: number;
   lbvUpgrade?: boolean;
+  /** One of the mutually-EQUIPPED plate types (hard/soft) — owning both is fine, but only one is worn at a time. */
+  plateType?: boolean;
   realNotes: string;
 }
 
@@ -138,12 +140,12 @@ export const GEAR: Record<string, GearItem> = {
     realNotes: "Base modular LBV platform. Unlocks plate, pouch, assault-load and hydration upgrades.",
   },
   hard_ballistic_plates: {
-    id: "hard_ballistic_plates", name: "Hard Ballistic Plates", price: 1800, lbvUpgrade: true,
+    id: "hard_ballistic_plates", name: "Hard Ballistic Plates", price: 1800, lbvUpgrade: true, plateType: true,
     armour: 90, damageReduction: 0.65, movementSpeedMult: 0.94, sprintAccelerationMult: 0.9,
     realNotes: "Maximum rifle-rated protection: much larger armour pool and strong damage absorption, offset by slower movement and sprint pickup.",
   },
   soft_ballistic_plates: {
-    id: "soft_ballistic_plates", name: "Soft Ballistic Plates", price: 1200, lbvUpgrade: true,
+    id: "soft_ballistic_plates", name: "Soft Ballistic Plates", price: 1200, lbvUpgrade: true, plateType: true,
     armour: 50, damageReduction: 0.42, movementSpeedMult: 0.99,
     realNotes: "Lightweight survivability upgrade with moderate armour and minimal mobility penalty.",
   },

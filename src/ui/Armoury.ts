@@ -373,25 +373,44 @@ export class Armoury {
       if (item.price === 0) continue;
       const owned = this.gameState.data.ownedGear.includes(item.id);
       const needsLbv = !!item.lbvUpgrade && !this.gameState.data.ownedGear.includes("lbv");
-      const conflictsPlate = (item.id === "hard_ballistic_plates" && this.gameState.data.ownedGear.includes("soft_ballistic_plates")) || (item.id === "soft_ballistic_plates" && this.gameState.data.ownedGear.includes("hard_ballistic_plates"));
       const row = this.shopRow(item.name, item.price, owned, () => {
-        if (needsLbv || conflictsPlate) return;
+        if (needsLbv) return;
         if (this.gameState.spendCredits(item.price)) {
           this.gameState.data.ownedGear.push(item.id);
           // LBV grants 5 First Aid Kits immediately, not just on the next respawn.
           if (item.id === "lbv") {
             this.gameState.data.medkitCount = Math.max(this.gameState.data.medkitCount, this.gameState.startingMedkitCount());
           }
+          // First plate type bought is worn automatically; buying a second
+          // type just adds it to the locker — switch which is worn below.
+          if (item.plateType && !this.gameState.data.equippedArmour) {
+            this.gameState.equipArmour(item.id);
+          }
           this.gameState.save();
           this.audio.purchase();
           this.refresh();
         }
       });
-      if (needsLbv || conflictsPlate) {
+      if (needsLbv) {
         const note = document.createElement("span");
-        note.textContent = needsLbv ? " (requires LBV)" : " (choose one plate type)";
+        note.textContent = " (requires LBV)";
         note.style.cssText = "color:#a55; font-size:12px; margin-left:8px;";
         row.appendChild(note);
+      }
+      // Own both plate types? Wear whichever suits the fight — heavy protection
+      // vs. mobility — rather than being locked into whichever was bought first.
+      if (item.plateType && owned) {
+        const equipped = this.gameState.data.equippedArmour === item.id;
+        const equipBtn = document.createElement("button");
+        equipBtn.textContent = equipped ? "WORN" : "Wear";
+        styleButton(equipBtn, equipped ? "#4a7a3c" : "#2a332480");
+        equipBtn.disabled = equipped;
+        equipBtn.onclick = () => {
+          this.gameState.equipArmour(item.id);
+          this.audio.uiClick();
+          this.refresh();
+        };
+        row.appendChild(equipBtn);
       }
       list.appendChild(row);
     }

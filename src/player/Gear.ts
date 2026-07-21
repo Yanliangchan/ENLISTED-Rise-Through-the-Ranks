@@ -19,6 +19,9 @@ export function applyGearToPlayer(gameState: GameState, player: PlayerController
   for (const id of gameState.data.ownedGear) {
     const item = GEAR[id];
     if (!item) continue;
+    // Hard/soft plates are mutually EQUIPPED — owning both is fine, but only
+    // the one selected in the Armoury actually contributes its stats.
+    if (item.plateType && id !== gameState.data.equippedArmour) continue;
     if (item.armour) armour += item.armour;
     if (item.damageReduction) damageReduction = Math.max(damageReduction, item.damageReduction);
     if (item.movementSpeedMult) moveMult *= item.movementSpeedMult;

@@ -17,15 +17,35 @@ const TRACK_LABELS: Record<Track, string> = {
   military_expert: "Military Expert (MDES)",
 };
 
-/** Best-effort match from the server's free-text career-track string onto the reference ladder's Track type. */
-function guessTrack(careerTrack: string): Track {
-  const s = careerTrack.toLowerCase();
-  if (s.includes("officer") || s.includes("lieutenant") || s.includes("captain") || s.includes("colonel") || s.includes("general")) return "officer";
-  if (s.includes("warrant") || s.includes("wo")) return "warrant";
-  if (s.includes("expert") || s.includes("mdes") || s.includes("me1") || s.includes("me2")) return "military_expert";
-  if (s.includes("sergeant") || s.includes("specialist") || s.includes("sg")) return "specialist";
+/**
+ * Which row of the reference ladder to highlight as "YOUR TRACK". Must be
+ * derived from the player's actual chosen `careerPath` (officer/specialist/me)
+ * plus their current rank name — NOT from `Profile.careerTrack`, which is a
+ * completely different field (a weapon-usage label like "Rifleman" or
+ * "Marksman", derived from kills-by-class). Using that field here previously
+ * meant an Officer who mainly ran a rifle would never show as "officer".
+ */
+function resolveDisplayTrack(careerPath: CareerPath | null, rankName: string): Track {
+  if (careerPath === "officer") return "officer";
+  if (careerPath === "me") return "military_expert";
+  if (careerPath === "specialist") return rankName.toLowerCase().includes("warrant") ? "warrant" : "specialist";
   return "enlistee";
 }
+
+/**
+ * The server's badge catalogue (server/migrations) and the reference SAF
+ * Challenge Ops catalogue (src/data/badges.ts) use different id namespaces —
+ * this maps the 5 qualification-badge server codes onto their matching
+ * Challenge Op entry, so the profile can show the real "how to earn it" text
+ * alongside the live earned/locked state.
+ */
+const CODE_TO_CHALLENGE_BADGE: Record<string, string> = {
+  ranger_tab: "ranger",
+  guards_tab: "guards",
+  airborne_tab: "parachutist",
+  commando_recognition: "commando",
+  master_marksman: "sniper",
+};
 
 const LEADERBOARD_CATEGORIES: Array<{ key: string; label: string }> = [
   { key: "highest_wave", label: "HIGHEST WAVE" },
@@ -185,10 +205,16 @@ export class ProfilePage {
         ${statTile("XP", p.rank.xp)}
       </div>
 
-      <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;">BADGES EARNED (${earnedCount} / ${p.badges.length})</div>
+      ${renderChallengeOpsShowcase(p.badges)}
+
+      <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:2px;">BADGES EARNED</div>
+      <div style="margin-bottom:8px; background:#0a120a; border:1px solid #2c3a26; height:14px; position:relative; max-width:320px;">
+        <div style="height:100%; width:${p.badges.length ? Math.round((earnedCount / p.badges.length) * 100) : 0}%; background:#4a7a3c;"></div>
+        <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:9px; letter-spacing:1px; color:#eaf4e4;">${earnedCount} / ${p.badges.length}</div>
+      </div>
       <div style="margin-bottom:26px;">${badgesHtml}</div>
 
-      ${this.buildCareerLadderSection(guessTrack(p.careerTrack))}
+      ${this.buildCareerLadderSection(resolveDisplayTrack(p.careerPath, p.rank.name))}
 
       <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;">LEADERBOARD</div>
       <div id="lb-tabs" style="display:flex; gap:6px; margin-bottom:10px;">
@@ -254,7 +280,9 @@ export class ProfilePage {
     ladderToggle?.addEventListener("click", () => {
       const open = ladderBody!.style.display !== "none";
       ladderBody!.style.display = open ? "none" : "block";
-      ladderToggle.textContent = open ? "SHOW FULL LADDER + CHALLENGE OPS ▾" : "HIDE FULL LADDER + CHALLENGE OPS ▴";
+      ladderToggle.textContent = open
+        ? "VIEW FULL SAF RANK LADDER & HOW TO EARN EVERY BADGE ▾"
+        : "HIDE FULL RANK LADDER & BADGE GUIDE ▴";
     });
   }
 
@@ -295,6 +323,8 @@ export class ProfilePage {
         ${statTile("Highest Wave", s.highestWave)}
         ${statTile("Playtime", playtimeStr)}
       </div>
+      ${renderChallengeOpsShowcase(p.badges)}
+
       <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;">BADGES (${earnedCount} / ${p.badges.length})</div>
       <div>${badgesHtml}</div>
     `;
@@ -337,10 +367,15 @@ export class ProfilePage {
       .map((b) => {
         const op = CHALLENGE_OPS[b.challengeId];
         return `
-          <div style="background:#0e1610; border:1px solid #2c3a26; padding:8px 12px; margin-bottom:6px;">
-            <div style="font-weight:bold; color:#bfe0ab; font-size:12px;">${escapeHtml(b.name)}</div>
-            <div style="font-size:11px; color:#8fa585; margin-top:2px;">${escapeHtml(b.perk)}</div>
-            <div style="font-size:10px; color:#6a8562; margin-top:4px;">${op ? escapeHtml(op.brief) : ""}</div>
+          <div style="background:#0e1610; border:1px solid #2c3a26; padding:10px 12px; margin-bottom:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:baseline;">
+              <div style="font-weight:bold; color:#bfe0ab; font-size:12px;">${escapeHtml(b.name)}</div>
+              <div style="font-size:9px; letter-spacing:1px; color:#6a8562;">${escapeHtml(b.wear)}</div>
+            </div>
+            <div style="font-size:11px; color:#8fa585; margin-top:4px;">${escapeHtml(b.realLife)}</div>
+            <div style="font-size:11px; color:#7fae68; margin-top:6px;"><span style="color:#5a7a52;">HOW TO EARN:</span> ${escapeHtml(b.howToEarn)}</div>
+            <div style="font-size:10px; color:#e0c15a; margin-top:4px;">Perk: ${escapeHtml(b.perk)}</div>
+            <div style="font-size:9px; color:#54654c; margin-top:4px;">${op ? escapeHtml(op.name) : ""}</div>
           </div>`;
       })
       .join("");
@@ -348,25 +383,71 @@ export class ProfilePage {
     return `
       <button id="ladder-toggle" style="
         width:100%; text-align:left; background:none; border:1px solid #2c3a26; color:#7f9a72;
-        font-family:inherit; font-size:11px; letter-spacing:2px; padding:8px 12px; margin-bottom:12px; cursor:pointer;
-      ">SHOW FULL LADDER + CHALLENGE OPS ▾</button>
+        font-family:inherit; font-size:11px; letter-spacing:2px; padding:8px 12px; margin-bottom:4px; cursor:pointer;
+      ">VIEW FULL SAF RANK LADDER &amp; HOW TO EARN EVERY BADGE ▾</button>
+      <div style="font-size:10px; color:#5a7a52; margin-bottom:12px;">
+        Every SAF career track from Recruit to the top of your chosen path, plus what each Challenge Op badge really is and exactly how to earn it.
+      </div>
       <div id="ladder-body" style="display:none; margin-bottom:26px;">
-        <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin:14px 0 10px;">SAF CAREER LADDER</div>
+        <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin:14px 0 4px;">SAF CAREER LADDER</div>
+        <div style="font-size:10px; color:#5a7a52; margin-bottom:10px;">
+          Every operator starts Enlistee. At Corporal you pick a track (Specialist, Officer or Military Expert) — that choice is permanent. Your current track is highlighted.
+        </div>
         ${rows}
-        <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin:18px 0 10px;">CHALLENGE OPS (badge missions)</div>
+        <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin:18px 0 4px;">CHALLENGE OPS — BADGE MISSIONS</div>
+        <div style="font-size:10px; color:#5a7a52; margin-bottom:10px;">
+          Optional missions that award real SAF-referenced badges. Each card below shows what the badge represents and the in-game condition to earn it.
+        </div>
         ${badgeRows}
       </div>`;
   }
 }
 
 // ---- Badge showcase: categorised, rarity-sorted, locked-greyed -------------
-const RARITY_ORDER: Record<string, number> = { legendary: 5, epic: 4, rare: 3, uncommon: 2, common: 1 };
 const RARITY_COLOR: Record<string, string> = {
   legendary: "#e6b84d", epic: "#c07de0", rare: "#4da6e6", uncommon: "#5bd07a", common: "#9fb59a",
 };
 const RARITY_TIERS = ["legendary", "epic", "rare", "uncommon", "common"];
 
 interface DisplayBadge { code: string; name: string; description: string; icon: string; category: string; rarity: string; unlocked: boolean }
+
+/**
+ * Prominent, high-placed showcase for the qualification-style Challenge Ops
+ * badges (Ranger, Guards, Airborne, Commando, Marksmanship) — these are the
+ * real SAF-referenced ones, so they get top billing above the full catalogue
+ * instead of being buried in the collapsed reference ladder.
+ */
+function renderChallengeOpsShowcase(badges: DisplayBadge[]): string {
+  const list = badges.filter((b) => CODE_TO_CHALLENGE_BADGE[b.code]);
+  if (!list.length) return "";
+  const earned = list.filter((b) => b.unlocked).length;
+  const cards = list
+    .sort((a, b) => Number(b.unlocked) - Number(a.unlocked) || a.name.localeCompare(b.name))
+    .map((b) => {
+      const ref = BADGES[CODE_TO_CHALLENGE_BADGE[b.code]];
+      const col = RARITY_COLOR[b.rarity] ?? "#9fb59a";
+      const locked = !b.unlocked;
+      return `
+        <div style="
+          flex:1; min-width:210px; background:${locked ? "#090d09" : "#0e1610"}; border:1px solid ${locked ? "#242c20" : col};
+          padding:10px 12px; opacity:${locked ? "0.6" : "1"};
+        ">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:22px; filter:${locked ? "grayscale(1)" : "none"};">${b.icon}</span>
+            <div>
+              <div style="font-weight:bold; font-size:13px; color:${locked ? "#8fa585" : col};">${escapeHtml(b.name)}</div>
+              <div style="font-size:9px; letter-spacing:1px; color:#6a8562; text-transform:uppercase;">${locked ? "LOCKED" : "EARNED"} · ${escapeHtml(b.rarity)}</div>
+            </div>
+          </div>
+          ${ref ? `<div style="font-size:10px; color:#7fae68; margin-top:8px;"><span style="color:#5a7a52;">HOW TO EARN:</span> ${escapeHtml(ref.howToEarn)}</div>` : ""}
+        </div>`;
+    })
+    .join("");
+  return `
+    <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:2px;">CHALLENGE OPS BADGES (${earned} / ${list.length})</div>
+    <div style="font-size:10px; color:#5a7a52; margin-bottom:10px;">Real SAF-referenced qualifications — Ranger, Guards, Airborne, Marksmanship, Commando. See the full ladder below for exactly how each is earned.</div>
+    <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:26px;">${cards}</div>`;
+}
 
 /** Render the full badge collection grouped by rarity tier — Special/Legendary
  *  down to Common — earned in colour and locked greyed out, each with a name/

@@ -32,7 +32,10 @@ export interface Badge {
   meritReward: number; // lump merit granted on earning
   perk: string; // passive gameplay perk
   tiers?: string[]; // progressive versions, low → high
-  realNotes: string;
+  /** What this badge actually is in the real SAF — accurate reference text. */
+  realLife: string;
+  /** How you earn it in-game (this Challenge Op's rules). */
+  howToEarn: string;
 }
 
 export const BADGES: Record<string, Badge> = {
@@ -44,8 +47,9 @@ export const BADGES: Record<string, Badge> = {
     challengeId: "op_ranger_gauntlet",
     meritReward: 800,
     perk: "Endurance: −40% stamina drain, faster sprint recovery.",
-    realNotes:
-      "SAF Ranger tab (red). A volunteer confidence course for combat vocations, known for extreme grit. In-game: survive an endurance gauntlet with NO resupply and NO armour.",
+    realLife:
+      "SAF Ranger tab (red) — a volunteer confidence course in small-unit tactics, survival and combat endurance for combat vocations. One of the toughest schools in the SAF; earned by passing Ranger selection and the full course.",
+    howToEarn: "Survive an 8-wave endurance gauntlet with NO resupply and NO armour equipped.",
   },
 
   guards: {
@@ -56,8 +60,9 @@ export const BADGES: Record<string, Badge> = {
     challengeId: "op_guards_assault",
     meritReward: 600,
     perk: "Mobility: +12% move speed, −15% ADS time.",
-    realNotes:
-      "SAF Guards tab, from Guards conversion. Rapid, aggressive light-infantry ethos. In-game: clear a fast mobile-assault objective under a time limit.",
+    realLife:
+      "SAF Guards tab — awarded on conversion into a Guards unit, recognised for rapid, aggressive light-infantry doctrine. Earned by completing Guards conversion training.",
+    howToEarn: "Clear 4 marked strongpoints in a single deployment under a strict time limit.",
   },
 
   parachutist: {
@@ -69,8 +74,9 @@ export const BADGES: Record<string, Badge> = {
     meritReward: 700,
     perk: "No fall damage; faster deploy after insertion.",
     tiers: ["Basic Parachutist", "Commando Parachutist (red backing)", "Jumpmaster (yellow backing)"],
-    realNotes:
-      "Earned at the Basic Airborne Course (BAC). Backing colour denotes type (basic/commando/diver/jumpmaster). In-game: complete airborne-insertion missions; tiers unlock at 1 / 5 / 15 successful drops.",
+    realLife:
+      "Basic Airborne Course (BAC) wings — the SAF's static-line parachute qualification, earned at the Airborne School. Backing colour denotes type: none = basic, red = commando, black = diver, yellow = jumpmaster.",
+    howToEarn: "Complete airborne-insertion drops; tiers unlock at 1 / 5 / 15 successful drops.",
   },
 
   freefall: {
@@ -81,8 +87,9 @@ export const BADGES: Record<string, Badge> = {
     challengeId: "op_halo_insertion",
     meritReward: 900,
     perk: "Silent insertion: start a wave undetected (enemies unaware for 15s).",
-    realNotes:
-      "High-altitude military freefall qualification (HALO/HAHO), covert insertion. In-game: nail a high-altitude drop challenge onto a marked zone.",
+    realLife:
+      "Combat Free Fall wings (HALO/HAHO) — high-altitude military freefall qualification for covert insertion, well above the basic static-line jump.",
+    howToEarn: "Nail a high-altitude drop challenge onto a marked landing zone.",
   },
 
   combat_diver: {
@@ -93,8 +100,9 @@ export const BADGES: Record<string, Badge> = {
     challengeId: "op_amphibious",
     meritReward: 800,
     perk: "Amphibious: full move speed + weapon handling in/near water.",
-    realNotes:
-      "Underwater combat proficiency (Naval Diving Unit lineage). In-game: complete an amphibious/coastal underwater objective.",
+    realLife:
+      "Combat Diver badge — underwater combat proficiency in the Naval Diving Unit lineage, one of the SAF's most selective specialist quals.",
+    howToEarn: "Complete an amphibious/coastal objective, infiltrating via the water.",
   },
 
   sniper: {
@@ -106,8 +114,9 @@ export const BADGES: Record<string, Badge> = {
     meritReward: 500,
     perk: "Precision: −30% scope sway, faster ADS on DMR/sniper.",
     tiers: ["Marksman", "Sharpshooter", "Sniper"],
-    realNotes:
-      "Shooting proficiency badge. In-game tiers unlock at 25 / 75 / 150 long-range or headshot kills with precision weapons.",
+    realLife:
+      "SAF Marksmanship badge — shooting-proficiency recognition earned through live-fire qualification scoring in the top marksmanship band.",
+    howToEarn: "Rack up long-range/headshot kills with precision weapons; tiers unlock at 25 / 75 / 150.",
   },
 
   commando: {
@@ -118,8 +127,9 @@ export const BADGES: Record<string, Badge> = {
     challengeId: "op_commando_selection",
     meritReward: 1500,
     perk: "Elite: +10% damage resistance and stacks with all other badge perks.",
-    realNotes:
-      "SAF Commando formation, signature red/maroon beret, elite selection. In-game: the capstone Challenge Op — requires Ranger + Parachutist already earned, then survive an elite gauntlet on high difficulty.",
+    realLife:
+      "SAF Commando Formation, signature maroon/red beret — among the most selective units in the SAF, earned by passing Commando selection and the full commando course.",
+    howToEarn: "Capstone Op. Requires Ranger + Parachutist already earned, then survive an elite gauntlet on the hardest difficulty.",
   },
 };
 
