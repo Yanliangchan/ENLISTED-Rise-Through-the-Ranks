@@ -792,6 +792,10 @@ async function boot(): Promise<void> {
         hud.setSupportLine(null);
       }
       hud.updateMedkit(medKit.count);
+      // LBV upgrade icons + carried tactical-equipment counts.
+      const th = gameState.data.loadout.throwable;
+      const thc = gameState.data.loadout.throwableCount;
+      hud.updateEquipment(gameState.data.ownedGear, th === "claymore" ? thc : 0, th === "smoke_red" ? thc : 0);
       hud.updateBotty(
         botty ? { health: botty.health, maxHealth: botty.maxHealth, command: botty.command, isDown: botty.isDown } : null
       );

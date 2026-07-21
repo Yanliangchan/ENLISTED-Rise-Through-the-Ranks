@@ -38,6 +38,7 @@ export class HUD {
   private waveEl: HTMLDivElement;
   private uavEl: HTMLDivElement;
   private medkitEl: HTMLDivElement;
+  private gearEl: HTMLDivElement;
   private crosshair: HTMLDivElement;
   private m203Sight: HTMLDivElement;
   private hitmarker: HTMLDivElement;
@@ -188,8 +189,11 @@ export class HUD {
     this.creditsEl = el("div", "color:#e0c15a; margin-top:2px;");
     this.uavEl = el("div", "color:#7fd0ff; font-size:13px; margin-top:4px;");
     this.medkitEl = el("div", "color:#8fd68f; font-size:13px;");
+    // Compact loadout readout: LBV upgrade icons + carried equipment counts.
+    this.gearEl = el("div", "font-size:13px; color:#c9d8bf; margin-top:3px; letter-spacing:1px;");
     topCentre.appendChild(this.waveEl);
     topCentre.appendChild(this.creditsEl);
+    topCentre.appendChild(this.gearEl);
     topCentre.appendChild(this.uavEl);
     topCentre.appendChild(this.medkitEl);
 
@@ -345,6 +349,25 @@ export class HUD {
   updateMedkit(count: number): void {
     this.medkitEl.textContent = `First Aid ×${count} [5]`;
     this.medkitEl.style.color = count > 0 ? "#8fd68f" : "#8a9a84";
+  }
+
+  /**
+   * Compact loadout strip: LBV upgrade icons (plate type, hydration, medic,
+   * assault-load) plus carried tactical-equipment counts (claymore, red smoke).
+   * Icons only appear for gear the operator actually owns, so it stays uncluttered.
+   */
+  updateEquipment(ownedGear: string[], claymoreCount: number, redSmokeCount: number): void {
+    const has = (id: string) => ownedGear.includes(id);
+    const parts: string[] = [];
+    if (has("hard_ballistic_plates")) parts.push("🛡 Hard Plate");
+    else if (has("soft_ballistic_plates")) parts.push("🦺 Soft Plate");
+    if (has("assault_load_pouches")) parts.push("🎒 Assault");
+    if (has("medic_pouch")) parts.push("⛑ Medic");
+    if (has("hydration_pack")) parts.push("💧 Hydration");
+    if (claymoreCount > 0) parts.push(`🧨 Claymore ×${claymoreCount}`);
+    if (redSmokeCount > 0) parts.push(`🔴 Smoke ×${redSmokeCount}`);
+    this.gearEl.textContent = parts.join("   ");
+    this.gearEl.style.display = parts.length ? "block" : "none";
   }
 
   notifyHit(headshot = false): void {
