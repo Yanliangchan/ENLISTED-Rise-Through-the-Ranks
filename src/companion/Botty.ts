@@ -405,8 +405,8 @@ export class BottyController {
     puff.position = between;
     puff.position.y = 1.2;
     const mat = new StandardMaterial("botty_smokeMat", this.scene);
-    mat.diffuseColor = new Color3(0.75, 0.15, 0.1);
-    mat.emissiveColor = new Color3(0.3, 0.05, 0.03);
+    mat.diffuseColor = new Color3(0.1, 0.35, 0.9);
+    mat.emissiveColor = new Color3(0.03, 0.12, 0.35);
     mat.alpha = 0.55;
     puff.material = mat;
     // Obscures vision but not bullets — same contract as thrown smoke.

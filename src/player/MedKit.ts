@@ -1,7 +1,6 @@
 import type { InputManager } from "@/core/InputManager";
 import type { AudioManager } from "@/core/AudioManager";
 import type { GameState } from "@/core/GameState";
-import { MAX_MEDKITS } from "@/core/GameState";
 import type { PlayerController } from "@/player/PlayerController";
 
 const HEAL_FRACTION = 0.5; // a used kit restores half of max health
@@ -15,7 +14,7 @@ export interface MedKitCallbacks {
 /**
  * First aid kits (default key: 5). A carried count persisted on the save,
  * refilled to the starting amount on redeploy, topped up by health crates
- * up to MAX_MEDKITS. Using one heals half of the player's max health.
+ * up to the current carry cap. Using one heals half of the player's max health.
  */
 export class MedKitController {
   constructor(
@@ -30,9 +29,13 @@ export class MedKitController {
     return this.gameState.data.medkitCount;
   }
 
-  /** Grant kits from a supply crate pickup, capped at MAX_MEDKITS. */
+  get maxCount(): number {
+    return this.gameState.maxMedkitCount();
+  }
+
+  /** Grant kits from a supply crate pickup, capped by LBV medic capacity. */
   add(amount: number): void {
-    this.gameState.data.medkitCount = Math.min(MAX_MEDKITS, this.gameState.data.medkitCount + amount);
+    this.gameState.data.medkitCount = Math.min(this.gameState.maxMedkitCount(), this.gameState.data.medkitCount + amount);
     this.gameState.save();
   }
 

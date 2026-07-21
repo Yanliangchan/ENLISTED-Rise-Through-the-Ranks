@@ -41,6 +41,13 @@ export class PlayerController {
   armourDamageReduction = 0;
   /** Current weapon's moveSpeedMult (heavier weapons slow the player). */
   weaponSpeedMult = 1;
+  gearMoveSpeedMult = 1;
+  sprintAccelerationMult = 1;
+  staminaMax = 5;
+  stamina = 5;
+  staminaRegenMult = 1;
+  staminaDrainMult = 1;
+  private sprintRamp = 0;
   /** User sensitivity multiplier from settings (1 = default). */
   sensitivityMult = 1;
   /** Set by WeaponController while aiming — scopes/zoom feel less twitchy at higher magnification. */
@@ -203,11 +210,19 @@ export class PlayerController {
     // muscle memory still works, but C is the documented bind.
     this.isCrouching =
       this.input.isDown("KeyC") || this.input.isDown("ControlLeft") || this.input.isDown("ControlRight");
-    const sprinting = this.input.isDown("ShiftLeft") && moveZ > 0 && !this.isCrouching;
+    const wantsSprint = this.input.isDown("ShiftLeft") && moveZ > 0 && !this.isCrouching && this.stamina > 0.05;
+    if (wantsSprint) {
+      this.stamina = Math.max(0, this.stamina - dt * this.staminaDrainMult);
+      this.sprintRamp += (1 - this.sprintRamp) * Math.min(1, 5 * this.sprintAccelerationMult * dt);
+    } else {
+      this.stamina = Math.min(this.staminaMax, this.stamina + dt * 0.75 * this.staminaRegenMult);
+      this.sprintRamp += (0 - this.sprintRamp) * Math.min(1, 7 * dt);
+    }
+    const sprinting = wantsSprint && this.sprintRamp > 0.1;
     this._isSprinting = sprinting;
 
-    let speed = WALK_SPEED * this.weaponSpeedMult;
-    if (sprinting) speed *= SPRINT_MULT;
+    let speed = WALK_SPEED * this.weaponSpeedMult * this.gearMoveSpeedMult;
+    if (sprinting) speed *= 1 + (SPRINT_MULT - 1) * this.sprintRamp;
     if (this.isCrouching) speed *= CROUCH_MULT;
 
     let moveVector = Vector3.Zero();
@@ -290,6 +305,7 @@ export class PlayerController {
   respawn(position: Vector3): void {
     this.health = this.maxHealth;
     this.armour = this.maxArmour;
+    this.stamina = this.staminaMax;
     this.verticalVelocity = 0;
     this.collider.position = position.clone();
   }

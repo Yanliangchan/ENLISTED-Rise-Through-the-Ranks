@@ -314,6 +314,32 @@ export class EnemyManager {
     }
   }
 
+  /** Apply directional blast damage to enemies inside a forward cone. */
+  damageInCone(origin: Vector3, forward: Vector3, rangeM: number, halfAngleRad: number, centreDamage: number): boolean {
+    let hit = false;
+    const dir = forward.clone();
+    dir.y = 0;
+    if (dir.lengthSquared() < 1e-4) dir.set(0, 0, 1);
+    dir.normalize();
+    const cosHalf = Math.cos(halfAngleRad);
+    for (const enemy of this.enemies) {
+      if (enemy.isDead) continue;
+      const to = enemy.root.position.subtract(origin);
+      to.y = 0;
+      const dist = to.length();
+      if (dist <= 0.1 || dist > rangeM) continue;
+      to.normalize();
+      if (Vector3.Dot(dir, to) < cosHalf) continue;
+      const dmg = blastDamageAtDistance(centreDamage, dist, rangeM);
+      if (dmg > 0) {
+        enemy.takeDamage(dmg, false);
+        this.onEnemyDamaged?.(enemy.root.position.add(new Vector3(0, 1.1, 0)), dmg);
+        hit = true;
+      }
+    }
+    return hit;
+  }
+
   /** Stun (Suppressed state) every living enemy within radiusM of a flashbang/etc. */
   stunInRadius(center: Vector3, radiusM: number, durationSec: number): void {
     for (const enemy of this.enemies) {

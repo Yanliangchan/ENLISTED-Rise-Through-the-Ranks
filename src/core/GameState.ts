@@ -1,6 +1,6 @@
 import { WEAPONS } from "@/data/weapons";
 import { ATTACHMENTS } from "@/data/attachments";
-import { THROWABLES } from "@/data/gamedata";
+import { GEAR, THROWABLES } from "@/data/gamedata";
 import { STARTER_LOADOUT } from "@/data/weapons";
 
 export interface Loadout {
@@ -86,6 +86,11 @@ export class GameState {
   constructor(initial?: SaveData | null, private readonly persist?: (data: SaveData) => void) {
     const loaded = persist ? initial ?? this.load() : this.load();
     this.data = loaded ? { ...defaultSave(), ...loaded } : defaultSave();
+    this.data.ownedThrowables = this.data.ownedThrowables.filter((id) => THROWABLES[id]);
+    if (!THROWABLES[this.data.loadout.throwable]) {
+      this.data.loadout.throwable = "smoke_red";
+      this.data.loadout.throwableCount = 0;
+    }
   }
 
   private load(): SaveData | null {
@@ -166,9 +171,15 @@ export class GameState {
     return true;
   }
 
-  /** First Aid Kits carried at spawn — the Load Bearing Vest bumps this from the base loadout to 5. */
+  /** First Aid Kits carried at spawn; LBV medic upgrades expand this without affecting weapons. */
   startingMedkitCount(): number {
-    return this.data.ownedGear.includes("lbv") ? 5 : STARTING_MEDKITS;
+    const gearBonus = this.data.ownedGear.reduce((sum, id) => sum + (GEAR[id]?.medkitBonus ?? 0), 0);
+    return STARTING_MEDKITS + gearBonus;
+  }
+
+  maxMedkitCount(): number {
+    const gearBonus = this.data.ownedGear.reduce((sum, id) => sum + (GEAR[id]?.medkitBonus ?? 0), 0);
+    return MAX_MEDKITS + gearBonus;
   }
 
   buyBotty(price: number): boolean {
