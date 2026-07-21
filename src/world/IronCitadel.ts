@@ -50,6 +50,15 @@ import { WorldMaterial } from "@/world/WorldMaterial";
 const BASE = new Vector3(430, 0, 0);
 /** World-space origin the complex is offset to — multiplayer maps local spawn coords to this. */
 export const IRON_CITADEL_BASE = BASE;
+/**
+ * Uniform footprint scale baked into the root transform (and therefore into
+ * every child's frozen world matrix). 0.8 = a 20% smaller, tighter CQB map.
+ * It MUST stay uniform — Babylon collision is only reliable under uniform
+ * parent scale, which is why the old non-uniform (0.9,1,0.9) attempt let the
+ * player fall through floor seams. Networked/local spawn coordinates are kept
+ * in unscaled "logical" space and multiplied by this when placed in the world.
+ */
+export const IRON_CITADEL_SCALE = 0.8;
 
 // Interior footprint (local coords, centred on BASE). ~+55% area vs the first pass.
 const HALF_W = 56; // X → 112m wide
@@ -84,12 +93,14 @@ type Door = { side: "n" | "s" | "e" | "w"; at: number; width: number };
  * the player's collision ellipsoid slip through floor seams (the "falling
  * forever" bug). Size reduction, if wanted again, must be baked into geometry.
  */
-const S = 1;
+const S = IRON_CITADEL_SCALE;
 
 export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   const root = new TransformNode("ironCitadel", scene);
   root.position.copyFrom(BASE);
-  root.scaling.set(1, 1, 1);
+  // Uniform scale, set BEFORE any child is built/frozen so it bakes into every
+  // frozen world matrix. Uniform-only keeps collision reliable (see note above).
+  root.scaling.set(S, S, S);
   const footprints: IronCitadelHandles["footprints"] = [];
   // Room rectangles, registered by roomShell, checked for overlaps after the
   // build so layout regressions surface immediately in the console.

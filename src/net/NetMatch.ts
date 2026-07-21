@@ -6,7 +6,10 @@ import type { HUD } from "@/ui/HUD";
 import type { MatchStartInfo } from "@/ui/MultiplayerMenu";
 import type { PlayerNetState, ServerMsg, Team, LobbyPlayer, MatchPlayerResult } from "@/net/protocol";
 import { NetFlag } from "@/net/protocol";
-import { IRON_CITADEL_BASE } from "@/world/IronCitadel";
+import { IRON_CITADEL_BASE, IRON_CITADEL_SCALE } from "@/world/IronCitadel";
+
+/** Networked coords are unscaled "logical" map space; render/place them at BASE + SCALE*local. */
+const S = IRON_CITADEL_SCALE;
 
 /** Damage hook shared by an avatar's hittable meshes; NetMatch wires takeDamage. */
 interface DmgHook { takeDamage: (dmg: number, headshot: boolean, origin?: unknown, fmj?: boolean) => void }
@@ -132,7 +135,7 @@ export class Avatar {
   }
 
   setState(s: PlayerNetState): void {
-    this.target.set(this.base.x + s.x, s.y, this.base.z + s.z);
+    this.target.set(this.base.x + S * s.x, s.y, this.base.z + S * s.z);
     this.targetYaw = s.yaw;
     this.hp = s.hp;
     const nowDead = (s.flags & NetFlag.Dead) !== 0;
@@ -192,7 +195,7 @@ export class NetMatch {
     const base = IRON_CITADEL_BASE;
     // place local player at spawn; give everyone a plate carrier (armour) so
     // the armour bar + absorption match the single-player loadout feel.
-    player.respawn(new Vector3(base.x + info.spawn.x, info.spawn.y, base.z + info.spawn.z));
+    player.respawn(new Vector3(base.x + S * info.spawn.x, info.spawn.y, base.z + S * info.spawn.z));
     player.inSafeZone = false;
     (player as unknown as { spawnProtected: boolean }).spawnProtected = false;
     player.maxHealth = 100; player.health = 100;
@@ -280,7 +283,7 @@ export class NetMatch {
       }
       case "respawn": {
         const base = IRON_CITADEL_BASE;
-        const pos = new Vector3(base.x + m.spawn.x, m.spawn.y, base.z + m.spawn.z);
+        const pos = new Vector3(base.x + S * m.spawn.x, m.spawn.y, base.z + S * m.spawn.z);
         if (m.playerId === this.net.playerId) {
           this.player.respawn(pos);
           this.player.health = 100; this.player.armour = 100;
@@ -321,7 +324,7 @@ export class NetMatch {
       if (this.player.health <= 0) flags |= NetFlag.Dead;
       this.net.send({
         t: "state",
-        p: { x: pos.x - base.x, y: pos.y, z: pos.z - base.z, yaw: this.player.yaw, pitch: this.player.camera.rotation.x, flags, weapon: 0, hp: this.player.health, armor: this.player.armour },
+        p: { x: (pos.x - base.x) / S, y: pos.y, z: (pos.z - base.z) / S, yaw: this.player.yaw, pitch: this.player.camera.rotation.x, flags, weapon: 0, hp: this.player.health, armor: this.player.armour },
       });
     }
     // timer
