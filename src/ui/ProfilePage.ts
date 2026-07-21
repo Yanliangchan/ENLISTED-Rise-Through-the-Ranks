@@ -122,20 +122,8 @@ export class ProfilePage {
     const hrs = Math.floor(mins / 60);
     const playtimeStr = hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
 
-    const badgesHtml = p.badges.length
-      ? p.badges
-          .map(
-            (b) => `
-        <div style="display:flex; align-items:center; gap:10px; background:#0e1610; border:1px solid #2c3a26; padding:8px 12px; margin-bottom:6px;">
-          <span style="font-size:20px;">${b.icon}</span>
-          <div>
-            <div style="font-weight:bold; color:#bfe0ab;">${escapeHtml(b.name)}</div>
-            <div style="font-size:11px; color:#8fa585;">${escapeHtml(b.description)}</div>
-          </div>
-        </div>`
-          )
-          .join("")
-      : `<div style="color:#6f8566; font-size:13px;">No badges unlocked yet — get out there, operator.</div>`;
+    const earnedCount = p.badges.filter((b) => b.unlocked).length;
+    const badgesHtml = renderBadgeShowcase(p.badges);
 
     const rankPct = p.rank.xpForNextRank ? Math.min(100, Math.round((p.rank.xpIntoRank / p.rank.xpForNextRank) * 100)) : 100;
 
@@ -197,7 +185,7 @@ export class ProfilePage {
         ${statTile("XP", p.rank.xp)}
       </div>
 
-      <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;">BADGES EARNED (${p.badges.length})</div>
+      <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;">BADGES EARNED (${earnedCount} / ${p.badges.length})</div>
       <div style="margin-bottom:26px;">${badgesHtml}</div>
 
       ${this.buildCareerLadderSection(guessTrack(p.careerTrack))}
@@ -287,20 +275,8 @@ export class ProfilePage {
     const mins = Math.floor(s.playtimeSec / 60);
     const hrs = Math.floor(mins / 60);
     const playtimeStr = hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
-    const badgesHtml = p.badges.length
-      ? p.badges
-          .map(
-            (b) => `
-        <div style="display:flex; align-items:center; gap:10px; background:#0e1610; border:1px solid #2c3a26; padding:8px 12px; margin-bottom:6px;">
-          <span style="font-size:20px;">${b.icon}</span>
-          <div>
-            <div style="font-weight:bold; color:#bfe0ab;">${escapeHtml(b.name)}</div>
-            <div style="font-size:11px; color:#8fa585;">${escapeHtml(b.description)}</div>
-          </div>
-        </div>`
-          )
-          .join("")
-      : `<div style="color:#6f8566; font-size:13px;">No badges unlocked yet.</div>`;
+    const earnedCount = p.badges.filter((b) => b.unlocked).length;
+    const badgesHtml = renderBadgeShowcase(p.badges);
 
     this.viewerBody.innerHTML = `
       <div style="margin: 30px 0 20px;">
@@ -319,7 +295,7 @@ export class ProfilePage {
         ${statTile("Highest Wave", s.highestWave)}
         ${statTile("Playtime", playtimeStr)}
       </div>
-      <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;">BADGES (${p.badges.length})</div>
+      <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;">BADGES (${earnedCount} / ${p.badges.length})</div>
       <div>${badgesHtml}</div>
     `;
   }
@@ -381,6 +357,69 @@ export class ProfilePage {
         ${badgeRows}
       </div>`;
   }
+}
+
+// ---- Badge showcase: categorised, rarity-sorted, locked-greyed -------------
+const RARITY_ORDER: Record<string, number> = { legendary: 5, epic: 4, rare: 3, uncommon: 2, common: 1 };
+const RARITY_COLOR: Record<string, string> = {
+  legendary: "#e6b84d", epic: "#c07de0", rare: "#4da6e6", uncommon: "#5bd07a", common: "#9fb59a",
+};
+/** Qualification-type badges sit in the first, most-prestigious group. */
+const QUALIFICATION_CODES = new Set(["airborne_tab", "ranger_tab", "guards_tab", "commando_recognition", "master_marksman"]);
+/** Event / service badges sit in the final group. */
+const EVENT_CODES = new Set(["guardian_badge", "event_veteran", "alpha_tester", "founder", "event_winner"]);
+const BADGE_GROUPS = ["Career & Qualification", "Combat Achievement", "Progression", "Event & Special"];
+
+interface DisplayBadge { code: string; name: string; description: string; icon: string; category: string; rarity: string; unlocked: boolean }
+
+function badgeGroupIndex(b: DisplayBadge): number {
+  if (QUALIFICATION_CODES.has(b.code)) return 0;
+  if (EVENT_CODES.has(b.code)) return 3;
+  if (b.category === "progression") return 2;
+  if (b.category === "special") return 0; // other qualification-flavoured specials
+  return 1; // combat + support
+}
+
+/** Render the full badge collection grouped by prestige, highest rarity first,
+ *  earned in colour and locked greyed out, each with a name/description tooltip. */
+function renderBadgeShowcase(badges: DisplayBadge[]): string {
+  if (!badges.length) return `<div style="color:#6f8566; font-size:13px;">No badges in the catalogue yet.</div>`;
+  const buckets: DisplayBadge[][] = [[], [], [], []];
+  for (const b of badges) buckets[badgeGroupIndex(b)].push(b);
+  const sections = BADGE_GROUPS.map((title, gi) => {
+    const list = buckets[gi].sort(
+      (a, b) =>
+        (RARITY_ORDER[b.rarity] ?? 0) - (RARITY_ORDER[a.rarity] ?? 0) ||
+        Number(b.unlocked) - Number(a.unlocked) ||
+        a.name.localeCompare(b.name)
+    );
+    if (!list.length) return "";
+    const earned = list.filter((b) => b.unlocked).length;
+    return `
+      <div style="margin-bottom:14px;">
+        <div style="font-size:10px; letter-spacing:1px; color:#7f9a72; margin-bottom:6px;">${title.toUpperCase()} <span style="color:#54654c;">(${earned}/${list.length})</span></div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">${list.map(badgeChip).join("")}</div>
+      </div>`;
+  }).join("");
+  return sections || `<div style="color:#6f8566; font-size:13px;">No badges yet.</div>`;
+}
+
+function badgeChip(b: DisplayBadge): string {
+  const col = RARITY_COLOR[b.rarity] ?? "#9fb59a";
+  const locked = !b.unlocked;
+  const tip = `${b.name} — ${b.description}${locked ? "  (LOCKED)" : ""}`;
+  return `
+    <div title="${escapeHtml(tip)}" style="
+      display:flex; align-items:center; gap:8px; min-width:132px;
+      background:${locked ? "#090d09" : "#0e1610"}; border:1px solid ${locked ? "#242c20" : col};
+      padding:6px 10px; opacity:${locked ? "0.5" : "1"};
+    ">
+      <span style="font-size:20px; filter:${locked ? "grayscale(1)" : "none"};">${b.icon}</span>
+      <div style="line-height:1.25;">
+        <div style="font-weight:bold; font-size:12px; color:${locked ? "#6f8566" : col};">${escapeHtml(b.name)}</div>
+        <div style="font-size:9px; letter-spacing:1px; color:#7f9a72; text-transform:uppercase;">${escapeHtml(b.rarity)}</div>
+      </div>
+    </div>`;
 }
 
 function statTile(label: string, value: string | number): string {

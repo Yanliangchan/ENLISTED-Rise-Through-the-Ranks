@@ -53,7 +53,7 @@ export interface ProfileDTO {
   careerTrack: string;
   careerPath: CareerPath | null;
   guardian: boolean;
-  badges: Array<{ code: string; name: string; description: string; icon: string; category: string; rarity: string; unlockedAt: string }>;
+  badges: Array<{ code: string; name: string; description: string; icon: string; category: string; rarity: string; unlocked: boolean; unlockedAt: string | null }>;
 }
 
 /** Assemble the full profile DTO the client's Profile page / login response uses. */
@@ -68,10 +68,13 @@ export async function loadProfile(userId: number): Promise<ProfileDTO | null> {
   const progression = await queryOne<{ xp: string }>("SELECT xp FROM progression WHERE user_id = $1", [userId]);
   const xp = progression ? Number(progression.xp) : 0;
 
-  const badges = await query<{ code: string; name: string; description: string; icon: string; category: string; rarity: string; unlocked_at: string }>(
+  // Full badge catalogue with each badge's earned state for THIS user, so the
+  // profile can render locked badges greyed out alongside earned ones. Order is
+  // finalised client-side (category → rarity); we just fetch the set here.
+  const badges = await query<{ code: string; name: string; description: string; icon: string; category: string; rarity: string; unlocked_at: string | null }>(
     `SELECT b.code, b.name, b.description, b.icon, b.category, b.rarity, ub.unlocked_at
-     FROM user_badges ub JOIN badges b ON b.id = ub.badge_id
-     WHERE ub.user_id = $1 ORDER BY ub.unlocked_at ASC`,
+     FROM badges b LEFT JOIN user_badges ub ON ub.badge_id = b.id AND ub.user_id = $1
+     ORDER BY b.category, b.rarity, b.name`,
     [userId]
   );
 
@@ -107,6 +110,7 @@ export async function loadProfile(userId: number): Promise<ProfileDTO | null> {
       icon: b.icon,
       category: b.category,
       rarity: b.rarity,
+      unlocked: b.unlocked_at != null,
       unlockedAt: b.unlocked_at,
     })),
   };

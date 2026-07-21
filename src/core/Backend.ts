@@ -36,7 +36,9 @@ export interface BadgeInfo {
   icon: string;
   category: string;
   rarity: string;
-  unlockedAt: string;
+  /** True when this operator has earned the badge; false shows it locked/greyed. */
+  unlocked: boolean;
+  unlockedAt: string | null;
 }
 
 export interface Profile {

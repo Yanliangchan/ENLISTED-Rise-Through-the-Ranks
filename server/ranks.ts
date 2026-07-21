@@ -59,6 +59,11 @@ export const CAREER_PATHS: Record<CareerPath, CareerRankDef[]> = {
     { name: "Major", insignia: "MAJ", xp: 28000 },
     { name: "Lieutenant Colonel", insignia: "LTC", xp: 40000 },
     { name: "Colonel", insignia: "COL", xp: 55000 },
+    // Flag officers — the SAF general ranks, continuing the same XP scale so
+    // they slot in automatically everywhere rank is derived from XP.
+    { name: "Brigadier-General", insignia: "BG", xp: 75000 },
+    { name: "Major-General", insignia: "MG", xp: 100000 },
+    { name: "Lieutenant-General", insignia: "LG", xp: 130000 },
   ],
   specialist: [
     { name: "3rd Sergeant", insignia: "3SG", xp: 6500 },
