@@ -24,7 +24,7 @@ import { DEFAULT_SETTINGS, MAX_PLAYERS } from "./protocol.js";
  */
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous chars (0/O, 1/I)
-const SNAPSHOT_HZ = 20;
+const SNAPSHOT_HZ = 30; // 30Hz fan-out for smoother remote motion / lower perceived lag
 
 interface Client {
   id: string;

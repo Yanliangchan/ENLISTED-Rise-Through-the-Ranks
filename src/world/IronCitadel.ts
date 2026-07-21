@@ -1708,9 +1708,53 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
         console.warn(`[IronCitadel] room overlap: "${a.name}" ∩ "${b.name}" = ${ox.toFixed(1)}×${oz.toFixed(1)}m`);
     }
 
-  // Perf: none of the complex's materials animate, so freeze every one of them
-  // — the renderer then skips re-evaluating material state per draw call, a
-  // meaningful CPU saving across the hundreds of surfaces/props in the map.
+  // Perf: STATIC MESH MERGE. The complex is drawn as ~1000+ small decorative
+  // meshes (roof/ceiling panels, signage, trim, fixtures) that never move and
+  // don't collide. Merging every non-colliding, non-gameplay mesh by material
+  // collapses hundreds of draw calls into one-per-material. Colliding walls/
+  // floors and breakable glass are left untouched so collision + shatter still
+  // work per-surface.
+  const isMergeable = (m: Mesh): boolean =>
+    !m.checkCollisions &&
+    !m.metadata?.walkable &&
+    !m.metadata?.breakableGlass &&
+    m.material != null &&
+    m.getTotalVertices() > 0;
+  const keep: Mesh[] = [];
+  const byMaterial = new Map<Material, Mesh[]>();
+  for (const m of meshes) {
+    if (isMergeable(m) && m.material) {
+      const list = byMaterial.get(m.material) ?? [];
+      list.push(m);
+      byMaterial.set(m.material, list);
+    } else {
+      keep.push(m);
+    }
+  }
+  const merged: Mesh[] = [];
+  for (const [mat, group] of byMaterial) {
+    if (group.length < 2) {
+      keep.push(...group); // nothing to gain from a single mesh
+      continue;
+    }
+    const mm = Mesh.MergeMeshes(group, true, true, undefined, false, false);
+    if (!mm) {
+      keep.push(...group);
+      continue;
+    }
+    mm.material = mat;
+    mm.isPickable = false;
+    mm.checkCollisions = false;
+    mm.setParent(root); // keep it under the root so the MP show/hide toggle covers it
+    mm.freezeWorldMatrix();
+    merged.push(mm);
+  }
+  // Rebuild the live mesh list (merged sources were disposed by MergeMeshes).
+  meshes.length = 0;
+  meshes.push(...keep, ...merged);
+
+  // Freeze every material — none animate, so the renderer skips re-evaluating
+  // material state per draw call.
   const frozenMats = new Set<Material>();
   for (const m of meshes) {
     const mat = m.material;

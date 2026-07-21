@@ -140,14 +140,29 @@ export class Avatar {
     this.hp = s.hp;
     const nowDead = (s.flags & NetFlag.Dead) !== 0;
     if (nowDead !== this.dead) { this.dead = nowDead; this.model.setEnabled(!nowDead); }
+    // Readable stance cue: drop the whole body when the remote player crouches.
+    const crouched = (s.flags & NetFlag.Crouch) !== 0;
+    this.model.position.y = crouched ? -0.45 : 0;
+    // Snap instead of sliding when the target jumps a long way (spawn / respawn /
+    // teleport) — otherwise the avatar visibly skates across the whole map.
+    if (Vector3.DistanceSquared(this.root.position, this.target) > 25) {
+      this.root.position.copyFrom(this.target);
+      this.root.rotation.y = this.targetYaw;
+    }
   }
   interpolate(dt: number): void {
     const p = this.root.position;
-    const a = Math.min(1, dt * 12);
+    // Critically-damped smoothing: frame-rate independent and a touch snappier
+    // than before so remote players track their true position with less lag.
+    const a = 1 - Math.exp(-dt * 16);
     p.x += (this.target.x - p.x) * a;
     p.y += (this.target.y - p.y) * a;
     p.z += (this.target.z - p.z) * a;
-    this.root.rotation.y += (this.targetYaw - this.root.rotation.y) * a;
+    // Shortest-arc yaw interpolation — the old direct lerp spun the long way
+    // round whenever the heading crossed the ±π wrap (a visible glitch).
+    let d = this.targetYaw - this.root.rotation.y;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    this.root.rotation.y += d * a;
   }
   setEnabled(on: boolean): void { this.model.setEnabled(on); this.dead = !on; }
   dispose(): void { this.root.dispose(false, true); }
@@ -310,9 +325,9 @@ export class NetMatch {
   update(dt: number): void {
     if (this.ended) return;
     for (const av of this.avatars.values()) av.interpolate(dt);
-    // broadcast local state ~20Hz
+    // broadcast local state ~30Hz for smoother remote motion / lower perceived lag
     this.sendAccum += dt;
-    if (this.sendAccum >= 0.05) {
+    if (this.sendAccum >= 0.033) {
       this.sendAccum = 0;
       const pos = this.player.position;
       const base = IRON_CITADEL_BASE;
