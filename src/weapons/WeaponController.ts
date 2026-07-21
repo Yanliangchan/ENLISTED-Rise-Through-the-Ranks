@@ -327,7 +327,13 @@ export class WeaponController {
     // moment the player slows or aims, so it never fights the optic zoom.
     const sprintTarget = this.player.sprinting && !wantsAim ? 1 : 0;
     this.sprintBlend += (sprintTarget - this.sprintBlend) * Math.min(1, 8 * dt);
-    const targetFov = (BASE_FOV * (1 + 0.05 * this.sprintBlend)) / (1 + (this.effective.zoom - 1) * this.adsBlend);
+    // TRUE optical magnification: a "Nx" scope must render exactly Nx, so the
+    // scoped FOV is 2·atan(tan(baseHalfFOV)/zoom) — magnification = tan(baseHalf)/
+    // tan(scopedHalf) = zoom, EXACTLY. The old linear BASE_FOV/zoom over-zoomed
+    // non-uniformly (a "12x" read ~13.4x, a "2x" ~2.2x). Blend hip→scoped by ADS.
+    const hipFov = BASE_FOV * (1 + 0.05 * this.sprintBlend);
+    const scopedFov = 2 * Math.atan(Math.tan(BASE_FOV / 2) / this.effective.zoom);
+    const targetFov = hipFov + (scopedFov - hipFov) * this.adsBlend;
     this.player.camera.fov = targetFov;
 
     // Higher-power scopes feel less twitchy to aim with, like real optics — scale

@@ -3,7 +3,7 @@ import type { AudioManager } from "@/core/AudioManager";
 import type { EnemyManager } from "@/enemies/EnemySpawner";
 import { isUnlocked as isAdminUnlocked } from "@/core/AdminMode";
 
-const CHARGES_PER_RUN = 2;
+const CHARGES_PER_RUN = 3; // max 3 air strikes per match, shared across the whole run
 const COOLDOWN_SEC = 45;
 const INBOUND_DELAY_SEC = 4; // time from confirming a target to impact
 const BLAST_RADIUS_M = 16;

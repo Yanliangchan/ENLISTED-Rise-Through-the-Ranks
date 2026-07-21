@@ -17,7 +17,7 @@ export interface WaveManagerCallbacks {
 
 const ARMOURY_DURATION_SEC = 45;
 /** Free-roam window before Wave 1 so the player can scout the map before OPFOR forms up. */
-const INTRO_DURATION_SEC = 30;
+const INTRO_DURATION_SEC = 10;
 
 /**
  * Orchestrates the wave-survival loop: a free-roam intro before Wave 1,
