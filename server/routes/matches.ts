@@ -202,17 +202,18 @@ function sanitizeMp(body: unknown): MpPayload {
 
 /**
  * POST /api/matches/mp — record the results of one private multiplayer match.
- * Awards XP (kills/headshots/assists + a win/participation bonus) and currency,
- * increments the same lifetime player_stats aggregates as wave mode (but by the
- * real MP deaths, and without touching wave-only columns), evaluates badges and
- * refreshes the leaderboard — all in one transaction. The authoritative result
- * comes from the game server; the client relays its own row here.
+ * Multiplayer is progression-free by design (no currency, no XP awarded) —
+ * this endpoint still increments the same lifetime player_stats aggregates as
+ * wave mode (by the real MP deaths, without touching wave-only columns),
+ * evaluates badges, and refreshes the leaderboard, all in one transaction.
+ * The authoritative result comes from the game server; the client relays its
+ * own row here.
  */
 matchesRouter.post("/matches/mp", requireAuth, asyncHandler(async (req: AuthedRequest, res) => {
   const userId = req.user!.sub;
   const m = sanitizeMp(req.body);
-  const currency = m.kills * 80 + m.assists * 25 + (m.won ? 600 : 200);
-  const xpGained = Math.round(m.kills * 7 + m.headshots * 11 + m.assists * 3 + (m.won ? 150 : 40));
+  const currency = 0;
+  const xpGained = 0;
 
   const result = await withTransaction(async (client) => {
     const before = await client.query<{ kills: number; headshots: number; games_played: number }>(

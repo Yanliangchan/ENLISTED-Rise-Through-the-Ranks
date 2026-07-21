@@ -1,6 +1,6 @@
 import { WEAPONS } from "@/data/weapons";
 import { ATTACHMENTS } from "@/data/attachments";
-import { GEAR, THROWABLES } from "@/data/gamedata";
+import { GEAR, THROWABLES, SPECIAL_ABILITY_PRICES, type AbilitySpecial } from "@/data/gamedata";
 import { STARTER_LOADOUT } from "@/data/weapons";
 
 export interface Loadout {
@@ -167,6 +167,19 @@ export class GameState {
     if (!throwable || this.ownsThrowable(id)) return false;
     if (!this.spendCredits(throwable.price)) return false;
     this.data.ownedThrowables.push(id);
+    this.save();
+    return true;
+  }
+
+  /** Call-in abilities (UAV Recon, Precision Air Strike) are one-time unlocks, tracked in ownedGear like any other gear id. */
+  ownsAbility(id: AbilitySpecial): boolean {
+    return this.data.ownedGear.includes(id);
+  }
+
+  buyAbility(id: AbilitySpecial): boolean {
+    if (this.ownsAbility(id)) return false;
+    if (!this.spendCredits(SPECIAL_ABILITY_PRICES[id])) return false;
+    this.data.ownedGear.push(id);
     this.save();
     return true;
   }

@@ -1,6 +1,6 @@
 import { WEAPONS } from "@/data/weapons";
 import { ATTACHMENTS } from "@/data/attachments";
-import { GEAR, THROWABLES } from "@/data/gamedata";
+import { GEAR, THROWABLES, SPECIAL_ABILITY_LABELS, SPECIAL_ABILITY_PRICES, ABILITY_SPECIALS } from "@/data/gamedata";
 import type { GameState } from "@/core/GameState";
 import type { WeaponController } from "@/weapons/WeaponController";
 import type { PlayerController } from "@/player/PlayerController";
@@ -172,16 +172,40 @@ export class Armoury {
       this.refresh();
     }));
     // Special slot: the MATADOR (a carried weapon) plus the two call-in abilities
-    // (UAV, air strike). Only one can be equipped; abilities fire with Z.
+    // (UAV, air strike) — abilities must be unlocked below before they show up
+    // here. Only one can be equipped; abilities fire with Z.
     const specialOptions: Array<[string, string]> = [
       ...specials.map((w) => [w.id, w.name] as [string, string]),
-      ["uav", "UAV Recon"],
-      ["airstrike", "Precision Air Strike"],
+      ...ABILITY_SPECIALS.filter((id) => this.gameState.ownsAbility(id)).map(
+        (id) => [id, SPECIAL_ABILITY_LABELS[id]] as [string, string]
+      ),
     ];
     wrap.appendChild(this.slotPicker("Special", specialOptions, this.gameState.data.loadout.special ?? "", (id) => {
       this.gameState.data.loadout.special = id || null;
       this.refresh();
     }, true));
+
+    const lockedAbilities = ABILITY_SPECIALS.filter((id) => !this.gameState.ownsAbility(id));
+    if (lockedAbilities.length > 0) {
+      const unlockBox = document.createElement("div");
+      unlockBox.className = "mil-inset";
+      unlockBox.style.cssText = "padding:10px; grid-column: 1 / -1;";
+      const unlockTitle = document.createElement("div");
+      unlockTitle.textContent = "Unlock Support Abilities";
+      unlockTitle.style.cssText = "font-weight:bold; margin-bottom:6px; color:#9fc78a; width:100%;";
+      unlockBox.appendChild(unlockTitle);
+      for (const id of lockedAbilities) {
+        unlockBox.appendChild(
+          this.shopRow(SPECIAL_ABILITY_LABELS[id], SPECIAL_ABILITY_PRICES[id], false, () => {
+            if (this.gameState.buyAbility(id)) {
+              this.audio.purchase();
+              this.refresh();
+            }
+          })
+        );
+      }
+      wrap.appendChild(unlockBox);
+    }
     wrap.appendChild(this.slotPicker("Throwable", throwables.map((t) => [t.id, t.name]), this.gameState.data.loadout.throwable, (id) => {
       this.gameState.data.loadout.throwable = id;
       this.gameState.data.loadout.throwableCount = maxThrowableCapacity(this.gameState);

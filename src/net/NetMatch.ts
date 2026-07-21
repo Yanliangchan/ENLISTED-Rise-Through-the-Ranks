@@ -453,7 +453,8 @@ export class NetMatch {
         .then((r) => {
           if (!rewardsEl) return;
           if (!r) { rewardsEl.textContent = ""; return; }
-          rewardsEl.innerHTML = `+${r.xpGained} XP · +$${r.currency}${r.rankUp ? ` · PROMOTED → ${r.rankUp.to}` : ""}`;
+          // Multiplayer awards no XP/currency by design — just confirm the match was recorded.
+          rewardsEl.innerHTML = r.rankUp ? `PROMOTED → ${r.rankUp.to}` : "Match recorded";
         })
         .catch(() => { if (rewardsEl) rewardsEl.textContent = ""; });
     } else if (rewardsEl) {

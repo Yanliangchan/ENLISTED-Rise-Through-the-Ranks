@@ -76,6 +76,11 @@ export const SPECIAL_ABILITY_LABELS: Record<AbilitySpecial, string> = {
   uav: "UAV Recon",
   airstrike: "Precision Air Strike",
 };
+/** One-time unlock cost, credits, before either call-in ability can be equipped. */
+export const SPECIAL_ABILITY_PRICES: Record<AbilitySpecial, number> = {
+  uav: 8000,
+  airstrike: 15000,
+};
 
 /** MATADOR blast (fired via the launcher weapon, not thrown). */
 export const MATADOR_BLAST = {
@@ -182,19 +187,19 @@ export const ENEMIES: Record<string, EnemyType> = {
   opfor_grunt: {
     id: "opfor_grunt", name: "OPFOR Rifleman", health: 100, moveSpeed: 3.5,
     damage: 12, fireRateRpm: 500, accuracy: 0.45, sightRangeM: 60, hearingRangeM: 40,
-    creditReward: 35, weapon: "generic_rifle", armorMultiplier: 1.0,
+    creditReward: 25, weapon: "generic_rifle", armorMultiplier: 1.0,
     realNotes: "Baseline hostile infantry. Fills early waves.",
   },
   opfor_marksman: {
     id: "opfor_marksman", name: "OPFOR Marksman", health: 90, moveSpeed: 2.5,
     damage: 45, fireRateRpm: 60, accuracy: 0.8, sightRangeM: 120, hearingRangeM: 40,
-    creditReward: 65, weapon: "generic_dmr", armorMultiplier: 1.0,
+    creditReward: 45, weapon: "generic_dmr", armorMultiplier: 1.0,
     realNotes: "Long-range threat; holds back and picks off the player. Prioritise or use smoke.",
   },
   opfor_heavy: {
     id: "opfor_heavy", name: "OPFOR Heavy", health: 250, moveSpeed: 2.2,
     damage: 20, fireRateRpm: 650, accuracy: 0.4, sightRangeM: 50, hearingRangeM: 40,
-    creditReward: 100, weapon: "generic_lmg",
+    creditReward: 70, weapon: "generic_lmg",
     // Plate carrier soaks 30% of small-arms damage; FMJ ammo bypasses this
     // entirely, so a Heavy takes damage as if it were an unarmoured rifleman.
     armorMultiplier: 0.7,
@@ -205,14 +210,14 @@ export const ENEMIES: Record<string, EnemyType> = {
 // ===========================================================================
 // ECONOMY & WAVE SCALING
 // ===========================================================================
-// Progression rebalance: base rewards trimmed ~25-30% from their original
-// values so weapon unlocks and rank progression take longer to feel earned,
-// without stalling steady progress (waveClearScaling is untouched — the
+// Progression rebalance pass 2: rewards trimmed a further ~30% from the
+// already-reduced pass-1 values so weapon unlocks and rank progression take
+// meaningfully longer to feel earned (waveClearScaling is untouched — the
 // late-game bonus curve still grows the same rate off this smaller base).
 export const ECONOMY = {
-  killCredit: 35,          // base; per-enemy reward overrides this
-  headshotBonus: 18,
-  waveClearBonus: 150,
+  killCredit: 25,          // base; per-enemy reward overrides this
+  headshotBonus: 12,
+  waveClearBonus: 100,
   waveClearScaling: 1.15,  // bonus grows each wave
   startingCredits: 0,
 };

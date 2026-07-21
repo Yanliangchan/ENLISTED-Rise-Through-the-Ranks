@@ -165,12 +165,12 @@ export interface MatchXpInput {
 
 /**
  * XP awarded for one completed deployment. Kept as one pure function so the
- * economy can be re-tuned in one place. Coefficients trimmed ~25-30% from
- * their original values (progression rebalance) so rank-ups and end-game
- * career milestones take meaningfully longer to reach.
+ * economy can be re-tuned in one place. Coefficients trimmed a further ~30%
+ * from the pass-1 rebalance (progression rebalance pass 2) so rank-ups and
+ * end-game career milestones take meaningfully longer to reach.
  */
 export function xpForMatch(m: MatchXpInput): number {
-  return Math.round(m.kills * 7 + m.headshots * 11 + m.waveReached * 18 + m.creditsEarned / 13);
+  return Math.round(m.kills * 5 + m.headshots * 8 + m.waveReached * 13 + m.creditsEarned / 18);
 }
 
 /** Weapon class -> display label for the "career track" derived from kills-by-class. */
