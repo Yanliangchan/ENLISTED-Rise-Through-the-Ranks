@@ -9,6 +9,7 @@ import {
   Color4,
   Vector3,
   Mesh,
+  StandardMaterial,
   AbstractMesh,
   Material,
   TransformNode,
@@ -18,7 +19,6 @@ import {
   RenderTargetTexture,
   PointLight,
 } from "@babylonjs/core";
-import { SkyMaterial } from "@babylonjs/materials";
 import { WorldMaterial } from "@/world/WorldMaterial";
 import { loadGlbContainerOrNull } from "@/core/ModelLoader";
 
@@ -220,41 +220,37 @@ export function generateBuildingLayout(): BuildingFootprint[] {
  * move through the blocks and cover to reach the plaza.
  */
 export function buildLevel(scene: Scene): void {
+  // NIGHT ATMOSPHERE. The map runs a fixed night now (rain removed): a dim,
+  // blue-tinted ambient so unlit faces stay readable but dark, with a low, cool
+  // moon as the key light. Visibility stays fair while flashlights, muzzle
+  // flash, streetlights and building glow become genuinely useful.
   const hemi = new HemisphericLight("hemiLight", new Vector3(0, 1, 0), scene);
-  hemi.intensity = 0.65;
-  // Cool sky from above, warm asphalt bounce from below — the two-tone ambient
-  // is what stops flat unlit faces reading as uniform cardboard.
-  hemi.diffuse = new Color3(0.92, 0.96, 1.0);
-  hemi.groundColor = new Color3(0.38, 0.35, 0.3);
+  hemi.intensity = 0.34;
+  // Cool moonlit sky from above, faint warm sodium bounce from the streets below.
+  hemi.diffuse = new Color3(0.42, 0.5, 0.72);
+  hemi.groundColor = new Color3(0.12, 0.11, 0.1);
 
+  // Moonlight: the key light, low and cool. Still casts shadows for shape.
   const sun = new DirectionalLight("sunLight", new Vector3(-0.5, -1, 0.3), scene);
-  // PBR surfaces respond physically to light energy — the sun carries most of
-  // the scene's illumination now that materials are metallic/roughness based.
-  sun.intensity = 1.6;
-  // Shadow-map camera origin: hoisted far back along the light direction so
-  // the tallest towers sit inside the depth frustum (a directional light left
-  // at the default origin clips everything above y≈1 out of the shadow map).
+  sun.intensity = 0.55;
   sun.position = new Vector3(90, 180, -54);
   sun.autoCalcShadowZBounds = true;
-  // Warm tropical sunlight so lit faces separate from shadowed ones in colour, not just brightness.
-  sun.diffuse = new Color3(1.0, 0.95, 0.85);
-  sun.specular = new Color3(1.0, 0.97, 0.9);
+  sun.diffuse = new Color3(0.6, 0.68, 0.88); // moonlight blue-white
+  sun.specular = new Color3(0.55, 0.62, 0.82);
 
-  // Soft cool fill from the opposite azimuth: walls facing away from the sun
-  // previously took only hemispheric light (≈half intensity on verticals) and
-  // rendered near-black; this keeps them shaped and readable without
-  // flattening the sun/shade contrast.
+  // Soft cool fill from the opposite azimuth so shadowed walls keep some shape
+  // instead of crushing to pure black under the dim key.
   const fill = new DirectionalLight("fillLight", new Vector3(0.45, -0.35, -0.35), scene);
-  fill.intensity = 0.32;
-  fill.diffuse = new Color3(0.75, 0.82, 0.9);
+  fill.intensity = 0.16;
+  fill.diffuse = new Color3(0.4, 0.5, 0.72);
   fill.specular = Color3.Black();
 
-  // Distance fog for depth/atmosphere — cheap (no extra draw calls) and hides the
-  // ground/building pop-in at the far edge of the play space.
+  // Night fog — deep blue, closing in a little tighter for a murky, tactical feel.
   scene.fogMode = Scene.FOGMODE_LINEAR;
-  scene.fogStart = 65;
-  scene.fogEnd = 195;
-  scene.fogColor = new Color3(0.5, 0.58, 0.68);
+  scene.fogStart = 45;
+  scene.fogEnd = 165;
+  scene.fogColor = new Color3(0.05, 0.07, 0.13);
+  scene.clearColor = new Color4(0.03, 0.045, 0.09, 1);
 
   const groundMat = new WorldMaterial("groundMat", scene);
   groundMat.diffuseColor = new Color3(0.3, 0.32, 0.28);
@@ -279,7 +275,7 @@ export function buildLevel(scene: Scene): void {
   envProbe.position.set(0, 40, 0);
   envProbe.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
   scene.environmentTexture = envProbe.cubeTexture;
-  scene.environmentIntensity = 1.0;
+  scene.environmentIntensity = 0.34; // dark night IBL — the sky no longer floods the scene
 
   const layout = generateBuildingLayout();
   buildRoads(scene);
@@ -306,6 +302,7 @@ export function buildLevel(scene: Scene): void {
   buildMbsLandmark(scene);
   buildMrtViaduct(scene);
   buildMrtStation(scene);
+  buildNightWindows(scene, layout);
 
   const wallMat = new WorldMaterial("wallMat", scene);
   wallMat.diffuseColor = new Color3(0.5, 0.5, 0.52);
@@ -443,20 +440,105 @@ function setupStaticShadows(scene: Scene, sun: DirectionalLight, skyBox: Mesh): 
  * of the flat clear-colour: a bright sun disc/halo, blue zenith falling to a
  * warm hazy horizon that the linear fog blends into. One box, no textures.
  */
+/**
+ * Night window illumination: scatters warm emissive window quads across the
+ * building facades (only a fraction lit, for a lived-in city look) and merges
+ * them into ONE mesh per pass so the whole city's window glow costs a single
+ * draw call. Purely decorative — non-pickable, non-colliding, unlit emissive.
+ */
+function buildNightWindows(scene: Scene, layout: BuildingFootprint[]): void {
+  const rand = mulberry32(4242);
+  const quads: Mesh[] = [];
+  // Two warm tones so windows aren't a flat single colour.
+  const faces: Array<[number, number, number]> = [
+    [0, 1, 0],
+    [0, -1, Math.PI],
+    [1, 0, Math.PI / 2],
+    [-1, 0, -Math.PI / 2],
+  ];
+  for (const b of layout) {
+    if (Math.hypot(b.x, b.z) > 150) continue; // only the buildings around the play space
+    const floors = Math.min(9, Math.max(2, Math.floor(b.height / 3.2)));
+    const half = b.size / 2 + 0.05;
+    const cols = Math.max(2, Math.min(6, Math.floor(b.size / 3)));
+    for (let f = 1; f <= floors; f++) {
+      const y = f * 3.2 + 0.5;
+      if (y > b.height - 1) break;
+      for (const [nx, nz, rotY] of faces) {
+        for (let c = 0; c < cols; c++) {
+          if (rand() < 0.62) continue; // most windows dark
+          const t = (c + 0.5) / cols - 0.5;
+          const along = t * (b.size - 1.4);
+          const q = MeshBuilder.CreatePlane(`nw_${quads.length}`, { width: 0.7, height: 1.2 }, scene);
+          q.position.set(b.x + nx * half + (nx === 0 ? along : 0), y, b.z + nz * half + (nz === 0 ? along : 0));
+          q.rotation.y = rotY;
+          quads.push(q);
+        }
+      }
+    }
+  }
+  if (!quads.length) return;
+  const merged = Mesh.MergeMeshes(quads, true, true);
+  if (!merged) return;
+  const mat = new StandardMaterial("nightWindowMat", scene);
+  mat.emissiveColor = new Color3(1.0, 0.86, 0.52);
+  mat.diffuseColor = Color3.Black();
+  mat.disableLighting = true;
+  mat.backFaceCulling = false;
+  merged.material = mat;
+  merged.isPickable = false;
+  merged.checkCollisions = false;
+  merged.applyFog = true;
+  merged.freezeWorldMatrix();
+}
+
 function buildSkybox(scene: Scene): Mesh {
-  const sky = new SkyMaterial("skyMat", scene);
-  sky.backFaceCulling = false;
-  sky.turbidity = 6.5; // light tropical haze
-  sky.luminance = 1.02;
-  sky.rayleigh = 2.1;
-  sky.mieCoefficient = 0.006;
-  sky.mieDirectionalG = 0.8;
-  sky.useSunPosition = true;
-  // Opposite of the sun DirectionalLight's direction (-0.5, -1, 0.3).
-  sky.sunPosition = new Vector3(50, 100, -30);
+  // Night sky: a dark vertical gradient (deep navy zenith → faint sodium
+  // city-glow at the horizon) with scattered stars and a soft moon. Unlit and
+  // painted procedurally so it also drives a suitably dark IBL via the probe.
+  const tex = new DynamicTexture("skyMat_tex", { width: 512, height: 512 }, scene, false);
+  const ctx = tex.getContext() as CanvasRenderingContext2D;
+  const g = ctx.createLinearGradient(0, 0, 0, 512);
+  g.addColorStop(0, "#05070f"); // zenith
+  g.addColorStop(0.55, "#0a1020");
+  g.addColorStop(0.82, "#141c33");
+  g.addColorStop(1, "#2a2f3a"); // horizon haze / distant city glow
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 512, 512);
+  // Stars (upper two-thirds only).
+  let seed = 20260721;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  for (let i = 0; i < 260; i++) {
+    const x = rnd() * 512;
+    const y = rnd() * 330;
+    const r = rnd() * 1.1 + 0.2;
+    ctx.fillStyle = `rgba(220,228,255,${0.35 + rnd() * 0.5})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Moon with a soft halo.
+  const mx = 380, my = 96;
+  const halo = ctx.createRadialGradient(mx, my, 4, mx, my, 60);
+  halo.addColorStop(0, "rgba(210,222,245,0.5)");
+  halo.addColorStop(1, "rgba(210,222,245,0)");
+  ctx.fillStyle = halo;
+  ctx.fillRect(mx - 60, my - 60, 120, 120);
+  ctx.fillStyle = "#e6ecf7";
+  ctx.beginPath();
+  ctx.arc(mx, my, 17, 0, Math.PI * 2);
+  ctx.fill();
+  tex.update();
+
+  const skyMat = new StandardMaterial("skyMat", scene);
+  skyMat.backFaceCulling = false;
+  skyMat.disableLighting = true;
+  skyMat.emissiveTexture = tex;
+  skyMat.diffuseColor = Color3.Black();
+  skyMat.specularColor = Color3.Black();
 
   const box = MeshBuilder.CreateBox("skyBox", { size: 900 }, scene);
-  box.material = sky;
+  box.material = skyMat;
   box.isPickable = false;
   box.infiniteDistance = true;
   box.applyFog = false;
@@ -2459,8 +2541,9 @@ function buildStreetFurniture(scene: Scene, layout: BuildingFootprint[]): void {
   poleMat.diffuseColor = new Color3(0.12, 0.12, 0.13);
   poleMat.specularColor = Color3.Black();
   const lampMat = new WorldMaterial("lampHeadMat", scene);
-  lampMat.diffuseColor = new Color3(0.9, 0.85, 0.6);
-  lampMat.emissiveColor = new Color3(0.5, 0.45, 0.25);
+  lampMat.diffuseColor = new Color3(1, 0.92, 0.7);
+  // Warm sodium glow, bright at night so the streetlights genuinely light the road.
+  lampMat.emissiveColor = new Color3(1.0, 0.82, 0.42);
 
   const binMat = new WorldMaterial("binMat", scene);
   binMat.diffuseColor = new Color3(0.15, 0.35, 0.2);

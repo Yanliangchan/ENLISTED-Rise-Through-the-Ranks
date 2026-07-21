@@ -103,17 +103,19 @@ export class WeaponController {
       "weaponFlashlight",
       Vector3.Zero(),
       new Vector3(0, 0, 1),
-      Math.PI / 5,
-      12,
+      Math.PI / 4.2, // slightly wider cone
+      6, // lower falloff exponent → the beam throws further before fading
       this.scene
     );
     this.flashlight.parent = this.player.camera;
-    this.flashlight.diffuse = new Color3(1, 0.96, 0.85);
+    this.flashlight.diffuse = new Color3(1, 0.97, 0.88);
     this.flashlight.intensity = 0;
-    this.flashlight.range = 30;
+    this.flashlight.range = 55; // practical night beam distance
   }
 
   private flashlight!: SpotLight;
+  /** Player-toggled flashlight state (F). Only takes effect when a flashlight is fitted. */
+  private flashlightOn = true;
 
   private secondaryFireCooldown = 0;
 
@@ -204,7 +206,9 @@ export class WeaponController {
 
   /** Sync rail-accessory side effects: flashlight beam on/off, laser visibility penalty. */
   private applyAccessoryState(): void {
-    this.flashlight.intensity = this.effective.hasFlashlight ? 1.6 : 0;
+    // Bright enough to genuinely light dark corners and dynamic actors at night;
+    // gated by the F toggle so players use it tactically rather than always-on.
+    this.flashlight.intensity = this.effective.hasFlashlight && this.flashlightOn ? 3.4 : 0;
     // The LAD's visible beam cuts hip spread (stat delta) but also makes the
     // player easier for OPFOR to spot — EnemyAI reads this flag.
     this.player.laserOn = this.effective.hasLaser;
@@ -237,6 +241,11 @@ export class WeaponController {
       this.updateRecoilRecovery(dt);
       if (this.fireCooldown > 0) this.fireCooldown -= dt;
       return;
+    }
+    // F toggles the weapon flashlight (only matters when one is fitted).
+    if (this.input.wasPressed("KeyF") && this.effective.hasFlashlight) {
+      this.flashlightOn = !this.flashlightOn;
+      this.applyAccessoryState();
     }
     this.updateAds(dt);
     this.updateReload(dt);

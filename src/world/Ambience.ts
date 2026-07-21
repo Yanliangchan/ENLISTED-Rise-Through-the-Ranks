@@ -9,91 +9,45 @@ import {
   TransformNode,
   ParticleSystem,
   DynamicTexture,
-  HemisphericLight,
-  DirectionalLight,
 } from "@babylonjs/core";
 import type { AudioManager } from "@/core/AudioManager";
 import type { PlayerController } from "@/player/PlayerController";
 
 /**
- * Lightweight ambient world events — the battlefield keeps living around the
- * gameplay without costing meaningful frame time:
- *  - a weather cycle (clear → overcast rain squalls with thunder + a rain bed),
- *  - a helicopter orbiting high over the city,
- *  - burning vehicle wrecks with fire + smoke plumes,
+ * Lightweight ambient world events for the night-time city — the battlefield
+ * keeps living around the gameplay without costing meaningful frame time:
+ *  - a helicopter orbiting high over the city (nav strobe blinking),
+ *  - burning vehicle wrecks with fire + smoke plumes (bright against the dark),
  *  - distant explosions flashing on the horizon with a soft rumble.
- * Everything is particles, one small orbiting mesh group, and light tweaks —
- * no extra lights, no shadow casters, no per-frame allocations of note.
+ *
+ * The old rain/weather system was removed: it cost particle + wet-surface time
+ * for little gameplay value, and the map now runs a fixed night atmosphere
+ * (see Level.ts night lighting) where flashlights matter instead.
  */
 export class Ambience {
-  private rain: ParticleSystem;
-  private rainEmitter: Mesh;
   private heli: TransformNode;
   private rotor: Mesh;
   private heliAngle = Math.random() * Math.PI * 2;
   private strobe: Mesh;
   private strobeClock = 0;
 
-  // Weather state machine.
-  private raining = false;
-  private weatherTimer = 30 + Math.random() * 30; // first squall arrives early-ish
-  private thunderTimer = 0;
-  private flashTimer = 0;
-
   // Distant-explosion state.
   private boomTimer = 12 + Math.random() * 18;
   private boomFlash: Mesh;
   private boomFlashLife = 0;
-
-  private readonly hemi: HemisphericLight | null;
-  private readonly sun: DirectionalLight | null;
-  private readonly baseHemi: number;
-  private readonly baseSun: number;
-  private readonly baseFog: { start: number; end: number; color: Color3 };
 
   constructor(
     private readonly scene: Scene,
     private readonly audio: AudioManager,
     private readonly player: PlayerController
   ) {
-    this.hemi = scene.getLightByName("hemiLight") as HemisphericLight | null;
-    this.sun = scene.getLightByName("sunLight") as DirectionalLight | null;
-    this.baseHemi = this.hemi?.intensity ?? 0.65;
-    this.baseSun = this.sun?.intensity ?? 0.9;
-    this.baseFog = { start: scene.fogStart, end: scene.fogEnd, color: scene.fogColor.clone() };
-
     const flake = particleTexture(scene);
-
-    // --- Rain: stretched streaks falling in a volume that rides above the camera.
-    this.rainEmitter = MeshBuilder.CreateBox("rainEmitter", { size: 0.1 }, scene);
-    this.rainEmitter.isVisible = false;
-    this.rainEmitter.isPickable = false;
-    this.rain = new ParticleSystem("rain", 900, scene);
-    this.rain.particleTexture = flake;
-    this.rain.emitter = this.rainEmitter;
-    this.rain.minEmitBox = new Vector3(-16, 0, -16);
-    this.rain.maxEmitBox = new Vector3(16, 2, 16);
-    this.rain.direction1 = new Vector3(-0.4, -22, -0.2);
-    this.rain.direction2 = new Vector3(0.4, -26, 0.2);
-    this.rain.minLifeTime = 0.5;
-    this.rain.maxLifeTime = 0.7;
-    this.rain.emitRate = 0; // off until a squall starts
-    this.rain.billboardMode = ParticleSystem.BILLBOARDMODE_STRETCHED;
-    this.rain.minScaleX = 0.02;
-    this.rain.maxScaleX = 0.035;
-    this.rain.minScaleY = 0.5;
-    this.rain.maxScaleY = 0.8;
-    this.rain.color1 = new Color4(0.65, 0.72, 0.8, 0.5);
-    this.rain.color2 = new Color4(0.7, 0.78, 0.86, 0.35);
-    this.rain.colorDead = new Color4(0.6, 0.7, 0.8, 0);
-    this.rain.updateSpeed = 0.016;
-    this.rain.start();
 
     // --- Helicopter on a wide, high orbit.
     this.heli = new TransformNode("heli", scene);
     const heliMat = new StandardMaterial("heliMat", scene);
-    heliMat.diffuseColor = new Color3(0.16, 0.18, 0.16);
-    heliMat.emissiveColor = new Color3(0.05, 0.055, 0.05);
+    heliMat.diffuseColor = new Color3(0.12, 0.13, 0.12);
+    heliMat.emissiveColor = new Color3(0.03, 0.035, 0.03);
     heliMat.specularColor = Color3.Black();
     const fuselage = MeshBuilder.CreateBox("heliBody", { width: 1.4, height: 1.3, depth: 4.6 }, scene);
     fuselage.material = heliMat;
@@ -139,7 +93,7 @@ export class Ambience {
   private buildBurningWreck(x: number, z: number, tex: DynamicTexture): void {
     const hullMat = new StandardMaterial(`wreckMat_${x}_${z}`, this.scene);
     hullMat.diffuseColor = new Color3(0.08, 0.08, 0.08);
-    hullMat.emissiveColor = new Color3(0.06, 0.03, 0.01); // faint ember glow
+    hullMat.emissiveColor = new Color3(0.08, 0.04, 0.01); // ember glow, stronger at night
     hullMat.specularColor = Color3.Black();
     const hull = MeshBuilder.CreateBox(`wreck_${x}_${z}`, { width: 1.9, height: 0.85, depth: 4.4 }, this.scene);
     hull.position.set(x, 0.45, z);
@@ -186,44 +140,6 @@ export class Ambience {
   }
 
   update(dt: number): void {
-    // Rain volume follows the player.
-    const p = this.player.position;
-    this.rainEmitter.position.set(p.x, p.y + 13, p.z);
-
-    // Weather cycle.
-    this.weatherTimer -= dt;
-    if (this.weatherTimer <= 0) {
-      this.raining = !this.raining;
-      this.weatherTimer = this.raining ? 28 + Math.random() * 18 : 50 + Math.random() * 35;
-      this.rain.emitRate = this.raining ? 750 : 0;
-      this.audio.setRain(this.raining);
-      if (this.raining) this.thunderTimer = 3 + Math.random() * 6;
-    }
-    // Blend light/fog toward the squall look and back.
-    const t = Math.min(1, dt * 0.8);
-    const wantHemi = this.raining ? this.baseHemi * 0.72 : this.baseHemi;
-    const wantSun = this.raining ? this.baseSun * 0.6 : this.baseSun;
-    const wantStart = this.raining ? 40 : this.baseFog.start;
-    const wantEnd = this.raining ? 150 : this.baseFog.end;
-    if (this.hemi) this.hemi.intensity += (wantHemi - this.hemi.intensity) * t;
-    if (this.sun) this.sun.intensity += (wantSun - this.sun.intensity) * t;
-    this.scene.fogStart += (wantStart - this.scene.fogStart) * t;
-    this.scene.fogEnd += (wantEnd - this.scene.fogEnd) * t;
-
-    // Thunder during rain: audio roll + a two-frame sky flash.
-    if (this.raining) {
-      this.thunderTimer -= dt;
-      if (this.thunderTimer <= 0) {
-        this.thunderTimer = 7 + Math.random() * 12;
-        this.audio.thunder();
-        this.flashTimer = 0.12;
-      }
-    }
-    if (this.flashTimer > 0) {
-      this.flashTimer -= dt;
-      if (this.hemi) this.hemi.intensity = this.baseHemi * 1.8;
-    }
-
     // Helicopter orbit + rotor spin + blinking strobe.
     this.heliAngle += dt * 0.045;
     const r = 78;
