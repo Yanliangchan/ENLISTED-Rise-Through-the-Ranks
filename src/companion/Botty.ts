@@ -49,8 +49,12 @@ export class BottyController {
   private bodyMat: StandardMaterial;
 
   health = BOTTY_MAX_HEALTH;
-  readonly maxHealth = BOTTY_MAX_HEALTH;
+  /** Scales with the wave (75%→125% of the player's health). Not readonly anymore. */
+  maxHealth = BOTTY_MAX_HEALTH;
   command: BottyCommand = "default";
+  /** Current wave + player max health, fed by main so BOTTY scales alongside the fight. */
+  private wave = 1;
+  private playerMaxHealth = 100;
   /** Health <= 0 — lying down, inert, needs a first aid kit to get back up. */
   get isDown(): boolean {
     return this.health <= 0;
@@ -198,6 +202,46 @@ export class BottyController {
     if (wasDown && this.health > 0) this.visualRoot.scaling = new Vector3(1, 1, 1);
   }
 
+  /**
+   * Scale BOTTY alongside the fight: accuracy climbs from a rookie 30% at wave 1
+   * to a capped ~75% at wave 20+, and max health goes from 75% of the player's
+   * (early) up to 125% (late) — so BOTTY starts weak and grows, never eclipsing
+   * a skilled player. Fed by main each wave.
+   */
+  setWave(wave: number, playerMaxHealth: number): void {
+    this.wave = Math.max(1, Math.floor(wave));
+    this.playerMaxHealth = playerMaxHealth;
+    const frac = this.maxHealth > 0 ? this.health / this.maxHealth : 1;
+    const newMax = this.targetMaxHealth();
+    this.maxHealth = newMax;
+    this.health = Math.min(newMax, Math.max(0, Math.round(newMax * frac)));
+  }
+
+  /** Max health for the current wave, as a fraction of the player's (75%→125%). */
+  private targetMaxHealth(): number {
+    const w = this.wave;
+    const frac = w <= 5 ? 0.75 : w <= 10 ? 1.0 : w <= 15 ? 1.1 : 1.25;
+    return Math.max(1, Math.round(this.playerMaxHealth * frac));
+  }
+
+  /** Per-shot hit probability: piecewise-linear through the spec's wave anchors,
+   *  plus a small ±3% jitter so BOTTY never fires with machine precision. */
+  private hitChance(): number {
+    const anchors: Array<[number, number]> = [[1, 0.3], [5, 0.4], [10, 0.55], [15, 0.65], [20, 0.75]];
+    const w = this.wave;
+    let base = 0.75;
+    if (w <= anchors[0][0]) base = anchors[0][1];
+    else if (w >= anchors[anchors.length - 1][0]) base = anchors[anchors.length - 1][1];
+    else {
+      for (let i = 0; i < anchors.length - 1; i++) {
+        const [w0, a0] = anchors[i];
+        const [w1, a1] = anchors[i + 1];
+        if (w <= w1) { base = a0 + (a1 - a0) * ((w - w0) / (w1 - w0)); break; }
+      }
+    }
+    return Math.max(0.12, Math.min(0.78, base + (Math.random() - 0.5) * 0.06));
+  }
+
   setCommand(cmd: BottyCommand): void {
     this.command = cmd;
     this.smokeThrownForRetreat = false;
@@ -323,8 +367,9 @@ export class BottyController {
     this.muzzleFlashTimer = 0.05;
     // Face BOTTY toward whatever it's shooting so the flash/rifle read correctly.
     this.root.rotation.y = Math.atan2(target.root.position.x - this.position.x, target.root.position.z - this.position.z);
-    // A slight miss chance keeps BOTTY competent rather than a laser-perfect turret.
-    if (Math.random() < 0.78) {
+    // Wave-scaled accuracy: a rookie early, a competent (never perfect) teammate
+    // late. Damage per hit is unchanged — BOTTY grows through accuracy, not bonuses.
+    if (Math.random() < this.hitChance()) {
       target.takeDamage(DAMAGE_PER_HIT, false, this.position);
     }
   }

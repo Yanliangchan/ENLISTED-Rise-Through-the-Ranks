@@ -759,6 +759,7 @@ async function boot(): Promise<void> {
         airstrike.update(dt);
         medKit.update(dt);
         if (botty) {
+          botty.setWave(waveManager.wave, player.maxHealth); // scale accuracy/health with the fight
           botty.update(dt, player);
           updateBottyHeal();
         }
