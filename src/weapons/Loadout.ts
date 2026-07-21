@@ -1,6 +1,7 @@
 import type { InputManager } from "@/core/InputManager";
 import type { GameState } from "@/core/GameState";
 import type { WeaponController } from "@/weapons/WeaponController";
+import { isAbilitySpecial } from "@/data/gamedata";
 
 export type LoadoutSlot = "primary" | "secondary" | "special" | "throwable";
 const SLOT_ORDER: LoadoutSlot[] = ["primary", "secondary", "special", "throwable"];
@@ -24,7 +25,11 @@ export class Loadout {
 
   private slotWeaponId(slot: LoadoutSlot): string | null {
     if (slot === "throwable") return null;
-    return this.gameState.data.loadout[slot];
+    const id = this.gameState.data.loadout[slot];
+    // UAV / air strike specials are call-in abilities (triggered with Z), not
+    // carried weapons — so the special slot holds "no weapon" for them.
+    if (slot === "special" && isAbilitySpecial(id)) return null;
+    return id;
   }
 
   private availableSlots(): LoadoutSlot[] {

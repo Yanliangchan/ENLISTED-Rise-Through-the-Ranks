@@ -62,6 +62,21 @@ export const THROWABLES: Record<string, Throwable> = {
   },
 };
 
+/**
+ * SPECIAL slot options that are call-in ABILITIES rather than a carried weapon
+ * (the MATADOR is the weapon-type special). Only one special is equipped at a
+ * time; abilities are triggered with Z instead of being switched to with 3.
+ */
+export const ABILITY_SPECIALS = ["uav", "airstrike"] as const;
+export type AbilitySpecial = (typeof ABILITY_SPECIALS)[number];
+export function isAbilitySpecial(id: string | null | undefined): id is AbilitySpecial {
+  return id === "uav" || id === "airstrike";
+}
+export const SPECIAL_ABILITY_LABELS: Record<AbilitySpecial, string> = {
+  uav: "UAV Recon",
+  airstrike: "Precision Air Strike",
+};
+
 /** MATADOR blast (fired via the launcher weapon, not thrown). */
 export const MATADOR_BLAST = {
   radiusM: 6,

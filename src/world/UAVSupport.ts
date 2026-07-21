@@ -1,4 +1,3 @@
-import type { InputManager } from "@/core/InputManager";
 import type { AudioManager } from "@/core/AudioManager";
 import { isUnlocked as isAdminUnlocked } from "@/core/AdminMode";
 
@@ -27,7 +26,6 @@ export class UAVSupport {
   private charges = UAV_CHARGES_PER_RUN;
 
   constructor(
-    private readonly input: InputManager,
     private readonly audio: AudioManager,
     private readonly callbacks: UAVCallbacks = {}
   ) {}
@@ -62,11 +60,17 @@ export class UAVSupport {
         this.cooldownLeft = UAV_COOLDOWN_SEC;
       }
     }
-
-    if (this.input.wasPressed("KeyZ")) this.tryActivate();
+    // NOTE: the Z trigger is routed from main.ts now, so the UAV only fires when
+    // it is the equipped SPECIAL (mutually exclusive with the MATADOR / air strike).
   }
 
-  private tryActivate(): void {
+  /** True if a UAV can be launched right now. */
+  get ready(): boolean {
+    return !this.active && this.cooldownLeft <= 0 && (this.charges > 0 || isAdminUnlocked());
+  }
+
+  /** Launch a UAV (call from main when UAV is the equipped special and Z is pressed). */
+  activate(): void {
     if (this.active) return;
     if (this.cooldownLeft > 0) {
       this.audio.uiClick();

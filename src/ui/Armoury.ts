@@ -171,7 +171,14 @@ export class Armoury {
       this.gameState.data.loadout.secondary = id;
       this.refresh();
     }));
-    wrap.appendChild(this.slotPicker("Special", specials.map((w) => [w.id, w.name]), this.gameState.data.loadout.special ?? "", (id) => {
+    // Special slot: the MATADOR (a carried weapon) plus the two call-in abilities
+    // (UAV, air strike). Only one can be equipped; abilities fire with Z.
+    const specialOptions: Array<[string, string]> = [
+      ...specials.map((w) => [w.id, w.name] as [string, string]),
+      ["uav", "UAV Recon"],
+      ["airstrike", "Precision Air Strike"],
+    ];
+    wrap.appendChild(this.slotPicker("Special", specialOptions, this.gameState.data.loadout.special ?? "", (id) => {
       this.gameState.data.loadout.special = id || null;
       this.refresh();
     }, true));

@@ -27,6 +27,7 @@ import { ScopeOverlay } from "@/ui/ScopeOverlay";
 import { TacticalMap } from "@/ui/TacticalMap";
 import { SafeZoneManager } from "@/world/SafeZone";
 import { UAVSupport } from "@/world/UAVSupport";
+import { AirstrikeSupport } from "@/world/AirstrikeSupport";
 import { MedKitController } from "@/player/MedKit";
 import { Ambience } from "@/world/Ambience";
 import { Vector3, Ray, Color3 } from "@babylonjs/core";
@@ -258,6 +259,7 @@ async function boot(): Promise<void> {
     weaponController.resetAllAmmo();
     gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
     uav.reset();
+    airstrike.reset();
     gameState.data.medkitCount = gameState.startingMedkitCount();
     gameState.save();
   }
@@ -600,11 +602,12 @@ async function boot(): Promise<void> {
 
   const tacticalMap = new TacticalMap(uiRoot, buildingLayout);
 
-  const uav = new UAVSupport(input, audio, {
+  const uav = new UAVSupport(audio, {
     onActivate: () => hud.showCenterMessage("UAV OVERHEAD — press M for tactical map", 4000),
     onUnavailable: (reason) =>
       hud.showCenterMessage(reason === "empty" ? "NO UAV CHARGES REMAINING" : "UAV RECHARGING", 1500),
   });
+  const airstrike = new AirstrikeSupport(game.scene, audio, waveManager.enemyManager);
 
   // ---- Focus keeper -------------------------------------------------------
   // The game should always own the mouse while actually in play: any click or
@@ -680,6 +683,35 @@ async function boot(): Promise<void> {
     ) {
       commandWheel.toggle();
     }
+    // Z fires the equipped SPECIAL ability (mutually exclusive with the MATADOR):
+    // UAV recon, or the precision air strike (opens the map to pick an impact point).
+    if (
+      e.code === "KeyZ" &&
+      !landingPage.visible &&
+      !rangeActive &&
+      !citadelActive &&
+      waveManager.phase !== "gameover" &&
+      !armoury.visible &&
+      !tacticalMap.visible
+    ) {
+      const special = gameState.data.loadout.special;
+      if (special === "uav") {
+        uav.activate();
+      } else if (special === "airstrike") {
+        if (airstrike.ready) {
+          hud.showCenterMessage("PRECISION STRIKE — click an impact point on the map", 3000);
+          tacticalMap.beginTargeting((x, z) => {
+            const ok = airstrike.callStrike(x, z);
+            tacticalMap.hide();
+            input.lockPointer();
+            if (ok) hud.showCenterMessage(`STRIKE INBOUND — impact in ${Math.ceil(airstrike.secondsToImpact)}s`, 2500);
+          });
+          document.exitPointerLock();
+        } else {
+          hud.showCenterMessage(airstrike.cooldownRemaining > 0 ? "AIR STRIKE RECHARGING" : "NO AIR STRIKE CHARGES", 1500);
+        }
+      }
+    }
   });
 
   // Persist any pending account writes when the player leaves/hides the tab.
@@ -724,6 +756,7 @@ async function boot(): Promise<void> {
         supplyCrates.update(dt);
         medicalStation.update(dt);
         uav.update(dt);
+        airstrike.update(dt);
         medKit.update(dt);
         if (botty) {
           botty.update(dt, player);
@@ -746,7 +779,17 @@ async function boot(): Promise<void> {
         supplyCrates.liveCrates(),
         botty ? { x: botty.position.x, z: botty.position.z, isDown: botty.isDown } : null
       );
-      hud.updateUAV(uav.active, uav.secondsRemaining, uav.chargesRemaining, uav.cooldownRemaining);
+      // Top-centre support line reflects the equipped SPECIAL ability only.
+      const special = gameState.data.loadout.special;
+      if (special === "uav") {
+        hud.updateUAV(uav.active, uav.secondsRemaining, uav.chargesRemaining, uav.cooldownRemaining);
+      } else if (special === "airstrike") {
+        if (airstrike.inbound) hud.setSupportLine(`STRIKE INBOUND — ${Math.ceil(airstrike.secondsToImpact)}s`, "#ff8f5a");
+        else if (airstrike.cooldownRemaining > 0) hud.setSupportLine(`Air strike recharging — ${Math.ceil(airstrike.cooldownRemaining)}s`, "#8a9a84");
+        else hud.setSupportLine(`Air strike ready ×${airstrike.chargesRemaining} [Z]`, airstrike.chargesRemaining > 0 ? "#e0a15a" : "#8a9a84");
+      } else {
+        hud.setSupportLine(null);
+      }
       hud.updateMedkit(medKit.count);
       hud.updateBotty(
         botty ? { health: botty.health, maxHealth: botty.maxHealth, command: botty.command, isDown: botty.isDown } : null

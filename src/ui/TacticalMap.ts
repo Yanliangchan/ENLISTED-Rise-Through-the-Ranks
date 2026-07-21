@@ -17,6 +17,9 @@ export class TacticalMap {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   visible = false;
+  /** When set, the next click on the map reports a world (x,z) target instead of
+   *  just viewing — used by the precision air strike to pick an impact point. */
+  onPickTarget: ((x: number, z: number) => void) | null = null;
 
   constructor(
     container: HTMLElement,
@@ -37,6 +40,20 @@ export class TacticalMap {
     this.canvas = document.createElement("canvas");
     this.canvas.style.cssText = "border:1px solid #3c4a34; border-top:2px solid #4a7a3c; border-radius:3px; background:#0c130c; box-shadow: 0 8px 40px rgba(0,0,0,0.65); max-width:92vw; max-height:78vh;";
     this.ctx = this.canvas.getContext("2d")!;
+    // Click-to-target for the air strike: map a canvas click back to world (x,z).
+    this.canvas.addEventListener("click", (e) => {
+      if (!this.onPickTarget) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const size = this.canvas.width;
+      const cx = ((e.clientX - rect.left) / rect.width) * size;
+      const cy = ((e.clientY - rect.top) / rect.height) * size;
+      const scale = size / WORLD_SPAN;
+      const wx = (cx - size / 2) / scale;
+      const wz = -(cy - size / 2) / scale;
+      const cb = this.onPickTarget;
+      this.onPickTarget = null;
+      cb(wx, wz);
+    });
 
     const legend = document.createElement("div");
     legend.style.cssText = "font-size:13px; display:flex; gap:22px; color:#b8ccb0;";
@@ -59,6 +76,16 @@ export class TacticalMap {
     this.visible ? this.hide() : this.show();
   }
 
+  /** Open the map in air-strike targeting mode: the next click reports a world point. */
+  beginTargeting(onPick: (x: number, z: number) => void): void {
+    this.onPickTarget = (x, z) => {
+      this.canvas.style.cursor = "";
+      onPick(x, z);
+    };
+    this.canvas.style.cursor = "crosshair";
+    this.show();
+  }
+
   show(): void {
     this.visible = true;
     this.root.style.display = "flex";
@@ -70,6 +97,8 @@ export class TacticalMap {
   hide(): void {
     this.visible = false;
     this.root.style.display = "none";
+    this.onPickTarget = null;
+    this.canvas.style.cursor = "";
   }
 
   /** Redraw with the latest player position/facing and enemy intel. */

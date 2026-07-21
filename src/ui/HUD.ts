@@ -4,6 +4,7 @@ import type { Loadout } from "@/weapons/Loadout";
 import type { GameState } from "@/core/GameState";
 import type { WaveManager } from "@/world/WaveManager";
 import { ATTACHMENTS } from "@/data/attachments";
+import { isAbilitySpecial, SPECIAL_ABILITY_LABELS } from "@/data/gamedata";
 import type { BuildingFootprint } from "@/world/Level";
 
 interface KillFeedEntry {
@@ -305,6 +306,13 @@ export class HUD {
     }
   }
 
+  /** Generic support-ability readout (top-centre) — used for the air strike and to
+   *  clear the line when the equipped special isn't a call-in ability. */
+  setSupportLine(text: string | null, color = "#e0a15a"): void {
+    this.uavEl.textContent = text ?? "";
+    this.uavEl.style.color = color;
+  }
+
   /** Hide/show the whole combat HUD — used while a different full-screen mode (e.g. the Training Range) owns the view. */
   setVisible(visible: boolean): void {
     this.root.style.display = visible ? "" : "none";
@@ -425,10 +433,14 @@ export class HUD {
       const throwableName = throwableId ? throwableId.toUpperCase() : "—";
       this.throwableEl.textContent = `${throwableName} ×${this.gameState.data.loadout.throwableCount}`;
 
-      // Special-slot launcher (MATADOR): show remaining charges so the player
-      // knows how many shots they're carrying at a glance.
+      // Special slot: the MATADOR launcher shows carried charges; the call-in
+      // abilities (UAV / air strike) show their name here and their live
+      // charge/cooldown state on the top-centre support line instead.
       const specialId = this.gameState.data.loadout.special;
-      if (specialId) {
+      if (specialId && isAbilitySpecial(specialId)) {
+        this.specialEl.textContent = SPECIAL_ABILITY_LABELS[specialId];
+        this.specialEl.style.display = "block";
+      } else if (specialId) {
         const charges = this.weaponController.chargesFor(specialId);
         this.specialEl.textContent = `${specialId.toUpperCase()} ×${charges}`;
         this.specialEl.style.display = "block";
