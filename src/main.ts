@@ -143,6 +143,10 @@ async function boot(): Promise<void> {
   // Private-room multiplayer: lobby menu (lazily built) + active in-match controller.
   let mpMenu: MultiplayerMenu | null = null;
   let netMatch: NetMatch | null = null;
+  /** First-aid-kit count saved on entering a multiplayer match, restored on exit
+   *  (MP gives a fixed per-life kit count without clobbering the survival save). */
+  let mpSavedMedkits = 0;
+  const MP_MEDKITS_PER_LIFE = 3;
 
   const player = new PlayerController(game.scene, input, SPAWN_POINT, audio);
   attachCinematicPipeline(game.scene, player.camera);
@@ -304,8 +308,13 @@ async function boot(): Promise<void> {
   armoury.onBuyBotty = () => spawnBotty();
 
   const commandWheel = new CommandWheel(uiRoot);
+  const BOTTY_ORDER_LABEL: Record<string, string> = {
+    followMe: "FOLLOW ME", coverMe: "COVER ME", engage: "ENGAGE", retreat: "RETREAT", goDark: "GO DARK", default: "AT EASE",
+  };
   commandWheel.onSelect = (command) => {
     botty?.setCommand(command);
+    // Visible acknowledgement so it's clear BOTTY received (and will act on) the order.
+    if (botty) hud.showCenterMessage(`BOTTY — ${BOTTY_ORDER_LABEL[command] ?? command.toUpperCase()}`, 1600);
   };
   commandWheel.onClose = () => input.lockPointer();
 
@@ -480,6 +489,7 @@ async function boot(): Promise<void> {
     if (!citadel) citadel = buildIronCitadel(game.scene);
     citadel.root.setEnabled(true);
     setSurvivalWorldEnabled(false); // the complex is a sealed interior — drop the survival city entirely
+    botty?.root.setEnabled(false); // BOTTY is single-player only — never present in multiplayer
     landingPage.hide();
     game.renderingPaused = false;
     citadelActive = true; // reuse the "movement + weapons only, no waves" update branch
@@ -490,8 +500,13 @@ async function boot(): Promise<void> {
     player.spawnProtected = false;
     (player as unknown as { collider: { rotation: { y: number } } }).collider.rotation.y = 0;
     player.camera.rotation.x = 0;
+    // First aid kits in multiplayer: a fixed count per life, refilled on respawn.
+    // Snapshot the survival count first so MP never overwrites it on the save.
+    mpSavedMedkits = gameState.data.medkitCount;
+    gameState.data.medkitCount = MP_MEDKITS_PER_LIFE;
     netMatch = new NetMatch(game.scene, player, weaponController, net, info, hud, () => input.isPointerLocked, uiRoot);
     netMatch.onExit = () => exitNetMatch();
+    netMatch.onLocalRespawn = () => { gameState.data.medkitCount = MP_MEDKITS_PER_LIFE; };
     // Persist results before returning to the lobby: XP/rank/badges server-side,
     // currency applied to the local economy save (auto-persists).
     netMatch.onSubmitResult = async ({ mode, won, result }) => {
@@ -521,6 +536,9 @@ async function boot(): Promise<void> {
     citadelActive = false;
     citadel?.root.setEnabled(false);
     setSurvivalWorldEnabled(true);
+    botty?.root.setEnabled(true); // restore BOTTY for the survival game
+    gameState.data.medkitCount = mpSavedMedkits; // restore survival first-aid count
+    gameState.save();
     game.renderingPaused = true;
     document.exitPointerLock();
     player.respawn(SPAWN_POINT);
@@ -638,9 +656,18 @@ async function boot(): Promise<void> {
       if (tacticalMap.visible) document.exitPointerLock();
       else input.lockPointer();
     }
-    if (e.code === "KeyB" && !citadelActive && (waveManager.phase === "intro" || waveManager.phase === "armoury")) {
-      armoury.visible ? armoury.hide() : armoury.show();
-      if (!armoury.visible) input.lockPointer();
+    // B opens the armoury/loadout. In the survival game that's the intro/armoury
+    // phase; in multiplayer it's a 15s window after each (re)spawn so you can
+    // swap your weapon before committing to the fight.
+    const bAllowedSurvival = !citadelActive && (waveManager.phase === "intro" || waveManager.phase === "armoury");
+    const bAllowedMp = !!netMatch && (netMatch.canChangeWeapon() || armoury.visible);
+    if (e.code === "KeyB" && (bAllowedSurvival || bAllowedMp)) {
+      if (armoury.visible) {
+        armoury.hide();
+        input.lockPointer();
+      } else {
+        armoury.show(); // show() releases the pointer for the shop UI
+      }
     }
     if (
       e.code === "KeyQ" &&
@@ -677,11 +704,15 @@ async function boot(): Promise<void> {
       if (rangeActive || citadelActive) {
         // Range / Iron Citadel preview / multiplayer only need movement,
         // aiming/firing, and weapon-slot switching — no waves, crates, UAV,
-        // medkits, safe zone, or rain ambience.
+        // safe zone, or ambience. First aid kits DO work in multiplayer.
         player.update(dt);
         loadout.update();
         weaponController.update(dt);
         netMatch?.update(dt);
+        if (netMatch) {
+          medKit.update(dt); // Digit5 self-heal is available in multiplayer
+          hud.updateMedkit(medKit.count);
+        }
       } else {
         player.update(dt);
         ambience.update(dt);

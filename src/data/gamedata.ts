@@ -72,11 +72,13 @@ export const MATADOR_BLAST = {
 
 /** M203 underslung 40mm HE (attachment secondary-fire). */
 export const M203_BLAST = {
-  radiusM: 4,
-  centreDamage: 120,
-  edgeDamage: 25,
+  // Wider casualty radius so the 40mm HE reads like a thrown frag rather than a
+  // pin-point hit — more forgiving splash, closer to the SFG 87 grenade.
+  radiusM: 11,
+  centreDamage: 150,
+  edgeDamage: 35,
   fuseSec: 0, // impact-detonated
-  realNotes: "40mm HE grenade, impact detonation, splash damage.",
+  realNotes: "40mm HE grenade, impact detonation, wide splash damage.",
 };
 
 // ===========================================================================

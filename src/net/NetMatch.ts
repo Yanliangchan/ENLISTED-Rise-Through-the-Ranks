@@ -192,8 +192,17 @@ export class NetMatch {
   private scoreboardAccum = 0;
 
   onExit?: () => void;
+  /** Called when the LOCAL player (re)spawns — main uses it to refill first aid kits, etc. */
+  onLocalRespawn?: () => void;
+  /** performance.now() timestamp until which the local player may still swap weapons (post-spawn window). */
+  private weaponWindowUntil = 0;
   /** Persist the local player's result (XP/currency/rank/badges) — wired to the backend by main. */
   onSubmitResult?: (r: { mode: "tdm" | "elim"; won: boolean; result: MatchPlayerResult }) => Promise<{ xpGained: number; currency: number; rankUp: { from: string; to: string } | null } | null>;
+
+  /** True while the local player is still inside the 15s post-spawn weapon-swap window. */
+  canChangeWeapon(): boolean {
+    return performance.now() < this.weaponWindowUntil;
+  }
 
   constructor(
     private readonly scene: Scene,
@@ -216,6 +225,7 @@ export class NetMatch {
     player.maxHealth = 100; player.health = 100;
     player.maxArmour = 100; player.armour = 100;
     this.prevHp = 100; this.prevArmor = 100;
+    this.weaponWindowUntil = performance.now() + 15000; // 15s to pick a weapon at match start
 
     for (const p of info.players) {
       if (p.id === net.playerId) continue;
@@ -306,6 +316,8 @@ export class NetMatch {
           this.player.frozen = false; // regain control
           this.weapon.disabled = false;
           this.weapon.resetAllAmmo();
+          this.weaponWindowUntil = performance.now() + 15000; // 15s to swap weapons after respawn
+          this.onLocalRespawn?.();
         } else {
           const av = this.avatars.get(m.playerId);
           if (av) { av.setEnabled(true); av.root.position.copyFrom(pos); av.target.copyFrom(pos); }
