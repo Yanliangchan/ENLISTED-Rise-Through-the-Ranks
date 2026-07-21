@@ -47,6 +47,21 @@ const CODE_TO_CHALLENGE_BADGE: Record<string, string> = {
   master_marksman: "sniper",
 };
 
+/**
+ * The other half of the "premium" showcase: genuinely-earnable skill badges
+ * (server/migrations/0004_skill_badges.sql) tracked from real lifetime stats
+ * rather than manually granted. These sit alongside the SAF qualification
+ * badges above — same prominent placement, same card treatment — using the
+ * server's own `description` text since they don't have a Challenge Op entry.
+ */
+const SKILL_BADGE_CODES = new Set([
+  "combat_skills_basic", "combat_skills_advanced", "combat_skills_master",
+  "sniper_basic", "sniper_advance", "sniper_master",
+  "recon",
+  "eod_basic", "eod_advanced", "eod_senior",
+  "paramedic", "adss", "aiie",
+]);
+
 const LEADERBOARD_CATEGORIES: Array<{ key: string; label: string }> = [
   { key: "highest_wave", label: "HIGHEST WAVE" },
   { key: "total_kills", label: "TOTAL KILLS" },
@@ -412,13 +427,14 @@ const RARITY_TIERS = ["legendary", "epic", "rare", "uncommon", "common"];
 interface DisplayBadge { code: string; name: string; description: string; icon: string; category: string; rarity: string; unlocked: boolean }
 
 /**
- * Prominent, high-placed showcase for the qualification-style Challenge Ops
- * badges (Ranger, Guards, Airborne, Commando, Marksmanship) — these are the
- * real SAF-referenced ones, so they get top billing above the full catalogue
- * instead of being buried in the collapsed reference ladder.
+ * Prominent, high-placed showcase for the "premium" badge set: the SAF
+ * qualification badges (Ranger, Guards, Airborne, Commando, Marksmanship)
+ * plus the genuinely-earnable skill badges (Combat Skills, Sniper, EOD,
+ * Recon, Paramedic, ADSS, AIIE) — both get the same top billing above the
+ * full catalogue instead of being buried in the collapsed reference ladder.
  */
 function renderChallengeOpsShowcase(badges: DisplayBadge[]): string {
-  const list = badges.filter((b) => CODE_TO_CHALLENGE_BADGE[b.code]);
+  const list = badges.filter((b) => CODE_TO_CHALLENGE_BADGE[b.code] || SKILL_BADGE_CODES.has(b.code));
   if (!list.length) return "";
   const earned = list.filter((b) => b.unlocked).length;
   const cards = list
@@ -427,6 +443,10 @@ function renderChallengeOpsShowcase(badges: DisplayBadge[]): string {
       const ref = BADGES[CODE_TO_CHALLENGE_BADGE[b.code]];
       const col = RARITY_COLOR[b.rarity] ?? "#9fb59a";
       const locked = !b.unlocked;
+      // SAF-qual badges use the rich Challenge Op reference text; skill
+      // badges use their own server description (already written as a
+      // "how to earn it" line — see server/migrations/0004_skill_badges.sql).
+      const howToEarn = ref ? ref.howToEarn : b.description;
       return `
         <div style="
           flex:1; min-width:210px; background:${locked ? "#090d09" : "#0e1610"}; border:1px solid ${locked ? "#242c20" : col};
@@ -439,13 +459,13 @@ function renderChallengeOpsShowcase(badges: DisplayBadge[]): string {
               <div style="font-size:9px; letter-spacing:1px; color:#6a8562; text-transform:uppercase;">${locked ? "LOCKED" : "EARNED"} · ${escapeHtml(b.rarity)}</div>
             </div>
           </div>
-          ${ref ? `<div style="font-size:10px; color:#7fae68; margin-top:8px;"><span style="color:#5a7a52;">HOW TO EARN:</span> ${escapeHtml(ref.howToEarn)}</div>` : ""}
+          <div style="font-size:10px; color:#7fae68; margin-top:8px;"><span style="color:#5a7a52;">HOW TO EARN:</span> ${escapeHtml(howToEarn)}</div>
         </div>`;
     })
     .join("");
   return `
-    <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:2px;">CHALLENGE OPS BADGES (${earned} / ${list.length})</div>
-    <div style="font-size:10px; color:#5a7a52; margin-bottom:10px;">Real SAF-referenced qualifications — Ranger, Guards, Airborne, Marksmanship, Commando. See the full ladder below for exactly how each is earned.</div>
+    <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:2px;">PREMIUM BADGES (${earned} / ${list.length})</div>
+    <div style="font-size:10px; color:#5a7a52; margin-bottom:10px;">SAF-referenced qualifications and genuinely-earnable skill badges — Combat Skills, Sniper, EOD, Recon, Paramedic, ADSS, AIIE, Ranger, Guards, Airborne, Marksmanship, Commando.</div>
     <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:26px;">${cards}</div>`;
 }
 
