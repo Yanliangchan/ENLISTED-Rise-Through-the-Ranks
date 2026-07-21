@@ -147,7 +147,25 @@ export class BottyController {
     rifle.material = litMat(scene, "botty_rifleMat", new Color3(0.08, 0.08, 0.09), 0.1);
     rifle.parent = this.visualRoot;
     rifle.isPickable = false;
+
+    // Muzzle flash — a small emissive sprite at the barrel tip, flashed on each
+    // shot so the player can clearly SEE BOTTY engaging (especially at night).
+    const flashMat = new StandardMaterial("botty_flashMat", scene);
+    flashMat.emissiveColor = new Color3(1, 0.82, 0.4);
+    flashMat.diffuseColor = new Color3(1, 0.82, 0.4);
+    flashMat.disableLighting = true;
+    flashMat.alpha = 0.9;
+    this.muzzleFlash = MeshBuilder.CreatePlane("botty_muzzle", { size: 0.32 }, scene);
+    this.muzzleFlash.position.set(0.24, 1.05, 0.66);
+    this.muzzleFlash.material = flashMat;
+    this.muzzleFlash.parent = this.visualRoot;
+    this.muzzleFlash.isPickable = false;
+    this.muzzleFlash.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    this.muzzleFlash.setEnabled(false);
   }
+
+  private muzzleFlash!: Mesh;
+  private muzzleFlashTimer = 0;
 
   private asDamageable() {
     // Wraps `this` so hit-mesh metadata can point back without a circular type issue.
@@ -272,7 +290,10 @@ export class BottyController {
     if (dist < 0.01) return true;
     dir.normalize();
     const ray = new Ray(from, dir, dist - 0.3);
-    const pick = this.scene.pickWithRay(ray, (m) => m.isPickable && m !== this.root);
+    // Exclude BOTTY's OWN meshes: the eye ray originates inside BOTTY's head/body
+    // (both are pickable so the player can shoot BOTTY), so without this the ray
+    // instantly "hits" itself, LOS always reads blocked, and BOTTY never fires.
+    const pick = this.scene.pickWithRay(ray, (m) => m.isPickable && m !== this.root && !m.name.startsWith("botty_"));
     return !pick?.hit;
   }
 
@@ -298,6 +319,10 @@ export class BottyController {
     const aimPoint = target.root.position.add(new Vector3(0, 0.9 + (Math.random() - 0.5) * 0.4, 0));
     if (!this.hasLineOfSight(this.eyePosition(), aimPoint)) return;
     this.audio.gunshot(true);
+    this.muzzleFlash.setEnabled(true);
+    this.muzzleFlashTimer = 0.05;
+    // Face BOTTY toward whatever it's shooting so the flash/rifle read correctly.
+    this.root.rotation.y = Math.atan2(target.root.position.x - this.position.x, target.root.position.z - this.position.z);
     // A slight miss chance keeps BOTTY competent rather than a laser-perfect turret.
     if (Math.random() < 0.78) {
       target.takeDamage(DAMAGE_PER_HIT, false, this.position);
@@ -395,6 +420,12 @@ export class BottyController {
 
   update(dt: number, player: PlayerController): void {
     if (this.isDown) return;
+
+    // Decay the muzzle flash from the previous shot.
+    if (this.muzzleFlashTimer > 0) {
+      this.muzzleFlashTimer -= dt;
+      if (this.muzzleFlashTimer <= 0) this.muzzleFlash.setEnabled(false);
+    }
 
     // Gravity: moveToward only ever moves on the XZ plane (holds Y constant),
     // so over sunken/uneven ground BOTTY would hover mid-air with nothing

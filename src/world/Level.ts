@@ -225,32 +225,32 @@ export function buildLevel(scene: Scene): void {
   // moon as the key light. Visibility stays fair while flashlights, muzzle
   // flash, streetlights and building glow become genuinely useful.
   const hemi = new HemisphericLight("hemiLight", new Vector3(0, 1, 0), scene);
-  hemi.intensity = 0.34;
+  hemi.intensity = 0.2;
   // Cool moonlit sky from above, faint warm sodium bounce from the streets below.
-  hemi.diffuse = new Color3(0.42, 0.5, 0.72);
-  hemi.groundColor = new Color3(0.12, 0.11, 0.1);
+  hemi.diffuse = new Color3(0.34, 0.42, 0.64);
+  hemi.groundColor = new Color3(0.07, 0.07, 0.07);
 
   // Moonlight: the key light, low and cool. Still casts shadows for shape.
   const sun = new DirectionalLight("sunLight", new Vector3(-0.5, -1, 0.3), scene);
-  sun.intensity = 0.55;
+  sun.intensity = 0.32;
   sun.position = new Vector3(90, 180, -54);
   sun.autoCalcShadowZBounds = true;
-  sun.diffuse = new Color3(0.6, 0.68, 0.88); // moonlight blue-white
-  sun.specular = new Color3(0.55, 0.62, 0.82);
+  sun.diffuse = new Color3(0.52, 0.6, 0.82); // moonlight blue-white
+  sun.specular = new Color3(0.48, 0.55, 0.76);
 
-  // Soft cool fill from the opposite azimuth so shadowed walls keep some shape
-  // instead of crushing to pure black under the dim key.
+  // Soft cool fill from the opposite azimuth so shadowed walls keep just enough
+  // shape to read without lifting the overall darkness.
   const fill = new DirectionalLight("fillLight", new Vector3(0.45, -0.35, -0.35), scene);
-  fill.intensity = 0.16;
-  fill.diffuse = new Color3(0.4, 0.5, 0.72);
+  fill.intensity = 0.09;
+  fill.diffuse = new Color3(0.34, 0.44, 0.66);
   fill.specular = Color3.Black();
 
-  // Night fog — deep blue, closing in a little tighter for a murky, tactical feel.
+  // Night fog — deep blue, closing in tighter for a murky, tactical feel.
   scene.fogMode = Scene.FOGMODE_LINEAR;
-  scene.fogStart = 45;
-  scene.fogEnd = 165;
-  scene.fogColor = new Color3(0.05, 0.07, 0.13);
-  scene.clearColor = new Color4(0.03, 0.045, 0.09, 1);
+  scene.fogStart = 38;
+  scene.fogEnd = 150;
+  scene.fogColor = new Color3(0.03, 0.04, 0.08);
+  scene.clearColor = new Color4(0.015, 0.025, 0.05, 1);
 
   const groundMat = new WorldMaterial("groundMat", scene);
   groundMat.diffuseColor = new Color3(0.3, 0.32, 0.28);
@@ -275,7 +275,7 @@ export function buildLevel(scene: Scene): void {
   envProbe.position.set(0, 40, 0);
   envProbe.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
   scene.environmentTexture = envProbe.cubeTexture;
-  scene.environmentIntensity = 0.34; // dark night IBL — the sky no longer floods the scene
+  scene.environmentIntensity = 0.2; // dark night IBL — the sky barely lifts the scene
 
   const layout = generateBuildingLayout();
   buildRoads(scene);
