@@ -278,8 +278,33 @@ export class Backend {
     return this.request("POST", "/api/guardian/xp", { username, delta });
   }
 
-  guardianSetCareerPath(username: string, path: CareerPath): Promise<{ ok: boolean }> {
+  guardianSetCareerPath(username: string, path: CareerPath): Promise<{ ok: boolean; profile: Profile }> {
     return this.request("POST", "/api/guardian/career-path", { username, path });
+  }
+
+  /** Set a target's ABSOLUTE xp — their rank recalculates from it automatically. */
+  guardianSetXp(username: string, xp: number): Promise<{ ok: boolean; profile: Profile }> {
+    return this.request("POST", "/api/guardian/set-xp", { username, xp });
+  }
+
+  /** Patch any subset of a target's combat statistics. */
+  guardianSetStats(username: string, stats: Partial<ProfileStats>): Promise<{ ok: boolean; profile: Profile }> {
+    return this.request("POST", "/api/guardian/stats", { username, stats });
+  }
+
+  /** Set a target's spendable currency. */
+  guardianSetCredits(username: string, credits: number): Promise<{ ok: boolean; profile: Profile; credits: number }> {
+    return this.request("POST", "/api/guardian/credits", { username, credits });
+  }
+
+  /** Zero a target's combat statistics (progression/badges kept). */
+  guardianResetStats(username: string): Promise<{ ok: boolean; profile: Profile }> {
+    return this.request("POST", "/api/guardian/reset-stats", { username });
+  }
+
+  /** Full wipe: stats + XP + earned badges. */
+  guardianResetProgression(username: string): Promise<{ ok: boolean; profile: Profile }> {
+    return this.request("POST", "/api/guardian/reset-progression", { username });
   }
 
   logout(): void {
