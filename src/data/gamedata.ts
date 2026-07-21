@@ -7,7 +7,7 @@
 // ===========================================================================
 // THROWABLES  (equip in slot 4, throw with G)
 // ===========================================================================
-export type ThrowableType = "frag" | "smoke" | "flashbang" | "flare" | "tripflare";
+export type ThrowableType = "frag" | "smoke" | "flashbang" | "flare" | "tripflare" | "claymore";
 
 export interface Throwable {
   id: string;
@@ -40,20 +40,10 @@ export const THROWABLES: Record<string, Throwable> = {
     fuseSec: 1.5, effectDurationSec: 18, radiusM: 8, color: "#e53935",
     realNotes: "Coloured smoke for concealment/marking. Blocks enemy AI line-of-sight while active.",
   },
-  smoke_yellow: {
-    id: "smoke_yellow", name: "Smoke — Yellow", type: "smoke", price: 200,
-    fuseSec: 1.5, effectDurationSec: 18, radiusM: 8, color: "#fdd835",
-    realNotes: "Coloured smoke. Blocks enemy AI line-of-sight while active.",
-  },
-  smoke_blue: {
-    id: "smoke_blue", name: "Smoke — Blue", type: "smoke", price: 200,
-    fuseSec: 1.5, effectDurationSec: 18, radiusM: 8, color: "#1e88e5",
-    realNotes: "Coloured smoke. Blocks enemy AI line-of-sight while active.",
-  },
-  smoke_green: {
-    id: "smoke_green", name: "Smoke — Green", type: "smoke", price: 200,
-    fuseSec: 1.5, effectDurationSec: 18, radiusM: 8, color: "#43a047",
-    realNotes: "Coloured smoke. Blocks enemy AI line-of-sight while active.",
+  claymore: {
+    id: "claymore", name: "M18A1 Claymore Mine", type: "claymore", price: 450,
+    fuseSec: 0, effectDurationSec: 0, radiusM: 12, damage: 180,
+    realNotes: "Directional command mine. Place facing a choke point; detonates only in its forward cone and can be shot before it triggers.",
   },
   flashbang: {
     id: "flashbang", name: "Flashbang", type: "flashbang", price: 200,
@@ -99,6 +89,14 @@ export interface GearItem {
   armour?: number;            // armour pool added
   damageReduction?: number;   // fraction of damage absorbed while armour remains
   carryBonus?: number;        // extra throwables/mags carried
+  reserveAmmoBonus?: number;  // extra reserve magazine multiplier
+  medkitBonus?: number;       // extra first aid kits at spawn / carried cap
+  sprintDurationBonus?: number;
+  staminaRegenBonus?: number;
+  staminaDrainReduction?: number;
+  movementSpeedMult?: number;
+  sprintAccelerationMult?: number;
+  lbvUpgrade?: boolean;
   realNotes: string;
 }
 
@@ -113,14 +111,33 @@ export const GEAR: Record<string, GearItem> = {
     realNotes: "Default player + friendly appearance. SAF pixelised digital camouflage pattern (manufactured by Sritex / PT Sri Rejeki Isman Tbk). Cosmetic, sets the soldier skin.",
   },
   lbv: {
-    id: "lbv", name: "Load Bearing Vest", price: 900,
-    carryBonus: 2,
-    realNotes: "Increases carry capacity (extra throwables / magazines). Prerequisite for the armour plate.",
+    id: "lbv", name: "Modular Load Bearing Vest", price: 900,
+    carryBonus: 1,
+    realNotes: "Base modular LBV platform. Unlocks plate, pouch, assault-load and hydration upgrades.",
   },
-  armour_plate: {
-    id: "armour_plate", name: "Armour Plate", price: 1300,
-    armour: 50, damageReduction: 0.5,
-    realNotes: "Fits into the LBV. Adds an armour pool: incoming damage depletes armour (at 50% reduction) before health. Sustained fire can break the plate.",
+  hard_ballistic_plates: {
+    id: "hard_ballistic_plates", name: "Hard Ballistic Plates", price: 1800, lbvUpgrade: true,
+    armour: 90, damageReduction: 0.65, movementSpeedMult: 0.94, sprintAccelerationMult: 0.9,
+    realNotes: "Maximum rifle-rated protection: much larger armour pool and strong damage absorption, offset by slower movement and sprint pickup.",
+  },
+  soft_ballistic_plates: {
+    id: "soft_ballistic_plates", name: "Soft Ballistic Plates", price: 1200, lbvUpgrade: true,
+    armour: 50, damageReduction: 0.42, movementSpeedMult: 0.99,
+    realNotes: "Lightweight survivability upgrade with moderate armour and minimal mobility penalty.",
+  },
+  assault_load_pouches: {
+    id: "assault_load_pouches", name: "Assault Load Magazine Pouches", price: 1100, lbvUpgrade: true,
+    reserveAmmoBonus: 0.35, carryBonus: 1,
+    realNotes: "Extra rifle magazine pouches increase reserve ammunition and carried equipment, without changing magazine size or reload speed.",
+  },
+  medic_pouch: {
+    id: "medic_pouch", name: "Medic Pouch", price: 950, lbvUpgrade: true, medkitBonus: 2,
+    realNotes: "Dedicated IFAK pouch: spawn with additional First Aid Kits and raise the kit carry cap.",
+  },
+  hydration_pack: {
+    id: "hydration_pack", name: "Hydration Pack", price: 850, lbvUpgrade: true,
+    sprintDurationBonus: 0.35, staminaRegenBonus: 0.3, staminaDrainReduction: 0.2,
+    realNotes: "Rear-mounted bladder and shoulder tube improve sprint endurance, stamina regeneration and running efficiency.",
   },
 };
 

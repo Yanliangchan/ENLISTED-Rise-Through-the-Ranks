@@ -1,7 +1,7 @@
 import { Scene, Vector3, Matrix, MeshBuilder, StandardMaterial, Color3, LinesMesh, Ray, SpotLight, type AbstractMesh } from "@babylonjs/core";
 import type { Weapon } from "@/data/weapons";
 import { WEAPONS } from "@/data/weapons";
-import { MATADOR_BLAST, M203_BLAST } from "@/data/gamedata";
+import { GEAR, MATADOR_BLAST, M203_BLAST } from "@/data/gamedata";
 import { computeEffectiveStats, damageAtRange, type EffectiveStats } from "@/weapons/ballistics";
 import { buildViewmodel, type Viewmodel } from "@/weapons/ViewmodelFactory";
 import { fireProjectile } from "@/weapons/Projectile";
@@ -165,13 +165,18 @@ export class WeaponController {
     return state ? state.mag + state.reserve : 0;
   }
 
+  private reserveAmmoFor(weapon: Weapon): number {
+    const bonus = this.gameState.data.ownedGear.reduce((sum, id) => sum + (GEAR[id]?.reserveAmmoBonus ?? 0), 0);
+    return Math.round(weapon.reserveAmmo * (1 + bonus));
+  }
+
   /** Full resupply on spawn/redeploy: every touched weapon gets a full mag and full reserve back. */
   resetAllAmmo(): void {
     for (const weaponId of this.ammoByWeapon.keys()) {
       const weapon = WEAPONS[weaponId];
       if (!weapon) continue;
       const effective = computeEffectiveStats(weapon, this.gameState.getFittedAttachments(weaponId));
-      this.ammoByWeapon.set(weaponId, { mag: effective.magSize, reserve: weapon.reserveAmmo });
+      this.ammoByWeapon.set(weaponId, { mag: effective.magSize, reserve: this.reserveAmmoFor(weapon) });
     }
     this.isReloading = false;
     this.reloadTimer = 0;
@@ -191,7 +196,7 @@ export class WeaponController {
     this.applyAccessoryState();
 
     if (!this.ammoByWeapon.has(weaponId)) {
-      this.ammoByWeapon.set(weaponId, { mag: this.effective.magSize, reserve: weapon.reserveAmmo });
+      this.ammoByWeapon.set(weaponId, { mag: this.effective.magSize, reserve: this.reserveAmmoFor(weapon) });
     }
 
     this.showViewmodel(weapon);

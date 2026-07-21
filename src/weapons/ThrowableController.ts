@@ -34,6 +34,7 @@ export class ThrowableController {
   private flying: FlyingThrowable[] = [];
   private tripflares: Array<{ position: Vector3; radiusM: number; triggered: boolean }> = [];
   private smokeVolumes: Array<{ mesh: Mesh; expiresAt: number }> = [];
+  private claymores: Array<{ mesh: Mesh; forward: Vector3; rangeM: number; damage: number }> = [];
 
   onFlashbangScreen?: (intensity: number) => void;
   onFlareTriggered?: (position: Vector3) => void;
@@ -94,6 +95,7 @@ export class ThrowableController {
     this.smokeVolumes = this.smokeVolumes.filter((s) => now < s.expiresAt);
 
     this.checkTripflareTriggers();
+    this.checkClaymoreTriggers();
   }
 
   private checkTripflareTriggers(): void {
@@ -102,6 +104,17 @@ export class ThrowableController {
       if (this.enemyManager.anyEnemyWithin(trip.position, trip.radiusM)) {
         trip.triggered = true;
         this.detonateFlare(trip.position, THROWABLES.tripflare);
+      }
+    }
+  }
+
+  private checkClaymoreTriggers(): void {
+    for (const mine of [...this.claymores]) {
+      if (this.enemyManager.damageInCone(mine.mesh.position, mine.forward, mine.rangeM, Math.PI / 4, mine.damage)) {
+        this.spawnFlashSprite(mine.mesh.position.add(mine.forward.scale(1.2)), new Color3(1, 0.75, 0.35), 1.0, 220);
+        this.audio.explosion();
+        mine.mesh.dispose();
+        this.claymores = this.claymores.filter((m) => m !== mine);
       }
     }
   }
@@ -118,6 +131,11 @@ export class ThrowableController {
     this.gameState.data.loadout.throwableCount -= 1;
 
     const forward = this.player.camera.getDirection(Vector3.Forward());
+    if (throwable.type === "claymore") {
+      this.placeClaymore(throwable, forward);
+      this.gameState.save();
+      return;
+    }
     const origin = this.player.camera.globalPosition.add(forward.scale(0.6));
     const velocity = forward.scale(THROW_SPEED).add(new Vector3(0, THROW_ARC_UP, 0));
 
@@ -153,7 +171,46 @@ export class ThrowableController {
       case "flare":
         this.detonateFlare(pos, f.throwable);
         break;
+      case "claymore":
+        break;
     }
+  }
+
+  private placeClaymore(throwable: Throwable, forward: Vector3): void {
+    const dir = forward.clone();
+    dir.y = 0;
+    if (dir.lengthSquared() < 1e-4) dir.set(0, 0, 1);
+    dir.normalize();
+    const pos = this.player.position.add(dir.scale(1.25));
+    pos.y = 0.12;
+    const mine = MeshBuilder.CreateBox(`claymore_${Date.now()}`, { width: 0.55, height: 0.28, depth: 0.12 }, this.scene);
+    mine.position = pos;
+    mine.rotation.y = Math.atan2(dir.x, dir.z);
+    const mat = new StandardMaterial("claymoreMat", this.scene);
+    mat.diffuseColor = new Color3(0.18, 0.28, 0.12);
+    mine.material = mat;
+    mine.isPickable = true;
+    mine.metadata = {
+      isClaymore: true,
+      damageable: {
+        id: mine.name,
+        get isDead() { return mine.isDisposed(); },
+        takeDamage: () => {
+          mine.dispose();
+          this.claymores = this.claymores.filter((m) => m.mesh !== mine);
+        },
+      },
+    };
+    const indicator = MeshBuilder.CreateBox(`claymore_front_${Date.now()}`, { width: 0.08, height: 0.08, depth: 0.7 }, this.scene);
+    indicator.position = pos.add(dir.scale(0.42)).add(new Vector3(0, 0.08, 0));
+    indicator.rotation.y = mine.rotation.y;
+    const imat = new StandardMaterial("claymoreIndicatorMat", this.scene);
+    imat.diffuseColor = new Color3(0.9, 0.1, 0.05);
+    imat.emissiveColor = imat.diffuseColor.scale(0.5);
+    indicator.material = imat;
+    indicator.parent = mine;
+    this.claymores.push({ mesh: mine, forward: dir, rangeM: throwable.radiusM, damage: throwable.damage ?? 180 });
+    this.audio.uiClick();
   }
 
   private detonateFrag(pos: Vector3, throwable: Throwable, canDealDamage: boolean): void {

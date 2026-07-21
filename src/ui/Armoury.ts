@@ -109,9 +109,9 @@ export class Armoury {
       ["loadout", "Loadout"],
       ["weapons", "Weapons"],
       ["attachments", "Attachments"],
-      ["gear", "Gear"],
-      ["throwables", "Throwables"],
-      ["support", "Support"],
+      ["gear", "LBV Upgrades"],
+      ["throwables", "Equipment"],
+      ["support", "Support Equipment"],
     ];
     for (const [id, label] of tabs) {
       const btn = document.createElement("button");
@@ -340,9 +340,10 @@ export class Armoury {
     for (const item of Object.values(GEAR)) {
       if (item.price === 0) continue;
       const owned = this.gameState.data.ownedGear.includes(item.id);
-      const needsLbv = item.id === "armour_plate" && !this.gameState.data.ownedGear.includes("lbv");
+      const needsLbv = !!item.lbvUpgrade && !this.gameState.data.ownedGear.includes("lbv");
+      const conflictsPlate = (item.id === "hard_ballistic_plates" && this.gameState.data.ownedGear.includes("soft_ballistic_plates")) || (item.id === "soft_ballistic_plates" && this.gameState.data.ownedGear.includes("hard_ballistic_plates"));
       const row = this.shopRow(item.name, item.price, owned, () => {
-        if (needsLbv) return;
+        if (needsLbv || conflictsPlate) return;
         if (this.gameState.spendCredits(item.price)) {
           this.gameState.data.ownedGear.push(item.id);
           // LBV grants 5 First Aid Kits immediately, not just on the next respawn.
@@ -354,9 +355,9 @@ export class Armoury {
           this.refresh();
         }
       });
-      if (needsLbv) {
+      if (needsLbv || conflictsPlate) {
         const note = document.createElement("span");
-        note.textContent = " (requires LBV)";
+        note.textContent = needsLbv ? " (requires LBV)" : " (choose one plate type)";
         note.style.cssText = "color:#a55; font-size:12px; margin-left:8px;";
         row.appendChild(note);
       }
