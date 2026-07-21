@@ -74,6 +74,8 @@ export class BottyController {
   // short reposition hops rather than long chases.
   private stuckTimer = 0;
   private hardStuckTimer = 0;
+  /** Time spent far behind the player — triggers the catch-up reposition. */
+  private farTimer = 0;
   private escapeDir: Vector3 | null = null;
   private escapeTimer = 0;
   private wasFiredUpon = false;
@@ -481,6 +483,33 @@ export class BottyController {
     // actually below is deterministic and can't drift the same way.
     this.snapToGround();
 
+    // CATCH-UP: BOTTY's first duty is to stay with the player. If it falls a long
+    // way behind for a sustained moment (lost, wedged, or outrun), quietly
+    // reposition to valid ground a few metres BEHIND the player and out of their
+    // forward view — a last-resort recovery so it never wanders off or gets left
+    // behind. Suppressed while actively fighting a target it can see.
+    const distToPlayer = Vector3.Distance(this.position, player.position);
+    const fighting = this.currentTarget !== null && !this.currentTarget.isDead;
+    if (distToPlayer > 32 && !(fighting && distToPlayer < 45)) {
+      this.farTimer += dt;
+      if (this.farTimer > 2.5) {
+        const fwd = player.camera.getDirection(Vector3.Forward());
+        fwd.y = 0;
+        if (fwd.lengthSquared() < 1e-4) fwd.set(0, 0, 1);
+        fwd.normalize();
+        const behind = player.position.subtract(fwd.scale(7));
+        const safe = findNearestNavigable(this.scene, behind, 12);
+        this.root.position.x = safe.x;
+        this.root.position.z = safe.z;
+        this.snapToGround();
+        this.farTimer = 0;
+        this.stuckTimer = 0;
+        this.hardStuckTimer = 0;
+      }
+    } else {
+      this.farTimer = 0;
+    }
+
     switch (this.command) {
       case "retreat": {
         const threat = this.currentTarget?.root.position ?? null;
@@ -556,7 +585,8 @@ export class BottyController {
       default: {
         this.refreshTarget(dt, player);
         if (this.currentTarget) this.fireAt(this.currentTarget, dt);
-        this.repositionTowardPlayer(dt, 5, 15, false, player);
+        // Exploration follow band ~5-8m, slightly behind and to one side.
+        this.repositionTowardPlayer(dt, 5, 8, false, player);
         break;
       }
     }
