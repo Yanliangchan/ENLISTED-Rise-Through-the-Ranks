@@ -1,12 +1,22 @@
 import type { PoolClient } from "pg";
 import { query, queryOne } from "./db.js";
 
+/** The 8 carried guns eligible for the Combat Skills badge — the MATADOR (a launcher, never a hitscan kill) is never in this list. */
+export const COMBAT_SKILLS_WEAPON_ROSTER = ["sar21", "br18", "p30", "mp5k", "m110", "trg22", "fnmag", "colt_iar"];
+
 /** Snapshot handed to badge checks: the just-updated lifetime totals plus this match's own deltas. */
 export interface BadgeCheckInput {
   lifetime: {
     kills: number;
     headshots: number;
     gamesPlayed: number;
+    killsByClass: Record<string, number>;
+    killsByWeapon: Record<string, number>;
+    explosiveKills: number;
+    bottyHeals: number;
+    airstrikeCalls: number;
+    uavCalls: number;
+    reconTouches: number;
   };
   match: {
     kills: number;
@@ -37,6 +47,20 @@ const BADGE_CHECKS: Record<string, (input: BadgeCheckInput) => boolean> = {
   kills_5000: (i) => i.lifetime.kills >= 5000,
   kills_10000: (i) => i.lifetime.kills >= 10000,
   headhunter: (i) => i.lifetime.headshots >= 500,
+  // Skill-progression badges — genuinely earnable from stats the client now submits.
+  combat_skills_basic: (i) => COMBAT_SKILLS_WEAPON_ROSTER.every((id) => (i.lifetime.killsByWeapon[id] ?? 0) >= 100),
+  combat_skills_advanced: (i) => i.lifetime.kills >= 500,
+  combat_skills_master: (i) => i.lifetime.kills >= 1500 && i.lifetime.explosiveKills >= 100,
+  sniper_basic: (i) => (i.lifetime.killsByClass.sniper ?? 0) >= 500,
+  sniper_advance: (i) => (i.lifetime.killsByClass.sniper ?? 0) >= 1000,
+  sniper_master: (i) => (i.lifetime.killsByClass.sniper ?? 0) >= 2000,
+  recon: (i) => i.lifetime.reconTouches >= 1,
+  eod_basic: (i) => i.lifetime.explosiveKills >= 250,
+  eod_advanced: (i) => i.lifetime.explosiveKills >= 500,
+  eod_senior: (i) => i.lifetime.explosiveKills >= 1000,
+  paramedic: (i) => i.lifetime.bottyHeals >= 200,
+  adss: (i) => i.lifetime.airstrikeCalls >= 200,
+  aiie: (i) => i.lifetime.uavCalls >= 300,
   // double_kill / triple_kill / quad_kill / killstreak_* / untouchable /
   // last_man_standing / medic / resupplier / engineer / defender need
   // per-match data (kill-window timing, damage-taken, revive/resupply counts)

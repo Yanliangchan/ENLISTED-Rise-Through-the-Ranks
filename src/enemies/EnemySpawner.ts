@@ -300,8 +300,9 @@ export class EnemyManager {
     }
   }
 
-  /** Apply blast damage (linear falloff to 0 at radiusM) to every living enemy in range. */
-  damageInRadius(center: Vector3, radiusM: number, centreDamage: number): void {
+  /** Apply blast damage (linear falloff to 0 at radiusM) to every living enemy in range. Returns how many were killed by this blast, for explosive-kill stat tracking. */
+  damageInRadius(center: Vector3, radiusM: number, centreDamage: number): number {
+    let kills = 0;
     for (const enemy of this.enemies) {
       if (enemy.isDead) continue;
       const dist = Vector3.Distance(enemy.root.position, center);
@@ -310,13 +311,16 @@ export class EnemyManager {
       if (dmg > 0) {
         enemy.takeDamage(dmg, false);
         this.onEnemyDamaged?.(enemy.root.position.add(new Vector3(0, 1.1, 0)), dmg);
+        if (enemy.isDead) kills++;
       }
     }
+    return kills;
   }
 
-  /** Apply directional blast damage to enemies inside a forward cone. */
-  damageInCone(origin: Vector3, forward: Vector3, rangeM: number, halfAngleRad: number, centreDamage: number): boolean {
+  /** Apply directional blast damage to enemies inside a forward cone. Returns whether anything was hit, and how many of those hits were kills (explosive-kill stat tracking). */
+  damageInCone(origin: Vector3, forward: Vector3, rangeM: number, halfAngleRad: number, centreDamage: number): { hit: boolean; kills: number } {
     let hit = false;
+    let kills = 0;
     const dir = forward.clone();
     dir.y = 0;
     if (dir.lengthSquared() < 1e-4) dir.set(0, 0, 1);
@@ -335,9 +339,10 @@ export class EnemyManager {
         enemy.takeDamage(dmg, false);
         this.onEnemyDamaged?.(enemy.root.position.add(new Vector3(0, 1.1, 0)), dmg);
         hit = true;
+        if (enemy.isDead) kills++;
       }
     }
-    return hit;
+    return { hit, kills };
   }
 
   /** Stun (Suppressed state) every living enemy within radiusM of a flashbang/etc. */

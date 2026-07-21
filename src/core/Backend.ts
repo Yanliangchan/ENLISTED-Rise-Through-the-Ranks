@@ -65,6 +65,12 @@ export interface MatchResult {
   creditsEarned: number;
   durationSec: number;
   killsByClass: Record<string, number>;
+  killsByWeapon: Record<string, number>;
+  explosiveKills: number;
+  bottyHeals: number;
+  airstrikeCalls: number;
+  uavCalls: number;
+  reconTouches: number;
 }
 
 export interface MatchSubmitResponse {

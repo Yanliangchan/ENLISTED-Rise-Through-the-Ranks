@@ -17,6 +17,12 @@ interface MatchPayload {
   creditsEarned: number;
   durationSec: number;
   killsByClass: Record<string, number>;
+  killsByWeapon: Record<string, number>;
+  explosiveKills: number;
+  bottyHeals: number;
+  airstrikeCalls: number;
+  uavCalls: number;
+  reconTouches: number;
 }
 
 function toNonNegInt(v: unknown): number {
@@ -24,14 +30,17 @@ function toNonNegInt(v: unknown): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+function sanitizeCountMap(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [key, count] of Object.entries((raw ?? {}) as Record<string, unknown>)) {
+    const n = toNonNegInt(count);
+    if (n > 0) out[key] = n;
+  }
+  return out;
+}
+
 function sanitize(body: unknown): MatchPayload {
   const b = (body ?? {}) as Record<string, unknown>;
-  const killsByClassRaw = (b.killsByClass ?? {}) as Record<string, unknown>;
-  const killsByClass: Record<string, number> = {};
-  for (const [cls, count] of Object.entries(killsByClassRaw)) {
-    const n = toNonNegInt(count);
-    if (n > 0) killsByClass[cls] = n;
-  }
   return {
     waveReached: toNonNegInt(b.waveReached),
     kills: toNonNegInt(b.kills),
@@ -40,7 +49,13 @@ function sanitize(body: unknown): MatchPayload {
     shotsHit: toNonNegInt(b.shotsHit),
     creditsEarned: toNonNegInt(b.creditsEarned),
     durationSec: toNonNegInt(b.durationSec),
-    killsByClass,
+    killsByClass: sanitizeCountMap(b.killsByClass),
+    killsByWeapon: sanitizeCountMap(b.killsByWeapon),
+    explosiveKills: toNonNegInt(b.explosiveKills),
+    bottyHeals: toNonNegInt(b.bottyHeals),
+    airstrikeCalls: toNonNegInt(b.airstrikeCalls),
+    uavCalls: toNonNegInt(b.uavCalls),
+    reconTouches: toNonNegInt(b.reconTouches),
   };
 }
 
@@ -73,12 +88,27 @@ matchesRouter.post("/matches", requireAuth, asyncHandler(async (req: AuthedReque
       highest_wave: number;
       best_game_kills: number;
       career_kills_by_class: Record<string, number>;
-    }>("SELECT games_played, kills, headshots, highest_wave, best_game_kills, career_kills_by_class FROM player_stats WHERE user_id = $1 FOR UPDATE", [userId]);
+      career_kills_by_weapon: Record<string, number>;
+      explosive_kills: number;
+      botty_heals: number;
+      airstrike_calls: number;
+      uav_calls: number;
+      recon_touches: number;
+    }>(
+      `SELECT games_played, kills, headshots, highest_wave, best_game_kills, career_kills_by_class,
+              career_kills_by_weapon, explosive_kills, botty_heals, airstrike_calls, uav_calls, recon_touches
+       FROM player_stats WHERE user_id = $1 FOR UPDATE`,
+      [userId]
+    );
     const prevStats = before.rows[0];
 
     const mergedKillsByClass = { ...(prevStats?.career_kills_by_class ?? {}) };
     for (const [cls, count] of Object.entries(m.killsByClass)) {
       mergedKillsByClass[cls] = (mergedKillsByClass[cls] ?? 0) + count;
+    }
+    const mergedKillsByWeapon = { ...(prevStats?.career_kills_by_weapon ?? {}) };
+    for (const [id, count] of Object.entries(m.killsByWeapon)) {
+      mergedKillsByWeapon[id] = (mergedKillsByWeapon[id] ?? 0) + count;
     }
 
     const updatedStats = await client.query<{
@@ -87,6 +117,11 @@ matchesRouter.post("/matches", requireAuth, asyncHandler(async (req: AuthedReque
       headshots: number;
       highest_wave: number;
       best_game_kills: number;
+      explosive_kills: number;
+      botty_heals: number;
+      airstrike_calls: number;
+      uav_calls: number;
+      recon_touches: number;
     }>(
       `UPDATE player_stats SET
          games_played = games_played + 1,
@@ -101,9 +136,15 @@ matchesRouter.post("/matches", requireAuth, asyncHandler(async (req: AuthedReque
          credits_earned = credits_earned + $8,
          playtime_sec = playtime_sec + $9,
          career_kills_by_class = $10::jsonb,
+         career_kills_by_weapon = $11::jsonb,
+         explosive_kills = explosive_kills + $12,
+         botty_heals = botty_heals + $13,
+         airstrike_calls = airstrike_calls + $14,
+         uav_calls = uav_calls + $15,
+         recon_touches = recon_touches + $16,
          updated_at = now()
        WHERE user_id = $1
-       RETURNING games_played, kills, headshots, highest_wave, best_game_kills`,
+       RETURNING games_played, kills, headshots, highest_wave, best_game_kills, explosive_kills, botty_heals, airstrike_calls, uav_calls, recon_touches`,
       [
         userId,
         m.kills,
@@ -118,6 +159,12 @@ matchesRouter.post("/matches", requireAuth, asyncHandler(async (req: AuthedReque
         m.creditsEarned,
         m.durationSec,
         JSON.stringify(mergedKillsByClass),
+        JSON.stringify(mergedKillsByWeapon),
+        m.explosiveKills,
+        m.bottyHeals,
+        m.airstrikeCalls,
+        m.uavCalls,
+        m.reconTouches,
       ]
     );
     const stats = updatedStats.rows[0];
@@ -145,7 +192,18 @@ matchesRouter.post("/matches", requireAuth, asyncHandler(async (req: AuthedReque
     );
 
     const newBadges: UnlockedBadge[] = await evaluateAndUnlockBadges(client, userId, {
-      lifetime: { kills: stats.kills, headshots: stats.headshots, gamesPlayed: stats.games_played },
+      lifetime: {
+        kills: stats.kills,
+        headshots: stats.headshots,
+        gamesPlayed: stats.games_played,
+        killsByClass: mergedKillsByClass,
+        killsByWeapon: mergedKillsByWeapon,
+        explosiveKills: stats.explosive_kills,
+        bottyHeals: stats.botty_heals,
+        airstrikeCalls: stats.airstrike_calls,
+        uavCalls: stats.uav_calls,
+        reconTouches: stats.recon_touches,
+      },
       match: { kills: m.kills, waveReached: m.waveReached, shotsFired: m.shotsFired, shotsHit: m.shotsHit },
     });
 
@@ -216,11 +274,28 @@ matchesRouter.post("/matches/mp", requireAuth, asyncHandler(async (req: AuthedRe
   const xpGained = 0;
 
   const result = await withTransaction(async (client) => {
-    const before = await client.query<{ kills: number; headshots: number; games_played: number }>(
-      "SELECT kills, headshots, games_played FROM player_stats WHERE user_id = $1 FOR UPDATE",
+    // MP doesn't touch the wave-mode-only skill counters (per-weapon kills,
+    // explosives, BOTTY heals, support-ability calls, recon touches) — fetch
+    // them unchanged so the badge check still sees the player's real lifetime
+    // totals from SP deployments.
+    const before = await client.query<{
+      kills: number;
+      headshots: number;
+      games_played: number;
+      career_kills_by_class: Record<string, number>;
+      career_kills_by_weapon: Record<string, number>;
+      explosive_kills: number;
+      botty_heals: number;
+      airstrike_calls: number;
+      uav_calls: number;
+      recon_touches: number;
+    }>(
+      `SELECT kills, headshots, games_played, career_kills_by_class, career_kills_by_weapon,
+              explosive_kills, botty_heals, airstrike_calls, uav_calls, recon_touches
+       FROM player_stats WHERE user_id = $1 FOR UPDATE`,
       [userId]
     );
-    void before;
+    const prevStats = before.rows[0];
     const updated = await client.query<{ kills: number; headshots: number; games_played: number }>(
       `UPDATE player_stats SET
          games_played = games_played + 1,
@@ -258,7 +333,18 @@ matchesRouter.post("/matches/mp", requireAuth, asyncHandler(async (req: AuthedRe
     );
 
     const newBadges: UnlockedBadge[] = await evaluateAndUnlockBadges(client, userId, {
-      lifetime: { kills: stats.kills, headshots: stats.headshots, gamesPlayed: stats.games_played },
+      lifetime: {
+        kills: stats.kills,
+        headshots: stats.headshots,
+        gamesPlayed: stats.games_played,
+        killsByClass: prevStats?.career_kills_by_class ?? {},
+        killsByWeapon: prevStats?.career_kills_by_weapon ?? {},
+        explosiveKills: prevStats?.explosive_kills ?? 0,
+        bottyHeals: prevStats?.botty_heals ?? 0,
+        airstrikeCalls: prevStats?.airstrike_calls ?? 0,
+        uavCalls: prevStats?.uav_calls ?? 0,
+        reconTouches: prevStats?.recon_touches ?? 0,
+      },
       match: { kills: m.kills, waveReached: 0, shotsFired: m.shotsFired, shotsHit: m.shotsHit },
     });
 

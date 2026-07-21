@@ -40,7 +40,9 @@ interface AmmoState {
 export interface WeaponControllerCallbacks {
   onFire?: (weapon: Weapon) => void;
   onHit?: (damage: number, isHeadshot: boolean) => void;
-  onKill?: (targetId: string, weaponClass: string) => void;
+  onKill?: (targetId: string, weaponClass: string, weaponId: string) => void;
+  /** Fired with the number of kills from one M203/MATADOR detonation — feeds the EOD badge track. */
+  onExplosiveKill?: (count: number) => void;
   onReloadStart?: (weapon: Weapon) => void;
   onReloadEnd?: (weapon: Weapon) => void;
   onEmptyClick?: () => void;
@@ -519,7 +521,8 @@ export class WeaponController {
       this.player,
       this.audio,
       !this.player.inSafeZone,
-      gravityMps2
+      gravityMps2,
+      (count) => this.callbacks.onExplosiveKill?.(count)
     );
   }
 
@@ -625,7 +628,7 @@ export class WeaponController {
         if (isHeadshot) this.audio.headshot();
         this.callbacks.onHit?.(finalDmg, isHeadshot);
         this.callbacks.onDamageNumber?.(pick.pickedPoint.clone(), finalDmg, zone);
-        if (meta.damageable.isDead) this.callbacks.onKill?.(meta.damageable.id, this.weapon.class);
+        if (meta.damageable.isDead) this.callbacks.onKill?.(meta.damageable.id, this.weapon.class, this.weapon.id);
         this.spawnImpactEffect(pick.pickedPoint, true);
       } else {
         // Breakable glass: a round through a tagged glass panel shatters it out,
@@ -674,7 +677,7 @@ export class WeaponController {
     if (isHeadshot) this.audio.headshot();
     this.callbacks.onHit?.(finalDmg, isHeadshot);
     this.callbacks.onDamageNumber?.(penPick.pickedPoint.clone(), finalDmg, zone);
-    if (meta.damageable.isDead) this.callbacks.onKill?.(meta.damageable.id, this.weapon.class);
+    if (meta.damageable.isDead) this.callbacks.onKill?.(meta.damageable.id, this.weapon.class, this.weapon.id);
     this.spawnImpactEffect(penPick.pickedPoint, true);
   }
 

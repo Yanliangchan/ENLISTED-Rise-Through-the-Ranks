@@ -27,7 +27,9 @@ export function fireProjectile(
   /** False when fired from inside the safe zone — the projectile still flies and detonates visually, it just can't hurt anything. */
   canDealDamage = true,
   /** m/s² downward acceleration — 0 (default) keeps the old flat-trajectory rocket; >0 gives a real ballistic arc (the M203). */
-  gravityMps2 = 0
+  gravityMps2 = 0,
+  /** Fired with the number of enemies killed by the detonation — feeds the EOD badge track (M203/MATADOR). */
+  onKills?: (count: number) => void
 ): void {
   const mesh = MeshBuilder.CreateSphere("projectile", { diameter: 0.12 }, scene);
   mesh.position = origin.clone();
@@ -64,7 +66,8 @@ export function fireProjectile(
     mesh.dispose();
     audio.explosion();
     if (canDealDamage) {
-      enemyManager.damageInRadius(at, blast.radiusM, blast.centreDamage);
+      const kills = enemyManager.damageInRadius(at, blast.radiusM, blast.centreDamage);
+      if (kills > 0) onKills?.(kills);
       const distToPlayer = Vector3.Distance(at, player.position);
       if (distToPlayer < blast.radiusM) {
         const t = distToPlayer / blast.radiusM;

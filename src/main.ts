@@ -226,7 +226,8 @@ async function boot(): Promise<void> {
         hud.notifyHit(headshot);
         stats.recordHit(headshot);
       },
-      onKill: (_targetId, weaponClass) => stats.recordKill(weaponClass),
+      onKill: (_targetId, weaponClass, weaponId) => stats.recordKill(weaponClass, weaponId),
+      onExplosiveKill: (count) => stats.recordExplosiveKills(count),
       onDamageNumber: (pos, amount, zone) => damageNumbers.add(pos, amount, zone),
     },
     scopeOverlay
@@ -243,6 +244,7 @@ async function boot(): Promise<void> {
     audio
   );
   throwableController.onFlashbangScreen = (intensity) => hud.flashWhite(intensity);
+  throwableController.onExplosiveKills = (count) => stats.recordExplosiveKills(count);
 
   const hud = new HUD(uiRoot, player, weaponController, loadout, gameState, waveManager, buildingLayout);
   const armoury = new Armoury(uiRoot, gameState, weaponController, player, audio);
@@ -269,10 +271,26 @@ async function boot(): Promise<void> {
   function beginDeployment(): void {
     stats.beginRun();
     resupplyOnSpawn();
+    reconTouchedThisRun = false;
     if (botty) {
       botty.heal(BOTTY_MAX_HEALTH);
       botty.root.position = player.position.add(new Vector3(-1.6, 0, -1.2));
       botty.setCommand("default");
+    }
+  }
+
+  // ---- Recon badge: get within arm's reach of an enemy that never noticed you.
+  const STEALTH_TOUCH_RADIUS_M = 2;
+  let reconTouchedThisRun = false;
+  function updateReconTouch(): void {
+    if (reconTouchedThisRun) return;
+    for (const enemy of waveManager.enemyManager.getAliveEnemies()) {
+      if (enemy.state !== "idle" && enemy.state !== "patrol") continue;
+      if (Vector3.Distance(player.position, enemy.root.position) > STEALTH_TOUCH_RADIUS_M) continue;
+      reconTouchedThisRun = true;
+      stats.recordReconTouch();
+      hud.showCenterMessage("CONTACT UNAWARE — RECON TOUCH", 2000);
+      break;
     }
   }
 
@@ -342,6 +360,7 @@ async function boot(): Promise<void> {
     gameState.save();
     botty!.heal(BOTTY_MAX_HEALTH * BOTTY_HEAL_FRACTION);
     audio.medkit();
+    stats.recordBottyHeal();
     hud.showCenterMessage(wasDown ? "BOTTY REVIVED" : "BOTTY HEALED", 1500);
   }
 
@@ -605,7 +624,10 @@ async function boot(): Promise<void> {
   const tacticalMap = new TacticalMap(uiRoot, buildingLayout);
 
   const uav = new UAVSupport(audio, {
-    onActivate: () => hud.showCenterMessage("UAV OVERHEAD — press M for tactical map", 4000),
+    onActivate: () => {
+      hud.showCenterMessage("UAV OVERHEAD — press M for tactical map", 4000);
+      stats.recordUavCall();
+    },
     onUnavailable: (reason) =>
       hud.showCenterMessage(reason === "empty" ? "NO UAV CHARGES REMAINING" : "UAV RECHARGING", 1500),
   });
@@ -709,7 +731,10 @@ async function boot(): Promise<void> {
             const ok = airstrike.callStrike(x, z);
             tacticalMap.hide();
             input.lockPointer();
-            if (ok) hud.showCenterMessage(`STRIKE INBOUND — impact in ${Math.ceil(airstrike.secondsToImpact)}s`, 2500);
+            if (ok) {
+              stats.recordAirstrikeCall();
+              hud.showCenterMessage(`STRIKE INBOUND — impact in ${Math.ceil(airstrike.secondsToImpact)}s`, 2500);
+            }
           });
           document.exitPointerLock();
         } else {
@@ -769,7 +794,10 @@ async function boot(): Promise<void> {
           botty.update(dt, player);
           updateBottyHeal();
         }
-        if (waveManager.phase === "combat") stats.addPlaytime(dt);
+        if (waveManager.phase === "combat") {
+          stats.addPlaytime(dt);
+          updateReconTouch();
+        }
       }
     }
 

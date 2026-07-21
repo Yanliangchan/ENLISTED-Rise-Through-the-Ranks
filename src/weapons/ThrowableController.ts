@@ -38,6 +38,8 @@ export class ThrowableController {
 
   onFlashbangScreen?: (intensity: number) => void;
   onFlareTriggered?: (position: Vector3) => void;
+  /** Fired with the number of kills scored by one frag/claymore detonation — feeds the EOD badge track. */
+  onExplosiveKills?: (count: number) => void;
 
   constructor(
     private readonly scene: Scene,
@@ -110,9 +112,11 @@ export class ThrowableController {
 
   private checkClaymoreTriggers(): void {
     for (const mine of [...this.claymores]) {
-      if (this.enemyManager.damageInCone(mine.mesh.position, mine.forward, mine.rangeM, Math.PI / 4, mine.damage)) {
+      const { hit, kills } = this.enemyManager.damageInCone(mine.mesh.position, mine.forward, mine.rangeM, Math.PI / 4, mine.damage);
+      if (hit) {
         this.spawnFlashSprite(mine.mesh.position.add(mine.forward.scale(1.2)), new Color3(1, 0.75, 0.35), 1.0, 220);
         this.audio.explosion();
+        if (kills > 0) this.onExplosiveKills?.(kills);
         mine.mesh.dispose();
         this.claymores = this.claymores.filter((m) => m !== mine);
       }
@@ -216,7 +220,8 @@ export class ThrowableController {
   private detonateFrag(pos: Vector3, throwable: Throwable, canDealDamage: boolean): void {
     this.audio.explosion();
     if (canDealDamage) {
-      this.enemyManager.damageInRadius(pos, throwable.radiusM, throwable.damage ?? 150);
+      const kills = this.enemyManager.damageInRadius(pos, throwable.radiusM, throwable.damage ?? 150);
+      if (kills > 0) this.onExplosiveKills?.(kills);
       const distToPlayer = Vector3.Distance(pos, this.player.position);
       if (distToPlayer < throwable.radiusM) {
         const dmg = (throwable.damage ?? 150) * (1 - distToPlayer / throwable.radiusM);
