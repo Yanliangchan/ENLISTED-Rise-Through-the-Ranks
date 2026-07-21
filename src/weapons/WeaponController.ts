@@ -64,6 +64,9 @@ export class WeaponController {
   effective: EffectiveStats;
 
   isAiming = false;
+  /** When true (e.g. the local player is dead in multiplayer), all trigger/aim/
+   *  reload input is ignored — the weapon is effectively holstered until cleared. */
+  disabled = false;
   private adsBlend = 0; // 0 = hip, 1 = fully aimed
   private sprintBlend = 0; // 0 = normal, 1 = full sprint FOV widen
   isReloading = false;
@@ -226,6 +229,15 @@ export class WeaponController {
 
   update(dt: number): void {
     if (dt <= 0) return;
+    if (this.disabled) {
+      // Dead / holstered: no firing, aiming or reloading. Still recover recoil
+      // and let the ADS blend ease back to hip so the viewmodel settles.
+      this.isAiming = false;
+      this.updateAds(dt);
+      this.updateRecoilRecovery(dt);
+      if (this.fireCooldown > 0) this.fireCooldown -= dt;
+      return;
+    }
     this.updateAds(dt);
     this.updateReload(dt);
     this.updateRecoilRecovery(dt);

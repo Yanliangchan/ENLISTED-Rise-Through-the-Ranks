@@ -53,6 +53,9 @@ export class PlayerController {
   spawnProtected = false;
   /** Set by WeaponController while a laser aiming device is fitted — the visible beam makes the player easier for AI to spot. */
   laserOn = false;
+  /** When true (e.g. dead in multiplayer, awaiting respawn) movement is locked;
+   *  the player can still look around but cannot walk. */
+  frozen = false;
   private footstepTimer = 0;
   // Camera shake: a decaying magnitude driving small random pitch/yaw jitter,
   // applied as an additive offset each frame. The offset is tracked and
@@ -98,7 +101,7 @@ export class PlayerController {
     if (deltaSeconds <= 0) return;
     if (this.noiseTimer > 0) this.noiseTimer = Math.max(0, this.noiseTimer - deltaSeconds);
     this.applyMouseLook();
-    this.applyMovement(deltaSeconds);
+    if (!this.frozen) this.applyMovement(deltaSeconds);
     this.applyCameraShake(deltaSeconds);
   }
 

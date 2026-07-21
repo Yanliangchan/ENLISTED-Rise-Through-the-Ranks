@@ -11,6 +11,7 @@ import {
   Texture,
   VertexBuffer,
   PBRMaterial,
+  Material,
 } from "@babylonjs/core";
 import { WorldMaterial } from "@/world/WorldMaterial";
 
@@ -162,7 +163,7 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
         }
       speckle(ctx, s, rand, 2600, () => (rand() < 0.5 ? litA : litB), 1.3);
     });
-  const texCarpetA = carpetTexOf("carpetA", "#3d4552", "#4a5464", "#333a45", 101);
+  const texCarpetA = carpetTexOf("carpetA", "#44474a", "#4f5254", "#3a3d40", 101);
   const texCarpetB = carpetTexOf("carpetB", "#4e4a42", "#5c574d", "#403c35", 202);
   const texTile = makeTex("tile", (ctx, s) => {
     const rand = mulberry32(303);
@@ -290,13 +291,13 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   // (which is now a complete, sealed world — no void behind it), tinted and
   // slightly reflective so it reads as a real curtain wall.
   const windowMat = new WorldMaterial("ic_window", scene);
-  windowMat.albedoColor = new Color3(0.66, 0.71, 0.72);
-  windowMat.alpha = 0.34;
+  windowMat.albedoColor = new Color3(0.72, 0.73, 0.73);
+  windowMat.alpha = 0.16; // near-clear so the facade never reads as a solid blue wall
   windowMat.roughness = 0.05;
   windowMat.metallic = 0.1;
   windowMat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
   windowMat.backFaceCulling = false;
-  windowMat.environmentIntensity = 1.2;
+  windowMat.environmentIntensity = 0.5; // low so it barely tints with the sky reflection
   // Frosted spandrel band (opaque, obscured) for the base of the facade + wet
   // rooms — the "frosted sections" that break the glass wall.
   const frostedMat = new StandardMaterial("ic_frosted", scene);
@@ -305,6 +306,15 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   frostedMat.alpha = 0.9;
   frostedMat.specularColor = new Color3(0.1, 0.1, 0.1);
   frostedMat.backFaceCulling = false;
+  // Self-lit light aluminium for the perimeter mullions/transoms: backlit by the
+  // bright exterior they would otherwise silhouette as dark navy bars (the
+  // recurring "blue wall cutting across the map"). The emissive floor keeps them
+  // reading as pale metal frames from inside regardless of the sky behind them.
+  const frameAlu = new WorldMaterial("ic_frameAlu", scene);
+  frameAlu.albedoColor = new Color3(0.74, 0.75, 0.76);
+  frameAlu.emissiveColor = new Color3(0.42, 0.43, 0.44);
+  frameAlu.roughness = 0.5;
+  frameAlu.metallic = 0.25;
   const G = {
     glass: glow("ic_glass", [0.6, 0.64, 0.66], 0.18), // partition / window glass (neutral, low glow)
     screen: glow("ic_screen", [0.16, 0.24, 0.3]), // monitor / NOC screen glow (dimmed, no blue wash)
@@ -925,18 +935,18 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   curtainWall(WALL_T, HALF_D * 2 + WALL_T, HALF_W, 0); // east
   // Aluminium mullions dividing the curtain glazing into window bays.
   for (let mx = -HALF_W + 8; mx < HALF_W; mx += 8) {
-    wall(0.24, WALL_T + 0.08, mx, -HALF_D, SILL_H, GLAZE_H, M.alu);
-    wall(0.24, WALL_T + 0.08, mx, HALF_D, SILL_H, GLAZE_H, M.alu);
+    wall(0.24, WALL_T + 0.08, mx, -HALF_D, SILL_H, GLAZE_H, frameAlu);
+    wall(0.24, WALL_T + 0.08, mx, HALF_D, SILL_H, GLAZE_H, frameAlu);
   }
   for (let mz = -HALF_D + 7; mz < HALF_D; mz += 7) {
-    wall(WALL_T + 0.08, 0.24, -HALF_W, mz, SILL_H, GLAZE_H, M.alu);
-    wall(WALL_T + 0.08, 0.24, HALF_W, mz, SILL_H, GLAZE_H, M.alu);
+    wall(WALL_T + 0.08, 0.24, -HALF_W, mz, SILL_H, GLAZE_H, frameAlu);
+    wall(WALL_T + 0.08, 0.24, HALF_W, mz, SILL_H, GLAZE_H, frameAlu);
   }
   // Horizontal transom rail splitting each window band (reads as framed bays).
-  wall(HALF_W * 2 + WALL_T, WALL_T + 0.1, 0, -HALF_D, 1.9, 0.14, M.alu);
-  wall(HALF_W * 2 + WALL_T, WALL_T + 0.1, 0, HALF_D, 1.9, 0.14, M.alu);
-  wall(WALL_T + 0.1, HALF_D * 2 + WALL_T, -HALF_W, 0, 1.9, 0.14, M.alu);
-  wall(WALL_T + 0.1, HALF_D * 2 + WALL_T, HALF_W, 0, 1.9, 0.14, M.alu);
+  wall(HALF_W * 2 + WALL_T, WALL_T + 0.1, 0, -HALF_D, 1.9, 0.14, frameAlu);
+  wall(HALF_W * 2 + WALL_T, WALL_T + 0.1, 0, HALF_D, 1.9, 0.14, frameAlu);
+  wall(WALL_T + 0.1, HALF_D * 2 + WALL_T, -HALF_W, 0, 1.9, 0.14, frameAlu);
+  wall(WALL_T + 0.1, HALF_D * 2 + WALL_T, HALF_W, 0, 1.9, 0.14, frameAlu);
   fp("complex", -HALF_W, -HALF_D, HALF_W, HALF_D);
 
   // =========================================================================
@@ -1686,6 +1696,19 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
       if (ox > 0.05 && oz > 0.05)
         console.warn(`[IronCitadel] room overlap: "${a.name}" ∩ "${b.name}" = ${ox.toFixed(1)}×${oz.toFixed(1)}m`);
     }
+
+  // Perf: none of the complex's materials animate, so freeze every one of them
+  // — the renderer then skips re-evaluating material state per draw call, a
+  // meaningful CPU saving across the hundreds of surfaces/props in the map.
+  const frozenMats = new Set<Material>();
+  for (const m of meshes) {
+    const mat = m.material;
+    if (mat && !frozenMats.has(mat)) { mat.freeze(); frozenMats.add(mat); }
+  }
+  for (const inst of instances) {
+    const mat = inst.sourceMesh.material;
+    if (mat && !frozenMats.has(mat)) { mat.freeze(); frozenMats.add(mat); }
+  }
 
   // The complex is fully enclosed: curtain-wall glazing + two skylights admit
   // the daylight/IBL; ceilings' LED panels, light strips, screen glow and

@@ -171,6 +171,7 @@ export class NetMatch {
   private prevOnFire?: (w: unknown) => void;
   private prevHp = 100;
   private prevArmor = 100;
+  private scoreboardAccum = 0;
 
   onExit?: () => void;
   /** Persist the local player's result (XP/currency/rank/badges) — wired to the backend by main. */
@@ -219,8 +220,7 @@ export class NetMatch {
     this.off = net.on((m) => this.onServer(m));
     this.topHud = this.buildHud(parent);
     this.scoreboard = this.buildScoreboard(parent);
-    window.addEventListener("keydown", this.onKey);
-    window.addEventListener("keyup", this.onKey);
+    this.renderScoreboard();
   }
 
   private teamColor(t: Team): Color3 {
@@ -269,6 +269,10 @@ export class NetMatch {
         if (m.killerId === this.net.playerId && victim) this.hud.notifyKill(victim.name, m.headshot);
         if (m.victimId === this.net.playerId) {
           this.player.health = 0; this.prevHp = 0; this.prevArmor = 0;
+          // Die immediately: lock movement + holster the weapon so a dead player
+          // can never keep shooting or walking until they respawn.
+          this.player.frozen = true;
+          this.weapon.disabled = true;
           this.showCenter(killer ? `ELIMINATED BY ${killer.rankInsignia} ${killer.name}` : "ELIMINATED", 2800);
         }
         this.avatars.get(m.victimId)?.setState({ id: m.victimId, x: 0, y: -50, z: 0, yaw: 0, pitch: 0, flags: NetFlag.Dead, weapon: 0, hp: 0, armor: 0 });
@@ -281,6 +285,8 @@ export class NetMatch {
           this.player.respawn(pos);
           this.player.health = 100; this.player.armour = 100;
           this.prevHp = 100; this.prevArmor = 100;
+          this.player.frozen = false; // regain control
+          this.weapon.disabled = false;
           this.weapon.resetAllAmmo();
         } else {
           const av = this.avatars.get(m.playerId);
@@ -321,6 +327,9 @@ export class NetMatch {
     // timer
     this.timeLeft = Math.max(0, this.timeLeft - dt);
     this.updateTopHud();
+    // Refresh the persistent top-left scoreboard at ~5Hz (scores/ping/alive change).
+    this.scoreboardAccum += dt;
+    if (this.scoreboardAccum >= 0.2) { this.scoreboardAccum = 0; this.renderScoreboard(); }
     // Drive the full combat HUD (health/armour/ammo/hitmarker/vignette/blood/
     // directional indicators) — main's loop skips hud.update in this mode.
     this.hud.update(this.isPointerLocked(), [], null, [], null);
@@ -351,43 +360,44 @@ export class NetMatch {
     setTimeout(() => c.remove(), ms);
   }
 
-  // ---- scoreboard (hold Tab) ----------------------------------------------
+  // ---- scoreboard (persistent, top-left) ----------------------------------
+  // Always visible in the top-left corner (Tab is reserved for another use), so
+  // both teams' K/D and score are readable at a glance without an overlay.
   private buildScoreboard(parent: HTMLElement): HTMLDivElement {
     const el = document.createElement("div");
-    el.style.cssText = "position:fixed;inset:0;z-index:57;display:none;align-items:center;justify-content:center;background:rgba(6,9,7,0.5);font-family:Consolas,monospace;";
+    el.style.cssText =
+      "position:fixed;top:52px;left:10px;z-index:56;font-family:Consolas,monospace;font-size:12px;" +
+      "background:rgba(10,14,10,0.72);border:1px solid #3c4a34;padding:8px 10px;color:#cfe6c0;min-width:220px;pointer-events:none;";
     parent.appendChild(el);
     return el;
   }
-  private renderScoreboard(results?: MatchPlayerResult[]): void {
+  private renderScoreboard(): void {
     const rows = (team: Team) => {
       const players = this.roster.filter((p) => p.team === team);
       return players
         .map((p) => {
-          const r = results?.find((x) => x.id === p.id);
           const av = this.avatars.get(p.id);
           const ping = p.id === this.net.playerId ? this.net.ping : (av?.info.ping ?? 0);
           const num = this.roster.findIndex((x) => x.id === p.id) + 1;
-          const meMark = p.id === this.net.playerId ? ' style="background:rgba(255,255,255,0.06)"' : "";
-          return `<tr${meMark}><td class="no">${num}</td><td class="ins">${p.rankInsignia}</td><td class="nm">${p.name}${r?.mvp ? " ★" : ""}</td><td>${r?.kills ?? 0}</td><td>${r?.deaths ?? 0}</td><td>${r?.assists ?? 0}</td><td>${ping}ms</td></tr>`;
+          const dead = p.id === this.net.playerId ? this.player.health <= 0 : (av?.dead ?? false);
+          const meMark = p.id === this.net.playerId ? "background:rgba(255,255,255,0.08);" : "";
+          const op = dead ? "opacity:0.45;" : "";
+          return `<tr style="${meMark}${op}"><td class="no">${num}</td><td class="nm">${p.rankInsignia} ${p.name}</td><td class="pg">${ping}ms</td></tr>`;
         })
         .join("");
     };
+    const mode = this.info.settings.mode === "tdm" ? "TDM" : `ELIM R${this.round}`;
     this.scoreboard.innerHTML =
-      `<div style="background:rgba(16,22,16,0.97);border:1px solid #3c4a34;padding:20px 26px;min-width:520px;color:#cfe6c0">
-        <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:#6db4ff;letter-spacing:2px">BLUE ${this.blue}</span><span style="color:#8fa47e">${this.info.settings.mode === "tdm" ? "TEAM DEATHMATCH" : "ELIMINATION"}</span><span style="color:#ff8f7a;letter-spacing:2px">RED ${this.red}</span></div>
-        <style>.sb td{padding:4px 10px;font-size:13px}.sb th{color:#8fa47e;font-size:10px;letter-spacing:1px;text-align:left;padding:0 10px}.sb .ins{color:#d8f0c0}.sb .nm{color:#eaffdc}.sbh{color:#6db4ff}.sbr{color:#ff8f7a}</style>
-        <table class="sb" style="width:100%;border-collapse:collapse"><tr><th>RANK</th><th>PLAYER</th><th>K</th><th>D</th><th>A</th><th>PING</th></tr>
-        <tr><td colspan="6" class="sbh" style="font-size:10px;letter-spacing:2px;padding-top:8px">BLUE TEAM</td></tr>${rows("blue")}
-        <tr><td colspan="6" class="sbr" style="font-size:10px;letter-spacing:2px;padding-top:8px">RED TEAM</td></tr>${rows("red")}
-        </table>
-      </div>`;
+      `<style>.sb td{padding:1px 6px}.sb .no{color:#8fa47e}.sb .nm{color:#eaffdc}.sb .pg{color:#8fa47e;text-align:right}</style>
+       <div style="display:flex;justify-content:space-between;letter-spacing:1px;margin-bottom:5px;font-size:11px">
+         <span style="color:#6db4ff;font-weight:bold">BLUE ${this.blue}</span>
+         <span style="color:#8fa47e">${mode}</span>
+         <span style="color:#ff8f7a;font-weight:bold">RED ${this.red}</span></div>
+       <table class="sb" style="width:100%;border-collapse:collapse">
+       <tr><td colspan="3" style="color:#6db4ff;font-size:9px;letter-spacing:2px;padding-top:2px">BLUE</td></tr>${rows("blue")}
+       <tr><td colspan="3" style="color:#ff8f7a;font-size:9px;letter-spacing:2px;padding-top:4px">RED</td></tr>${rows("red")}
+       </table>`;
   }
-  private onKey = (e: KeyboardEvent): void => {
-    if (e.code !== "Tab") return;
-    e.preventDefault();
-    if (e.type === "keydown") { this.renderScoreboard(); this.scoreboard.style.display = "flex"; }
-    else this.scoreboard.style.display = "none";
-  };
 
   private showMatchEnd(winner: Team | "draw", blue: number, red: number, results: MatchPlayerResult[]): void {
     const me = results.find((r) => r.id === this.net.playerId);
@@ -433,8 +443,9 @@ export class NetMatch {
     this.avatars.clear();
     this.topHud.remove();
     this.scoreboard.remove();
-    window.removeEventListener("keydown", this.onKey);
-    window.removeEventListener("keyup", this.onKey);
+    // Ensure control is restored if the match ends while the local player is dead.
+    this.player.frozen = false;
+    this.weapon.disabled = false;
     const wc = this.weapon as unknown as { callbacks?: { onFire?: (w: unknown) => void } };
     if (wc.callbacks) wc.callbacks.onFire = this.prevOnFire;
   }

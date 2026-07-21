@@ -94,6 +94,19 @@ async function boot(): Promise<void> {
   const buildingLayout = generateBuildingLayout();
   const rangeAssets = buildTrainingRange(game.scene);
 
+  // Snapshot the survival-world meshes (city + range + ground/skybox) right
+  // after they're built and before the player/weapon/citadel exist. In the
+  // multiplayer/Iron-Citadel mode these are all off-map and only cost culling +
+  // shadow-casting time, so we disable the whole set while the complex is active
+  // and re-enable it on the way back to the survival game. Perf win with zero
+  // visual change (the complex is a fully sealed interior).
+  // Keep the infinite-distance skybox enabled always — the sealed complex's
+  // skylights and glazing still read the sky through it.
+  const survivalWorldMeshes = game.scene.meshes.filter((m) => !m.infiniteDistance);
+  function setSurvivalWorldEnabled(on: boolean): void {
+    for (const m of survivalWorldMeshes) if (!m.isDisposed()) m.setEnabled(on);
+  }
+
   const input = new InputManager(canvas);
 
   // Postgres-backed persistence when the login succeeded; otherwise the
@@ -398,6 +411,8 @@ async function boot(): Promise<void> {
   let citadelExitBtn: HTMLButtonElement | null = null;
   function enterIronCitadel(): void {
     if (!citadel) citadel = buildIronCitadel(game.scene); // lazy first-time build
+    citadel.root.setEnabled(true); // show the complex; hide the survival city
+    setSurvivalWorldEnabled(false);
     landingPage.hide();
     game.renderingPaused = false;
     citadelActive = true;
@@ -434,6 +449,8 @@ async function boot(): Promise<void> {
 
   function exitIronCitadelToMenu(): void {
     citadelActive = false;
+    citadel?.root.setEnabled(false);
+    setSurvivalWorldEnabled(true);
     if (citadelExitBtn) citadelExitBtn.style.display = "none";
     hud.setVisible(true);
     game.renderingPaused = true;
@@ -461,6 +478,8 @@ async function boot(): Promise<void> {
 
   function enterNetMatch(net: NetClient, info: MatchStartInfo): void {
     if (!citadel) citadel = buildIronCitadel(game.scene);
+    citadel.root.setEnabled(true);
+    setSurvivalWorldEnabled(false); // the complex is a sealed interior — drop the survival city entirely
     landingPage.hide();
     game.renderingPaused = false;
     citadelActive = true; // reuse the "movement + weapons only, no waves" update branch
@@ -492,7 +511,7 @@ async function boot(): Promise<void> {
         return null;
       }
     };
-    hud.showCenterMessage(`MULTIPLAYER — ${info.settings.mode === "tdm" ? "TEAM DEATHMATCH" : "ELIMINATION"} · hold TAB for scoreboard`, 4000);
+    hud.showCenterMessage(`MULTIPLAYER — ${info.settings.mode === "tdm" ? "TEAM DEATHMATCH" : "ELIMINATION"}`, 4000);
     input.lockPointer();
   }
 
@@ -500,6 +519,8 @@ async function boot(): Promise<void> {
     netMatch?.dispose();
     netMatch = null;
     citadelActive = false;
+    citadel?.root.setEnabled(false);
+    setSurvivalWorldEnabled(true);
     game.renderingPaused = true;
     document.exitPointerLock();
     player.respawn(SPAWN_POINT);
