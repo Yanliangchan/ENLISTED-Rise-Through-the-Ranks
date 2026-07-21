@@ -260,6 +260,7 @@ async function boot(): Promise<void> {
     gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
     uav.reset();
     airstrike.reset();
+    botty?.resetSmoke();
     gameState.data.medkitCount = gameState.startingMedkitCount();
     gameState.save();
   }
@@ -301,6 +302,7 @@ async function boot(): Promise<void> {
     if (botty) return;
     const offset = new Vector3(-1.6, 0, -1.2);
     botty = new BottyController(game.scene, player.position.add(offset), waveManager.enemyManager, audio);
+    botty.setUpgrades(gameState.data.bottyUpgrades);
   }
 
   if (gameState.data.hasBotty) spawnBotty();
@@ -763,6 +765,7 @@ async function boot(): Promise<void> {
         medKit.update(dt);
         if (botty) {
           botty.setWave(waveManager.wave, player.maxHealth); // scale accuracy/health with the fight
+          botty.setUpgrades(gameState.data.bottyUpgrades); // pick up any Armoury purchases immediately
           botty.update(dt, player);
           updateBottyHeal();
         }

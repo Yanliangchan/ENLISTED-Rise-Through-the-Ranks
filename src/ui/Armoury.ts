@@ -1,6 +1,7 @@
 import { WEAPONS } from "@/data/weapons";
 import { ATTACHMENTS } from "@/data/attachments";
 import { GEAR, THROWABLES, SPECIAL_ABILITY_LABELS, SPECIAL_ABILITY_PRICES, ABILITY_SPECIALS } from "@/data/gamedata";
+import { BOTTY_UPGRADE_CATEGORIES, BOTTY_UPGRADES, bottyUpgradePrice } from "@/data/bottyUpgrades";
 import type { GameState } from "@/core/GameState";
 import type { WeaponController } from "@/weapons/WeaponController";
 import type { PlayerController } from "@/player/PlayerController";
@@ -442,9 +443,67 @@ export class Armoury {
       note.textContent = "BOTTY is deployed with you. Use First Aid Kits to heal him if he goes down.";
       note.style.cssText = "color:#9fc78a; font-size:12px; margin-top:8px;";
       wrap.appendChild(note);
+
+      const upgradeHeading = document.createElement("div");
+      upgradeHeading.textContent = "BOTTY Upgrade Tree";
+      upgradeHeading.style.cssText = "font-weight:bold; margin:18px 0 10px; color:#9fc78a;";
+      wrap.appendChild(upgradeHeading);
+
+      const grid = document.createElement("div");
+      grid.style.cssText = "display:grid; grid-template-columns: 1fr 1fr; gap:10px;";
+      for (const category of BOTTY_UPGRADE_CATEGORIES) {
+        grid.appendChild(this.bottyUpgradeCard(category));
+      }
+      wrap.appendChild(grid);
     }
 
     this.content.appendChild(wrap);
+  }
+
+  private bottyUpgradeCard(category: (typeof BOTTY_UPGRADE_CATEGORIES)[number]): HTMLDivElement {
+    const def = BOTTY_UPGRADES[category];
+    const level = this.gameState.bottyUpgradeLevel(category);
+    const price = bottyUpgradePrice(category, level);
+
+    const card = document.createElement("div");
+    card.className = "mil-inset";
+    card.style.cssText = "padding:10px;";
+
+    const title = document.createElement("div");
+    title.style.cssText = "display:flex; justify-content:space-between; align-items:center; font-weight:bold; color:#9fc78a; margin-bottom:4px;";
+    const pips = "●".repeat(level) + "○".repeat(3 - level);
+    title.innerHTML = `<span>${def.name}</span><span style="letter-spacing:2px; color:${level >= 3 ? "#e0c15a" : "#9fc78a"};">${pips}</span>`;
+    card.appendChild(title);
+
+    const desc = document.createElement("div");
+    desc.textContent = level >= 3 ? "Maxed — " + def.summary : def.summary;
+    desc.style.cssText = "font-size:12px; color:#c9d8bf; margin-bottom:8px;";
+    card.appendChild(desc);
+
+    if (price !== null) {
+      const nextDesc = document.createElement("div");
+      nextDesc.textContent = `Level ${level + 1}: ${def.levelDescriptions[level]}`;
+      nextDesc.style.cssText = "font-size:11px; color:#7f9a72; margin-bottom:8px;";
+      card.appendChild(nextDesc);
+
+      const btn = document.createElement("button");
+      btn.textContent = `Upgrade — ${price}c`;
+      styleButton(btn, this.gameState.data.credits >= price ? "#3c6b32" : "#5a3232");
+      btn.onclick = () => {
+        if (this.gameState.buyBottyUpgrade(category)) {
+          this.audio.purchase();
+          this.refresh();
+        }
+      };
+      card.appendChild(btn);
+    } else {
+      const maxed = document.createElement("button");
+      maxed.textContent = "MAX LEVEL";
+      maxed.disabled = true;
+      styleButton(maxed, "#4a7a3c");
+      card.appendChild(maxed);
+    }
+    return card;
   }
 
   private shopRow(label: string, price: number, owned: boolean, onBuy: () => void): HTMLDivElement {

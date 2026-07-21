@@ -16,6 +16,7 @@ import type { HitMeshMetadata } from "@/weapons/Damageable";
 import { CAMP_POSITION } from "@/world/Level";
 import { isInSafeZone } from "@/world/SafeZone";
 import { findNearestNavigable } from "@/world/Nav";
+import type { BottyUpgradeCategory } from "@/data/bottyUpgrades";
 
 export type BottyCommand = "default" | "followMe" | "goDark" | "coverMe" | "engage" | "retreat";
 
@@ -27,6 +28,20 @@ const RELOAD_SEC = 2.2;
 const FIRE_INTERVAL = 0.14;
 const DAMAGE_PER_HIT = 9;
 const MOVE_SPEED = 4.4;
+
+/** Per-level multipliers/bonuses for each upgrade track, indexed [level 0..3]. */
+const WEAPON_DAMAGE_MULT = [1, 1.2, 1.4, 1.65];
+const WEAPON_MAG_BONUS = [0, 10, 20, 30];
+const WEAPON_FIRE_INTERVAL_MULT = [1, 1, 0.88, 0.78];
+const ARMOUR_DAMAGE_MULT = [1, 0.88, 0.76, 0.62];
+const HEALTH_BONUS = [0, 25, 55, 95];
+const REACTION_RELOAD_MULT = [1, 0.8, 0.65, 0.5];
+const REACTION_TARGET_TIMER_MULT = [1, 0.7, 0.45, 0.2];
+const ACCURACY_BONUS = [0, 0.08, 0.16, 0.25];
+const SUPPRESSION_CHANCE = [0, 0.12, 0.22, 0.35];
+const SUPPRESSION_RADIUS_M = [0, 4, 5, 6];
+const SUPPRESSION_DURATION_SEC = [0, 1.5, 2, 2.5];
+const SMOKE_CHARGES = [1, 2, 3, 4];
 
 function litMat(scene: Scene, name: string, diffuse: Color3, emissive = 0.35): StandardMaterial {
   const mat = new StandardMaterial(name, scene);
@@ -79,13 +94,29 @@ export class BottyController {
   private escapeDir: Vector3 | null = null;
   private escapeTimer = 0;
   private wasFiredUpon = false;
-  private smokeThrownForRetreat = false;
+  private smokeThrownThisOrder = false;
   // Target acquisition runs LOS raycasts across every live enemy — far too
   // expensive per-frame. Same fix as EnemyAI's throttled perception: refresh
   // on a short timer and read the cached target in between.
   private targetTimer = 0;
 
   onCommandChange?: (cmd: BottyCommand) => void;
+
+  private upgrades: Record<BottyUpgradeCategory, number> = {
+    weapon: 0, armour: 0, health: 0, reaction: 0, accuracy: 0, suppression: 0, smoke: 0,
+  };
+  private smokeChargesRemaining = SMOKE_CHARGES[0];
+
+  /** Called whenever the player buys a BOTTY upgrade level (and on spawn) so behaviour picks it up immediately. */
+  setUpgrades(levels: Record<BottyUpgradeCategory, number>): void {
+    this.upgrades = levels;
+    this.smokeChargesRemaining = Math.min(this.smokeChargesRemaining, SMOKE_CHARGES[this.upgrades.smoke] ?? 1);
+  }
+
+  /** Tops smoke charges back up to full — called on every fresh deployment/redeploy, same as UAV/Air Strike charges. */
+  resetSmoke(): void {
+    this.smokeChargesRemaining = SMOKE_CHARGES[this.upgrades.smoke] ?? 1;
+  }
 
   constructor(
     private readonly scene: Scene,
@@ -190,7 +221,8 @@ export class BottyController {
 
   takeDamage(damage: number): void {
     if (this.isDown) return;
-    this.health = Math.max(0, this.health - damage);
+    const mitigated = damage * (ARMOUR_DAMAGE_MULT[this.upgrades.armour] ?? 1);
+    this.health = Math.max(0, this.health - mitigated);
     this.wasFiredUpon = true;
     if (this.isDown) {
       this.visualRoot.scaling = new Vector3(1, 0.2, 1);
@@ -223,7 +255,8 @@ export class BottyController {
   private targetMaxHealth(): number {
     const w = this.wave;
     const frac = w <= 5 ? 0.75 : w <= 10 ? 1.0 : w <= 15 ? 1.1 : 1.25;
-    return Math.max(1, Math.round(this.playerMaxHealth * frac));
+    const bonus = HEALTH_BONUS[this.upgrades.health] ?? 0;
+    return Math.max(1, Math.round(this.playerMaxHealth * frac) + bonus);
   }
 
   /** Per-shot hit probability: piecewise-linear through the spec's wave anchors,
@@ -241,12 +274,13 @@ export class BottyController {
         if (w <= w1) { base = a0 + (a1 - a0) * ((w - w0) / (w1 - w0)); break; }
       }
     }
-    return Math.max(0.12, Math.min(0.78, base + (Math.random() - 0.5) * 0.06));
+    const accuracyBonus = ACCURACY_BONUS[this.upgrades.accuracy] ?? 0;
+    return Math.max(0.12, Math.min(0.97, base + accuracyBonus + (Math.random() - 0.5) * 0.06));
   }
 
   setCommand(cmd: BottyCommand): void {
     this.command = cmd;
-    this.smokeThrownForRetreat = false;
+    this.smokeThrownThisOrder = false;
     this.currentTarget = null;
     this.targetTimer = 0;
     // A fresh order resets the "return fire" latch — Go Dark means hold fire
@@ -270,7 +304,7 @@ export class BottyController {
     }
     this.targetTimer -= dt;
     if (this.targetTimer > 0) return;
-    this.targetTimer = 0.18 + Math.random() * 0.08;
+    this.targetTimer = (0.18 + Math.random() * 0.08) * (REACTION_TARGET_TIMER_MULT[this.upgrades.reaction] ?? 1);
     this.currentTarget = this.acquireTarget(player);
     if (!this.currentTarget && includeOutOfSight) this.currentTarget = this.nearestAnyDistance();
   }
@@ -343,23 +377,27 @@ export class BottyController {
     return !pick?.hit;
   }
 
+  private effectiveMagSize(): number {
+    return MAG_SIZE + (WEAPON_MAG_BONUS[this.upgrades.weapon] ?? 0);
+  }
+
   private fireAt(target: EnemyInstance, dt: number): void {
     if (this.isReloading) {
       this.reloadTimer -= dt;
       if (this.reloadTimer <= 0) {
         this.isReloading = false;
-        this.roundsInMag = MAG_SIZE;
+        this.roundsInMag = this.effectiveMagSize();
       }
       return;
     }
     if (this.roundsInMag <= 0) {
       this.isReloading = true;
-      this.reloadTimer = RELOAD_SEC;
+      this.reloadTimer = RELOAD_SEC * (REACTION_RELOAD_MULT[this.upgrades.reaction] ?? 1);
       return;
     }
     this.fireCooldown -= dt;
     if (this.fireCooldown > 0) return;
-    this.fireCooldown = FIRE_INTERVAL;
+    this.fireCooldown = FIRE_INTERVAL * (WEAPON_FIRE_INTERVAL_MULT[this.upgrades.weapon] ?? 1);
     this.roundsInMag--;
 
     const aimPoint = target.root.position.add(new Vector3(0, 0.9 + (Math.random() - 0.5) * 0.4, 0));
@@ -369,10 +407,19 @@ export class BottyController {
     this.muzzleFlashTimer = 0.05;
     // Face BOTTY toward whatever it's shooting so the flash/rifle read correctly.
     this.root.rotation.y = Math.atan2(target.root.position.x - this.position.x, target.root.position.z - this.position.z);
-    // Wave-scaled accuracy: a rookie early, a competent (never perfect) teammate
-    // late. Damage per hit is unchanged — BOTTY grows through accuracy, not bonuses.
+    // Wave-scaled accuracy (+ the Accuracy upgrade bonus). Damage scales with
+    // the Weapon upgrade; a landed hit can also roll a Suppression Fire proc.
     if (Math.random() < this.hitChance()) {
-      target.takeDamage(DAMAGE_PER_HIT, false, this.position);
+      const damage = DAMAGE_PER_HIT * (WEAPON_DAMAGE_MULT[this.upgrades.weapon] ?? 1);
+      target.takeDamage(damage, false, this.position);
+      const suppressionLevel = this.upgrades.suppression;
+      if (suppressionLevel > 0 && Math.random() < SUPPRESSION_CHANCE[suppressionLevel]) {
+        this.enemyManager.stunInRadius(
+          target.root.position,
+          SUPPRESSION_RADIUS_M[suppressionLevel],
+          SUPPRESSION_DURATION_SEC[suppressionLevel]
+        );
+      }
     }
   }
 
@@ -446,7 +493,18 @@ export class BottyController {
     }
   }
 
-  private throwRetreatSmoke(threat: Vector3 | null, player: PlayerController): void {
+  private smokeThrownForCritical = false;
+
+  /** Pops a screening smoke if a charge is available; returns whether one was actually thrown. */
+  /** Smoke Capacity level 2+: pop screening smoke once per order if under fire in a Cover Me / Engage stance. */
+  private maybeThrowSmokeUnderFire(player: PlayerController): void {
+    if (this.upgrades.smoke < 2 || !this.wasFiredUpon || this.smokeThrownThisOrder) return;
+    if (this.throwSmoke(this.currentTarget?.root.position ?? null, player)) this.smokeThrownThisOrder = true;
+  }
+
+  private throwSmoke(threat: Vector3 | null, player: PlayerController): boolean {
+    if (this.smokeChargesRemaining <= 0) return false;
+    this.smokeChargesRemaining--;
     const between = threat ? Vector3.Lerp(this.position, threat, 0.4) : this.position.add(new Vector3(0, 0, 2));
     const puff = MeshBuilder.CreateSphere("botty_smoke", { diameter: 6 }, this.scene);
     puff.position = between;
@@ -463,6 +521,7 @@ export class BottyController {
     window.setTimeout(() => puff.dispose(), 9000);
     this.audio.throwableFuse();
     void player; // reserved: could nudge the smoke toward the player's sightline in a future pass
+    return true;
   }
 
   update(dt: number, player: PlayerController): void {
@@ -510,12 +569,24 @@ export class BottyController {
       this.farTimer = 0;
     }
 
+    // Smoke Capacity level 3: auto-pop screening smoke the moment BOTTY drops
+    // critically low, regardless of the active order. Re-arms once healed back up.
+    if (this.upgrades.smoke >= 3) {
+      const frac = this.maxHealth > 0 ? this.health / this.maxHealth : 1;
+      if (frac < 0.3 && !this.smokeThrownForCritical) {
+        this.throwSmoke(this.currentTarget?.root.position ?? null, player);
+        this.smokeThrownForCritical = true;
+      } else if (frac > 0.6) {
+        this.smokeThrownForCritical = false;
+      }
+    }
+
     switch (this.command) {
       case "retreat": {
         const threat = this.currentTarget?.root.position ?? null;
-        if (!this.smokeThrownForRetreat) {
-          this.throwRetreatSmoke(threat, player);
-          this.smokeThrownForRetreat = true;
+        if (!this.smokeThrownThisOrder) {
+          this.throwSmoke(threat, player);
+          this.smokeThrownThisOrder = true;
         }
         if (isInSafeZone(this.position)) {
           // Home and safe — hold position, no more running.
@@ -545,6 +616,7 @@ export class BottyController {
 
       case "coverMe": {
         this.refreshTarget(dt, player);
+        this.maybeThrowSmokeUnderFire(player);
         if (this.currentTarget) {
           this.repositionTimer -= dt;
           if (this.repositionTimer <= 0) {
@@ -561,6 +633,7 @@ export class BottyController {
 
       case "engage": {
         this.refreshTarget(dt, player, true);
+        this.maybeThrowSmokeUnderFire(player);
         if (this.currentTarget) {
           const toTarget = Vector3.Distance(this.position, this.currentTarget.root.position);
           this.repositionTimer -= dt;

@@ -364,40 +364,25 @@ const RARITY_ORDER: Record<string, number> = { legendary: 5, epic: 4, rare: 3, u
 const RARITY_COLOR: Record<string, string> = {
   legendary: "#e6b84d", epic: "#c07de0", rare: "#4da6e6", uncommon: "#5bd07a", common: "#9fb59a",
 };
-/** Qualification-type badges sit in the first, most-prestigious group. */
-const QUALIFICATION_CODES = new Set(["airborne_tab", "ranger_tab", "guards_tab", "commando_recognition", "master_marksman"]);
-/** Event / service badges sit in the final group. */
-const EVENT_CODES = new Set(["guardian_badge", "event_veteran", "alpha_tester", "founder", "event_winner"]);
-const BADGE_GROUPS = ["Career & Qualification", "Combat Achievement", "Progression", "Event & Special"];
+const RARITY_TIERS = ["legendary", "epic", "rare", "uncommon", "common"];
 
 interface DisplayBadge { code: string; name: string; description: string; icon: string; category: string; rarity: string; unlocked: boolean }
 
-function badgeGroupIndex(b: DisplayBadge): number {
-  if (QUALIFICATION_CODES.has(b.code)) return 0;
-  if (EVENT_CODES.has(b.code)) return 3;
-  if (b.category === "progression") return 2;
-  if (b.category === "special") return 0; // other qualification-flavoured specials
-  return 1; // combat + support
-}
-
-/** Render the full badge collection grouped by prestige, highest rarity first,
- *  earned in colour and locked greyed out, each with a name/description tooltip. */
+/** Render the full badge collection grouped by rarity tier — Special/Legendary
+ *  down to Common — earned in colour and locked greyed out, each with a name/
+ *  description tooltip. Within a tier, earned badges sort first. */
 function renderBadgeShowcase(badges: DisplayBadge[]): string {
   if (!badges.length) return `<div style="color:#6f8566; font-size:13px;">No badges in the catalogue yet.</div>`;
-  const buckets: DisplayBadge[][] = [[], [], [], []];
-  for (const b of badges) buckets[badgeGroupIndex(b)].push(b);
-  const sections = BADGE_GROUPS.map((title, gi) => {
-    const list = buckets[gi].sort(
-      (a, b) =>
-        (RARITY_ORDER[b.rarity] ?? 0) - (RARITY_ORDER[a.rarity] ?? 0) ||
-        Number(b.unlocked) - Number(a.unlocked) ||
-        a.name.localeCompare(b.name)
-    );
+  const sections = RARITY_TIERS.map((rarity) => {
+    const list = badges
+      .filter((b) => b.rarity === rarity)
+      .sort((a, b) => Number(b.unlocked) - Number(a.unlocked) || a.name.localeCompare(b.name));
     if (!list.length) return "";
     const earned = list.filter((b) => b.unlocked).length;
+    const col = RARITY_COLOR[rarity] ?? "#9fb59a";
     return `
       <div style="margin-bottom:14px;">
-        <div style="font-size:10px; letter-spacing:1px; color:#7f9a72; margin-bottom:6px;">${title.toUpperCase()} <span style="color:#54654c;">(${earned}/${list.length})</span></div>
+        <div style="font-size:10px; letter-spacing:1px; color:${col}; margin-bottom:6px;">${rarity.toUpperCase()} <span style="color:#54654c;">(${earned}/${list.length})</span></div>
         <div style="display:flex; flex-wrap:wrap; gap:8px;">${list.map(badgeChip).join("")}</div>
       </div>`;
   }).join("");

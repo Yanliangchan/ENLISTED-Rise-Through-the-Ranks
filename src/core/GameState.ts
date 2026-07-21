@@ -2,6 +2,7 @@ import { WEAPONS } from "@/data/weapons";
 import { ATTACHMENTS } from "@/data/attachments";
 import { GEAR, THROWABLES, SPECIAL_ABILITY_PRICES, type AbilitySpecial } from "@/data/gamedata";
 import { STARTER_LOADOUT } from "@/data/weapons";
+import { BOTTY_UPGRADE_CATEGORIES, bottyUpgradePrice, type BottyUpgradeCategory } from "@/data/bottyUpgrades";
 
 export interface Loadout {
   primary: string;
@@ -23,6 +24,14 @@ export interface SaveData {
   highestWaveCleared: number;
   medkitCount: number;
   hasBotty: boolean;
+  /** BOTTY's personal upgrade tree — level 0-3 per category. */
+  bottyUpgrades: Record<BottyUpgradeCategory, number>;
+}
+
+function defaultBottyUpgrades(): Record<BottyUpgradeCategory, number> {
+  const levels = {} as Record<BottyUpgradeCategory, number>;
+  for (const cat of BOTTY_UPGRADE_CATEGORIES) levels[cat] = 0;
+  return levels;
 }
 
 const SAVE_KEY = "sentinelShield.save.v1";
@@ -57,6 +66,7 @@ export function defaultSave(): SaveData {
     highestWaveCleared: 0,
     medkitCount: STARTING_MEDKITS,
     hasBotty: false,
+    bottyUpgrades: defaultBottyUpgrades(),
   };
 }
 
@@ -87,6 +97,7 @@ export class GameState {
     const loaded = persist ? initial ?? this.load() : this.load();
     this.data = loaded ? { ...defaultSave(), ...loaded } : defaultSave();
     this.data.ownedThrowables = this.data.ownedThrowables.filter((id) => THROWABLES[id]);
+    for (const cat of BOTTY_UPGRADE_CATEGORIES) this.data.bottyUpgrades[cat] ??= 0;
     if (!THROWABLES[this.data.loadout.throwable]) {
       this.data.loadout.throwable = "smoke_red";
       this.data.loadout.throwableCount = 0;
@@ -199,6 +210,21 @@ export class GameState {
     if (this.data.hasBotty) return false;
     if (!this.spendCredits(price)) return false;
     this.data.hasBotty = true;
+    this.save();
+    return true;
+  }
+
+  bottyUpgradeLevel(category: BottyUpgradeCategory): number {
+    return this.data.bottyUpgrades[category] ?? 0;
+  }
+
+  buyBottyUpgrade(category: BottyUpgradeCategory): boolean {
+    if (!this.data.hasBotty) return false;
+    const level = this.bottyUpgradeLevel(category);
+    const price = bottyUpgradePrice(category, level);
+    if (price === null) return false;
+    if (!this.spendCredits(price)) return false;
+    this.data.bottyUpgrades[category] = level + 1;
     this.save();
     return true;
   }
