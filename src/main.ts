@@ -9,6 +9,7 @@ import { PlayerStats, emptyStats } from "@/core/PlayerStats";
 import { AccountScreen } from "@/ui/AccountScreen";
 import { ProfilePage } from "@/ui/ProfilePage";
 import { LeaderboardPage } from "@/ui/LeaderboardPage";
+import { WaveSelect } from "@/ui/WaveSelect";
 import { PlayerController } from "@/player/PlayerController";
 import { applyGearToPlayer, maxThrowableCapacity } from "@/player/Gear";
 import { buildLevel, applyWaveArcLighting, generateBuildingLayout, CAMP_POSITION } from "@/world/Level";
@@ -594,16 +595,27 @@ async function boot(): Promise<void> {
     profilePage.onOpenGuide = () => leaderboardPage!.show();
   }
 
+  const waveSelect = new WaveSelect(uiRoot);
+
   let landingPage: LandingPage;
   function showMainMenu(): void {
     landingPage = new LandingPage(uiRoot, settings, audio, player);
     landingPage.onDeploy = () => {
-      hud.showCenterMessage("OPERATION SENTINEL SHIELD — Scout the sector before OPFOR forms up", 4000);
-      loadout.switchTo("primary"); // guarantee the real loadout weapon, not whatever the range last had equipped
-      waveManager.beginIntro();
-      beginDeployment();
-      game.renderingPaused = false;
-      input.lockPointer();
+      const startDeployment = (startWave: number) => {
+        hud.showCenterMessage("OPERATION SENTINEL SHIELD — Scout the sector before OPFOR forms up", 4000);
+        loadout.switchTo("primary"); // guarantee the real loadout weapon, not whatever the range last had equipped
+        waveManager.beginRunAt(startWave);
+        beginDeployment();
+        game.renderingPaused = false;
+        input.lockPointer();
+      };
+      // Always a fresh Wave 1 start by default — a checkpoint jump is an
+      // explicit choice, never a silent resume from wherever was last saved.
+      if (gameState.data.highestWaveCleared >= 5) {
+        waveSelect.show(gameState.data.highestWaveCleared, startDeployment);
+      } else {
+        startDeployment(1);
+      }
     };
     landingPage.onTrainingRange = () => enterTrainingRange();
     landingPage.onMultiplayer = () => openMultiplayer();

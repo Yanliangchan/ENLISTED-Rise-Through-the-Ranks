@@ -40,12 +40,28 @@ export class WaveManager {
     private readonly spawnPosition: import("@babylonjs/core").Vector3,
     private readonly callbacks: WaveManagerCallbacks = {}
   ) {
-    this.wave = gameState.data.wave;
+    // Always boots at 1 — the actual starting wave for a deployment is set
+    // explicitly via beginRunAt() (landing page DEPLOY), not silently resumed
+    // from whatever was last persisted. Kept players from getting an
+    // inconsistent Wave 1 vs Wave 3/4 start depending on when they last saved.
+    this.wave = 1;
     this.enemyManager = new EnemyManager(scene, audio, {
       onCredits: (amount) => this.gameState.addCredits(amount),
       onKillFeed: (name, hs) => this.callbacks.onKillFeed?.(name, hs),
       onPlayerDamaged: (dmg, pos) => this.callbacks.onPlayerDamaged?.(dmg, pos),
     });
+  }
+
+  /**
+   * Starts a fresh deployment at a specific wave — 1 for a clean start, or a
+   * milestone (5/10/15/...) the player has previously cleared and chose to
+   * jump back into from the landing page's wave picker.
+   */
+  beginRunAt(startWave: number): void {
+    this.wave = Math.max(1, Math.floor(startWave));
+    this.gameState.data.wave = this.wave;
+    this.gameState.save();
+    this.beginIntro();
   }
 
   /** Free-roam scouting window before Wave 1 only — no shop, no enemies. */
