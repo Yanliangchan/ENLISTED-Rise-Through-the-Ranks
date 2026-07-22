@@ -8,6 +8,7 @@ import { Backend } from "@/core/Backend";
 import { PlayerStats, emptyStats } from "@/core/PlayerStats";
 import { AccountScreen } from "@/ui/AccountScreen";
 import { ProfilePage } from "@/ui/ProfilePage";
+import { LeaderboardPage } from "@/ui/LeaderboardPage";
 import { PlayerController } from "@/player/PlayerController";
 import { applyGearToPlayer, maxThrowableCapacity } from "@/player/Gear";
 import { buildLevel, applyWaveArcLighting, generateBuildingLayout, CAMP_POSITION } from "@/world/Level";
@@ -574,7 +575,12 @@ async function boot(): Promise<void> {
 
   // ---- Main menu (landing page) -----------------------------------------
   let profilePage: ProfilePage | undefined;
-  if (backend) profilePage = new ProfilePage(uiRoot, backend);
+  let leaderboardPage: LeaderboardPage | undefined;
+  if (backend) {
+    profilePage = new ProfilePage(uiRoot, backend);
+    leaderboardPage = new LeaderboardPage(uiRoot, backend);
+    profilePage.onOpenGuide = () => leaderboardPage!.show();
+  }
 
   let landingPage: LandingPage;
   function showMainMenu(): void {
@@ -589,10 +595,8 @@ async function boot(): Promise<void> {
     };
     landingPage.onTrainingRange = () => enterTrainingRange();
     landingPage.onMultiplayer = () => openMultiplayer();
-    if (profilePage) {
-      landingPage.onProfile = () => profilePage!.show();
-      landingPage.onLeaderboards = () => profilePage!.show();
-    }
+    if (profilePage) landingPage.onProfile = () => profilePage!.show();
+    if (leaderboardPage) landingPage.onLeaderboards = () => leaderboardPage!.show();
   }
   showMainMenu();
   game.renderingPaused = true;
