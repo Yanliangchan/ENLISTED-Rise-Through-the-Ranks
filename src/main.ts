@@ -273,6 +273,7 @@ async function boot(): Promise<void> {
     stats.beginRun();
     resupplyOnSpawn();
     reconTouchedThisRun = false;
+    reconDwellTimer = 0;
     if (botty) {
       botty.heal(BOTTY_MAX_HEALTH);
       botty.root.position = player.position.add(new Vector3(-1.6, 0, -1.2));
@@ -280,19 +281,30 @@ async function boot(): Promise<void> {
     }
   }
 
-  // ---- Recon badge: get within arm's reach of an enemy that never noticed you.
-  const STEALTH_TOUCH_RADIUS_M = 2;
+  // ---- Recon badge: hold true arm's reach of an unaware enemy, crouched and
+  // still, for a sustained beat — not just a passing brush. Genuinely hard to
+  // pull off with OPFOR's hearing/sight cones active around it.
+  const STEALTH_TOUCH_RADIUS_M = 1.2;
+  const STEALTH_TOUCH_HOLD_SEC = 1.5;
+  let reconDwellTimer = 0;
   let reconTouchedThisRun = false;
-  function updateReconTouch(): void {
-    if (reconTouchedThisRun) return;
-    for (const enemy of waveManager.enemyManager.getAliveEnemies()) {
-      if (enemy.state !== "idle" && enemy.state !== "patrol") continue;
-      if (Vector3.Distance(player.position, enemy.root.position) > STEALTH_TOUCH_RADIUS_M) continue;
-      reconTouchedThisRun = true;
-      stats.recordReconTouch();
-      hud.showCenterMessage("CONTACT UNAWARE — RECON TOUCH", 2000);
-      break;
+  function updateReconTouch(dt: number): void {
+    if (reconTouchedThisRun) {
+      reconDwellTimer = 0;
+      return;
     }
+    const inRange = player.crouching && !player.isMoving && waveManager.enemyManager
+      .getAliveEnemies()
+      .some((e) => (e.state === "idle" || e.state === "patrol") && Vector3.Distance(player.position, e.root.position) <= STEALTH_TOUCH_RADIUS_M);
+    if (!inRange) {
+      reconDwellTimer = 0;
+      return;
+    }
+    reconDwellTimer += dt;
+    if (reconDwellTimer < STEALTH_TOUCH_HOLD_SEC) return;
+    reconTouchedThisRun = true;
+    stats.recordReconTouch();
+    hud.showCenterMessage("CONTACT UNAWARE — RECON TOUCH", 2000);
   }
 
   gameOverScreen.onRestart = () => {
@@ -800,7 +812,7 @@ async function boot(): Promise<void> {
         }
         if (waveManager.phase === "combat") {
           stats.addPlaytime(dt);
-          updateReconTouch();
+          updateReconTouch(dt);
         }
       }
     }

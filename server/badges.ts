@@ -54,7 +54,7 @@ const BADGE_CHECKS: Record<string, (input: BadgeCheckInput) => boolean> = {
   sniper_basic: (i) => (i.lifetime.killsByClass.sniper ?? 0) >= 500,
   sniper_advance: (i) => (i.lifetime.killsByClass.sniper ?? 0) >= 1000,
   sniper_master: (i) => (i.lifetime.killsByClass.sniper ?? 0) >= 2000,
-  recon: (i) => i.lifetime.reconTouches >= 1,
+  recon: (i) => i.lifetime.reconTouches >= 3,
   eod_basic: (i) => i.lifetime.explosiveKills >= 250,
   eod_advanced: (i) => i.lifetime.explosiveKills >= 500,
   eod_senior: (i) => i.lifetime.explosiveKills >= 1000,
