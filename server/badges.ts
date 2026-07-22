@@ -48,9 +48,14 @@ const BADGE_CHECKS: Record<string, (input: BadgeCheckInput) => boolean> = {
   kills_10000: (i) => i.lifetime.kills >= 10000,
   headhunter: (i) => i.lifetime.headshots >= 500,
   // Skill-progression badges — genuinely earnable from stats the client now submits.
+  // Each tier requires EVERY weapon in the roster to individually clear the
+  // bar — not the sum across them. 500 kills combined by dumping everything
+  // into one favourite gun does not count; every single weapon (SAR-21,
+  // BR18, P30, MP5K, M110, TRG22, FN MAG GPMG, Colt IAR) must hit the number.
   combat_skills_basic: (i) => COMBAT_SKILLS_WEAPON_ROSTER.every((id) => (i.lifetime.killsByWeapon[id] ?? 0) >= 100),
-  combat_skills_advanced: (i) => i.lifetime.kills >= 500,
-  combat_skills_master: (i) => i.lifetime.kills >= 1500 && i.lifetime.explosiveKills >= 100,
+  combat_skills_advanced: (i) => COMBAT_SKILLS_WEAPON_ROSTER.every((id) => (i.lifetime.killsByWeapon[id] ?? 0) >= 500),
+  combat_skills_master: (i) =>
+    COMBAT_SKILLS_WEAPON_ROSTER.every((id) => (i.lifetime.killsByWeapon[id] ?? 0) >= 1500) && i.lifetime.explosiveKills >= 100,
   sniper_basic: (i) => (i.lifetime.killsByClass.sniper ?? 0) >= 500,
   sniper_advance: (i) => (i.lifetime.killsByClass.sniper ?? 0) >= 1000,
   sniper_master: (i) => (i.lifetime.killsByClass.sniper ?? 0) >= 2000,
