@@ -11,6 +11,25 @@ import { IRON_CITADEL_BASE, IRON_CITADEL_SCALE } from "@/world/IronCitadel";
 /** Networked coords are unscaled "logical" map space; render/place them at BASE + SCALE*local. */
 const S = IRON_CITADEL_SCALE;
 
+/**
+ * Render remote players ~110ms in the past and interpolate between the two
+ * buffered snapshots bracketing that render time. This is the standard
+ * entity-interpolation fix for jitter/rubber-banding: instead of chasing the
+ * single latest snapshot (which snaps/overshoots whenever packets arrive
+ * early/late), motion is always a smooth lerp between two real samples. The
+ * delay is a little over three 30Hz send intervals, so a dropped or reordered
+ * packet still leaves two good samples to interpolate across.
+ */
+const INTERP_DELAY_MS = 110;
+
+interface Snapshot {
+  t: number; // performance.now() at arrival
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+}
+
 /** Damage hook shared by an avatar's hittable meshes; NetMatch wires takeDamage. */
 interface DmgHook { takeDamage: (dmg: number, headshot: boolean, origin?: unknown, fmj?: boolean) => void }
 
@@ -29,6 +48,8 @@ export class Avatar {
   targetYaw = 0;
   hp = 100;
   dead = false;
+  /** Timestamped snapshot ring buffer for entity interpolation. */
+  private buffer: Snapshot[] = [];
 
   constructor(scene: Scene, public readonly info: LobbyPlayer, teamColor: Color3, public readonly number: number, private readonly base: Vector3) {
     this.root = new TransformNode(`avatar_${info.id}`, scene);
@@ -135,34 +156,82 @@ export class Avatar {
   }
 
   setState(s: PlayerNetState): void {
-    this.target.set(this.base.x + S * s.x, s.y, this.base.z + S * s.z);
+    const wx = this.base.x + S * s.x, wy = s.y, wz = this.base.z + S * s.z;
+    this.target.set(wx, wy, wz);
     this.targetYaw = s.yaw;
     this.hp = s.hp;
     const nowDead = (s.flags & NetFlag.Dead) !== 0;
     if (nowDead !== this.dead) { this.dead = nowDead; this.model.setEnabled(!nowDead); }
-    // Readable stance cue: drop the whole body when the remote player crouches.
-    const crouched = (s.flags & NetFlag.Crouch) !== 0;
-    this.model.position.y = crouched ? -0.45 : 0;
-    // Snap instead of sliding when the target jumps a long way (spawn / respawn /
-    // teleport) — otherwise the avatar visibly skates across the whole map.
+    // Readable stance cue that keeps feet planted and the hitbox tracking:
+    // vertically squash the whole model (its origin is at foot level) when the
+    // remote player crouches/goes prone, so the head + all hittable meshes drop
+    // to crouch height with no leftover standing hitbox and no floor clipping.
+    const low = (s.flags & (NetFlag.Crouch | NetFlag.Prone)) !== 0;
+    this.model.scaling.y = low ? 0.66 : 1;
+
+    // Feed the interpolation buffer. On a long jump (spawn / respawn / teleport)
+    // clear it and snap so the avatar never skates across the whole map.
+    const now = performance.now();
     if (Vector3.DistanceSquared(this.root.position, this.target) > 25) {
-      this.root.position.copyFrom(this.target);
-      this.root.rotation.y = this.targetYaw;
+      this.snapTo(this.target, s.yaw);
+      return;
     }
+    this.buffer.push({ t: now, x: wx, y: wy, z: wz, yaw: s.yaw });
+    // Keep only what the interpolation window needs (a little past the delay).
+    const cutoff = now - INTERP_DELAY_MS * 3;
+    while (this.buffer.length > 2 && this.buffer[0].t < cutoff) this.buffer.shift();
   }
-  interpolate(dt: number): void {
+
+  /** Hard-place the avatar and reset interpolation (spawn / respawn / big jump). */
+  snapTo(pos: Vector3, yaw: number): void {
+    this.root.position.copyFrom(pos);
+    this.root.rotation.y = yaw;
+    this.target.copyFrom(pos);
+    this.targetYaw = yaw;
+    this.buffer.length = 0;
+  }
+
+  interpolate(_dt: number): void {
     const p = this.root.position;
-    // Critically-damped smoothing: frame-rate independent and a touch snappier
-    // than before so remote players track their true position with less lag.
-    const a = 1 - Math.exp(-dt * 16);
-    p.x += (this.target.x - p.x) * a;
-    p.y += (this.target.y - p.y) * a;
-    p.z += (this.target.z - p.z) * a;
-    // Shortest-arc yaw interpolation — the old direct lerp spun the long way
-    // round whenever the heading crossed the ±π wrap (a visible glitch).
-    let d = this.targetYaw - this.root.rotation.y;
+    const renderTime = performance.now() - INTERP_DELAY_MS;
+    const buf = this.buffer;
+
+    // Find the two samples bracketing renderTime and lerp between them.
+    let older: Snapshot | null = null;
+    let newer: Snapshot | null = null;
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i].t <= renderTime) older = buf[i];
+      else { newer = buf[i]; break; }
+    }
+
+    let tx: number, ty: number, tz: number, tyaw: number;
+    if (older && newer) {
+      const span = newer.t - older.t;
+      const f = span > 0 ? (renderTime - older.t) / span : 1;
+      tx = older.x + (newer.x - older.x) * f;
+      ty = older.y + (newer.y - older.y) * f;
+      tz = older.z + (newer.z - older.z) * f;
+      let dyaw = newer.yaw - older.yaw;
+      dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+      tyaw = older.yaw + dyaw * f;
+    } else {
+      // Not enough history yet (or renderTime past the newest sample) — ease
+      // toward the latest known target instead of freezing or overshooting.
+      const a = 1 - Math.exp(-_dt * 12);
+      p.x += (this.target.x - p.x) * a;
+      p.y += (this.target.y - p.y) * a;
+      p.z += (this.target.z - p.z) * a;
+      let d = this.targetYaw - this.root.rotation.y;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      this.root.rotation.y += d * a;
+      return;
+    }
+
+    p.set(tx, ty, tz);
+    // Shortest-arc yaw so heading never spins the long way round the ±π wrap.
+    let d = tyaw - this.root.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
-    this.root.rotation.y += d * a;
+    this.root.rotation.y += d;
   }
   setEnabled(on: boolean): void { this.model.setEnabled(on); this.dead = !on; }
   dispose(): void { this.root.dispose(false, true); }
@@ -190,6 +259,10 @@ export class NetMatch {
   private prevHp = 100;
   private prevArmor = 100;
   private scoreboardAccum = 0;
+  /** Last known good on-ground position — restored if the player clips through the floor. */
+  private lastSafePos = new Vector3();
+  /** Y below which the player is considered to have fallen out of the map. */
+  private fallFloorY = -1000;
 
   onExit?: () => void;
   /** Called when the LOCAL player (re)spawns — main uses it to refill first aid kits, etc. */
@@ -219,7 +292,10 @@ export class NetMatch {
     const base = IRON_CITADEL_BASE;
     // place local player at spawn; give everyone a plate carrier (armour) so
     // the armour bar + absorption match the single-player loadout feel.
-    player.respawn(new Vector3(base.x + S * info.spawn.x, info.spawn.y, base.z + S * info.spawn.z));
+    const spawnWorld = new Vector3(base.x + S * info.spawn.x, info.spawn.y, base.z + S * info.spawn.z);
+    player.respawn(spawnWorld);
+    this.lastSafePos.copyFrom(spawnWorld);
+    this.fallFloorY = info.spawn.y - 8; // fell through the floor if the player drops this far
     player.inSafeZone = false;
     (player as unknown as { spawnProtected: boolean }).spawnProtected = false;
     player.maxHealth = 100; player.health = 100;
@@ -320,7 +396,7 @@ export class NetMatch {
           this.onLocalRespawn?.();
         } else {
           const av = this.avatars.get(m.playerId);
-          if (av) { av.setEnabled(true); av.root.position.copyFrom(pos); av.target.copyFrom(pos); }
+          if (av) { av.setEnabled(true); av.snapTo(pos, av.targetYaw); }
         }
         break;
       }
@@ -336,6 +412,18 @@ export class NetMatch {
 
   update(dt: number): void {
     if (this.ended) return;
+
+    // Below-map safety net: if the player clips through the floor and starts
+    // falling into the void, snap them back to the last spot they stood on
+    // instead of dropping forever. While they're safely on the ground, keep
+    // that recovery point fresh.
+    const py = this.player.position.y;
+    if (py < this.fallFloorY) {
+      this.player.teleportTo(this.lastSafePos);
+    } else if (this.player.grounded && this.player.health > 0) {
+      this.lastSafePos.copyFrom(this.player.position);
+    }
+
     for (const av of this.avatars.values()) av.interpolate(dt);
     // broadcast local state ~30Hz for smoother remote motion / lower perceived lag
     this.sendAccum += dt;
