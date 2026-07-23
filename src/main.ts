@@ -30,6 +30,7 @@ import { TacticalMap } from "@/ui/TacticalMap";
 import { SafeZoneManager } from "@/world/SafeZone";
 import { UAVSupport } from "@/world/UAVSupport";
 import { AirstrikeSupport } from "@/world/AirstrikeSupport";
+import { CarpetBombingSupport } from "@/world/CarpetBombingSupport";
 import { MedKitController } from "@/player/MedKit";
 import { Ambience } from "@/world/Ambience";
 import { Vector3, Ray, Color3 } from "@babylonjs/core";
@@ -268,6 +269,7 @@ async function boot(): Promise<void> {
     gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
     uav.reset();
     airstrike.reset();
+    carpetBombing.reset();
     botty?.resetSmoke();
     gameState.data.medkitCount = gameState.startingMedkitCount();
     gameState.save();
@@ -657,13 +659,14 @@ async function boot(): Promise<void> {
 
   const uav = new UAVSupport(audio, {
     onActivate: () => {
-      hud.showCenterMessage("UAV OVERHEAD — press M for tactical map", 4000);
+      hud.showCenterMessage("HERMES 900 UAV OVERHEAD — press M for tactical map", 4000);
       stats.recordUavCall();
     },
     onUnavailable: (reason) =>
-      hud.showCenterMessage(reason === "empty" ? "NO UAV CHARGES REMAINING" : "UAV RECHARGING", 1500),
+      hud.showCenterMessage(reason === "empty" ? "NO HERMES 900 UAV CHARGES REMAINING" : "HERMES 900 UAV RECHARGING", 1500),
   });
   const airstrike = new AirstrikeSupport(game.scene, audio, waveManager.enemyManager);
+  const carpetBombing = new CarpetBombingSupport(game.scene, audio, waveManager.enemyManager, player);
 
   // ---- Focus keeper -------------------------------------------------------
   // The game should always own the mouse while actually in play: any click or
@@ -740,7 +743,8 @@ async function boot(): Promise<void> {
       commandWheel.toggle();
     }
     // Z fires the equipped SPECIAL ability (mutually exclusive with the MATADOR):
-    // UAV recon, or the precision air strike (opens the map to pick an impact point).
+    // Hermes 900 UAV recon, Precision Strike, or Carpet Bombing (the latter two
+    // open the map to pick an impact point / target zone).
     if (
       e.code === "KeyZ" &&
       !landingPage.visible &&
@@ -751,7 +755,10 @@ async function boot(): Promise<void> {
       !tacticalMap.visible
     ) {
       const special = gameState.data.loadout.special;
-      if ((special === "uav" || special === "airstrike") && !gameState.ownsAbility(special)) {
+      if (
+        (special === "uav" || special === "airstrike" || special === "carpetbombing") &&
+        !gameState.ownsAbility(special)
+      ) {
         // Stale save from before ability unlocks existed — clear it silently.
         gameState.data.loadout.special = null;
       } else if (special === "uav") {
@@ -771,6 +778,24 @@ async function boot(): Promise<void> {
           document.exitPointerLock();
         } else {
           hud.showCenterMessage(airstrike.cooldownRemaining > 0 ? "AIR STRIKE RECHARGING" : "NO AIR STRIKE CHARGES", 1500);
+        }
+      } else if (special === "carpetbombing") {
+        if (carpetBombing.ready) {
+          hud.showCenterMessage("CARPET BOMBING — click a target zone on the map", 3000);
+          tacticalMap.beginTargeting((x, z) => {
+            const ok = carpetBombing.callStrike(x, z);
+            tacticalMap.hide();
+            input.lockPointer();
+            if (ok) {
+              hud.showCenterMessage(`BOMBING RUN INBOUND — impact in ${Math.ceil(carpetBombing.secondsToImpact)}s`, 3000);
+            }
+          });
+          document.exitPointerLock();
+        } else {
+          hud.showCenterMessage(
+            carpetBombing.cooldownRemaining > 0 ? "CARPET BOMBING RECHARGING" : "NO CARPET BOMBING CHARGES",
+            1500
+          );
         }
       }
     }
@@ -819,6 +844,7 @@ async function boot(): Promise<void> {
         medicalStation.update(dt);
         uav.update(dt);
         airstrike.update(dt);
+        carpetBombing.update(dt);
         medKit.update(dt);
         if (botty) {
           botty.setWave(waveManager.wave, player.maxHealth); // scale accuracy/health with the fight
@@ -852,8 +878,13 @@ async function boot(): Promise<void> {
         hud.updateUAV(uav.active, uav.secondsRemaining, uav.chargesRemaining, uav.cooldownRemaining);
       } else if (special === "airstrike") {
         if (airstrike.inbound) hud.setSupportLine(`STRIKE INBOUND — ${Math.ceil(airstrike.secondsToImpact)}s`, "#ff8f5a");
-        else if (airstrike.cooldownRemaining > 0) hud.setSupportLine(`Air strike recharging — ${Math.ceil(airstrike.cooldownRemaining)}s`, "#8a9a84");
-        else hud.setSupportLine(`Air strike ready ×${airstrike.chargesRemaining} [Z]`, airstrike.chargesRemaining > 0 ? "#e0a15a" : "#8a9a84");
+        else if (airstrike.cooldownRemaining > 0) hud.setSupportLine(`Precision Strike recharging — ${Math.ceil(airstrike.cooldownRemaining)}s`, "#8a9a84");
+        else hud.setSupportLine(`Precision Strike ready ×${airstrike.chargesRemaining} [Z]`, airstrike.chargesRemaining > 0 ? "#e0a15a" : "#8a9a84");
+      } else if (special === "carpetbombing") {
+        if (carpetBombing.inbound) hud.setSupportLine(`BOMBING RUN INBOUND — ${Math.ceil(carpetBombing.secondsToImpact)}s`, "#ff8f5a");
+        else if (carpetBombing.running) hud.setSupportLine("BOMBING RUN IN PROGRESS", "#ff8f5a");
+        else if (carpetBombing.cooldownRemaining > 0) hud.setSupportLine(`Carpet Bombing recharging — ${Math.ceil(carpetBombing.cooldownRemaining)}s`, "#8a9a84");
+        else hud.setSupportLine(`Carpet Bombing ready ×${carpetBombing.chargesRemaining} [Z]`, carpetBombing.chargesRemaining > 0 ? "#e0a15a" : "#8a9a84");
       } else {
         hud.setSupportLine(null);
       }

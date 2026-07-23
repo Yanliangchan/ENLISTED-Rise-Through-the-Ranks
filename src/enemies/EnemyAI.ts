@@ -214,6 +214,12 @@ export class EnemyInstance implements Damageable {
   // soldier's aim for a short window even if it keeps shooting. Separate from
   // the full "suppressed" FSM state (which stops fire entirely).
   private accuracySuppressionTimer = 0;
+  // Carpet Bombing survivor debuffs: a slower, longer-lasting movement and
+  // accuracy penalty on top of (and outlasting) the short suppress() stun.
+  private slowMult = 1;
+  private slowTimer = 0;
+  private bombAccuracyMult = 1;
+  private bombAccuracyTimer = 0;
   // Locomotion animation.
   private walkPhase = 0;
   private movingThisFrame = false;
@@ -486,6 +492,16 @@ export class EnemyInstance implements Damageable {
     this.accuracySuppressionTimer = Math.max(this.accuracySuppressionTimer, durationSec);
   }
 
+  /** Carpet Bombing survivor debuff: stunned briefly, then slowed and less accurate for longer. */
+  applyBombingDebuff(stunSec: number, slowMult: number, slowSec: number, accuracyMult: number, accuracySec: number): void {
+    if (this.isDead) return;
+    if (stunSec > 0) this.suppress(stunSec);
+    this.slowMult = Math.min(this.slowMult, slowMult);
+    this.slowTimer = Math.max(this.slowTimer, slowSec);
+    this.bombAccuracyMult = Math.min(this.bombAccuracyMult, accuracyMult);
+    this.bombAccuracyTimer = Math.max(this.bombAccuracyTimer, accuracySec);
+  }
+
   /** Called by the weapon system whenever the player fires, for hearing checks. */
   hearGunshot(position: Vector3, effectiveHearingRangeM: number): void {
     if (this.state === "dead") return;
@@ -583,6 +599,14 @@ export class EnemyInstance implements Damageable {
     this.stateTimer += dt;
     if (this.fireCooldown > 0) this.fireCooldown -= dt;
     if (this.accuracySuppressionTimer > 0) this.accuracySuppressionTimer -= dt;
+    if (this.slowTimer > 0) {
+      this.slowTimer -= dt;
+      if (this.slowTimer <= 0) this.slowMult = 1;
+    }
+    if (this.bombAccuracyTimer > 0) {
+      this.bombAccuracyTimer -= dt;
+      if (this.bombAccuracyTimer <= 0) this.bombAccuracyMult = 1;
+    }
     // Reload runs on its own clock regardless of state, so an enemy that breaks
     // contact mid-reload still finishes it.
     this.updateReload(dt);
@@ -723,7 +747,7 @@ export class EnemyInstance implements Damageable {
   }
 
   private moveToward(target: Vector3, dt: number, speedOverride?: number): void {
-    const speed = speedOverride ?? this.type.moveSpeed;
+    const speed = (speedOverride ?? this.type.moveSpeed) * this.slowMult;
     const pos = this.root.position;
 
     let dir: Vector3;
@@ -901,7 +925,7 @@ export class EnemyInstance implements Damageable {
     const t = Math.min(1, Math.max(0, (dist - ACCURACY_NEAR_M) / span));
     const distanceFactor = 1 - t * (1 - ACCURACY_MIN_DISTANCE_FACTOR);
     const suppressionFactor = this.accuracySuppressionTimer > 0 ? SUPPRESSION_ACCURACY_FACTOR : 1;
-    return base * distanceFactor * suppressionFactor;
+    return base * distanceFactor * suppressionFactor * this.bombAccuracyMult;
   }
 
   /** Reload time by weapon class — the belt-fed LMG is the slowest to bring back up. */

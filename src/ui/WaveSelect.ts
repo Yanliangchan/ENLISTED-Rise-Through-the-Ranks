@@ -19,8 +19,9 @@ export class WaveSelect {
   }
 
   show(highestWaveCleared: number, onSelect: (wave: number) => void): void {
-    const milestones: number[] = [];
-    for (let w = 5; w <= highestWaveCleared; w += 5) milestones.push(w);
+    // Permanent checkpoints: Waves 5, 10, 15, and 20 only — unlocked once reached.
+    const CHECKPOINTS = [5, 10, 15, 20];
+    const milestones = CHECKPOINTS.filter((w) => w <= highestWaveCleared);
 
     const panel = document.createElement("div");
     panel.style.cssText = `

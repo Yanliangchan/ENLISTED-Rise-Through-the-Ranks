@@ -1,4 +1,4 @@
-import { WEAPONS } from "@/data/weapons";
+import { WEAPONS, WEAPON_CATEGORIES, type Weapon } from "@/data/weapons";
 import { ATTACHMENTS } from "@/data/attachments";
 import { GEAR, THROWABLES, SPECIAL_ABILITY_LABELS, SPECIAL_ABILITY_PRICES, ABILITY_SPECIALS } from "@/data/gamedata";
 import { BOTTY_UPGRADE_CATEGORIES, BOTTY_UPGRADES, bottyUpgradePrice } from "@/data/bottyUpgrades";
@@ -26,6 +26,8 @@ export class Armoury {
   private activeTab: Tab = "loadout";
   /** Which loadout weapon the Attachments tab is editing. */
   private attachmentTarget: "primary" | "secondary" = "primary";
+  /** Category section keys the player has collapsed, in either the Buy Menu or Inventory. */
+  private collapsedCategories: Set<string> = new Set();
   visible = false;
 
   onStartWave?: () => void;
@@ -164,11 +166,11 @@ export class Armoury {
     const specials = Object.values(WEAPONS).filter((w) => w.slot === "special" && this.gameState.ownsWeapon(w.id));
     const throwables = Object.values(THROWABLES).filter((t) => this.gameState.ownsThrowable(t.id));
 
-    wrap.appendChild(this.slotPicker("Primary", primaries.map((w) => [w.id, w.name]), this.gameState.data.loadout.primary, (id) => {
+    wrap.appendChild(this.categoryWeaponPicker("inv:primary", "Primary", primaries, this.gameState.data.loadout.primary, (id) => {
       this.gameState.data.loadout.primary = id;
       this.refresh();
     }));
-    wrap.appendChild(this.slotPicker("Secondary", secondaries.map((w) => [w.id, w.name]), this.gameState.data.loadout.secondary, (id) => {
+    wrap.appendChild(this.categoryWeaponPicker("inv:secondary", "Secondary", secondaries, this.gameState.data.loadout.secondary, (id) => {
       this.gameState.data.loadout.secondary = id;
       this.refresh();
     }));
@@ -254,26 +256,118 @@ export class Armoury {
   }
 
   private renderWeapons(): void {
-    const list = document.createElement("div");
-    list.style.cssText = "display:flex; flex-direction:column; gap:8px;";
-    for (const weapon of Object.values(WEAPONS)) {
-      if (weapon.unlockedByDefault) continue;
-      const owned = this.gameState.ownsWeapon(weapon.id);
-      list.appendChild(
-        this.shopRow(
-          `${weapon.name} — ${weapon.realCaliber}, ${weapon.class.toUpperCase()}`,
-          weapon.price,
-          owned,
-          () => {
-            if (this.gameState.buyWeapon(weapon.id)) {
-              this.audio.purchase();
-              this.refresh();
+    const container = document.createElement("div");
+    container.style.cssText = "display:flex; flex-direction:column; gap:10px;";
+    for (const category of WEAPON_CATEGORIES) {
+      const weaponsInCategory = category.weaponIds
+        .map((id) => WEAPONS[id])
+        .filter((w): w is Weapon => !!w && !w.unlockedByDefault);
+      if (weaponsInCategory.length === 0) continue;
+
+      const list = document.createElement("div");
+      list.style.cssText = "display:flex; flex-direction:column; gap:8px;";
+      for (const weapon of weaponsInCategory) {
+        const owned = this.gameState.ownsWeapon(weapon.id);
+        list.appendChild(
+          this.shopRow(
+            `${weapon.name} — ${weapon.realCaliber}, ${weapon.class.toUpperCase()}`,
+            weapon.price,
+            owned,
+            () => {
+              if (this.gameState.buyWeapon(weapon.id)) {
+                this.audio.purchase();
+                this.refresh();
+              }
             }
-          }
-        )
-      );
+          )
+        );
+      }
+      container.appendChild(this.categorySection(`shop:${category.name}`, category.icon, category.name, list));
     }
-    this.content.appendChild(list);
+    this.content.appendChild(container);
+  }
+
+  /** Collapsible, icon-labeled section wrapper shared by the Buy Menu and Inventory pickers. */
+  private categorySection(key: string, icon: string, name: string, body: HTMLElement): HTMLDivElement {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "border:1px solid #3a4234; border-radius:6px; overflow:hidden;";
+
+    const collapsed = this.collapsedCategories.has(key);
+    const header = document.createElement("div");
+    header.style.cssText =
+      "display:flex; align-items:center; gap:8px; padding:8px 10px; background:#232b1e; cursor:pointer; user-select:none;";
+    const arrow = document.createElement("span");
+    arrow.textContent = collapsed ? "▶" : "▼";
+    arrow.style.cssText = "font-size:11px; color:#9fc78a; width:12px;";
+    const iconSpan = document.createElement("span");
+    iconSpan.textContent = icon;
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = name;
+    nameSpan.style.cssText = "font-weight:bold; color:#d8e8c8;";
+    header.appendChild(arrow);
+    header.appendChild(iconSpan);
+    header.appendChild(nameSpan);
+
+    const bodyWrap = document.createElement("div");
+    bodyWrap.style.cssText = `padding:8px 10px; ${collapsed ? "display:none;" : ""}`;
+    bodyWrap.appendChild(body);
+
+    header.onclick = () => {
+      if (this.collapsedCategories.has(key)) {
+        this.collapsedCategories.delete(key);
+        bodyWrap.style.display = "";
+        arrow.textContent = "▼";
+      } else {
+        this.collapsedCategories.add(key);
+        bodyWrap.style.display = "none";
+        arrow.textContent = "▶";
+      }
+    };
+
+    wrap.appendChild(header);
+    wrap.appendChild(bodyWrap);
+    return wrap;
+  }
+
+  /** Like slotPicker, but groups the owned weapons for a slot into collapsible WEAPON_CATEGORIES sections. */
+  private categoryWeaponPicker(
+    keyPrefix: string,
+    label: string,
+    weapons: Weapon[],
+    current: string,
+    onSelect: (id: string) => void
+  ): HTMLDivElement {
+    const box = document.createElement("div");
+    box.className = "mil-inset";
+    box.style.cssText = "padding:10px;";
+    const title = document.createElement("div");
+    title.textContent = label;
+    title.style.cssText = "font-weight:bold; margin-bottom:6px; color:#9fc78a;";
+    box.appendChild(title);
+
+    let any = false;
+    for (const category of WEAPON_CATEGORIES) {
+      const owned = weapons.filter((w) => category.weaponIds.includes(w.id));
+      if (owned.length === 0) continue;
+      any = true;
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex; flex-wrap:wrap; gap:6px; align-content:flex-start;";
+      for (const w of owned) {
+        const btn = document.createElement("button");
+        btn.textContent = w.name;
+        styleButton(btn, w.id === current ? "#4a7a3c" : "#2a332480");
+        btn.onclick = () => onSelect(w.id);
+        row.appendChild(btn);
+      }
+      box.appendChild(this.categorySection(`${keyPrefix}:${category.name}`, category.icon, category.name, row));
+    }
+    if (!any) {
+      const empty = document.createElement("div");
+      empty.textContent = "None owned yet.";
+      empty.style.cssText = "color:#777; font-size:13px;";
+      box.appendChild(empty);
+    }
+    return box;
   }
 
   private renderAttachments(): void {

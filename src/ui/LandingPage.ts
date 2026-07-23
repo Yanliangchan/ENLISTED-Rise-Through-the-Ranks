@@ -16,7 +16,7 @@ const KEY_BINDINGS: Array<[string, string]> = [
   ["Mouse / L-Click", "Look / Fire"],
   ["R-Click", "Aim down sights"],
   ["R / G", "Reload / Throwable"],
-  ["Z", "UAV recon (reveals enemies 20s)"],
+  ["Z", "Support ability (Hermes 900 UAV / Precision Strike / Carpet Bombing)"],
   ["Q", "BOTTY command wheel (if deployed)"],
   ["F / H", "Collect crate / toggle M203"],
   ["1 2 3 4", "Weapon slots"],
@@ -204,7 +204,7 @@ export class LandingPage {
         <p>Survive as many waves as you can. Kills and cleared waves bank credits — spend them
         at the Field Armoury (<strong>B</strong>) on weapons, attachments, throwables, and armour.</p>
         <p>Scout the sector in the 30-second window before Wave 1. Hidden supply crates top up
-        ammunition and health. Call the <strong>UAV (Z)</strong> and read the tactical map
+        ammunition and health. Call the <strong>Hermes 900 UAV (Z)</strong> and read the tactical map
         (<strong>M</strong>) to fix enemy positions.</p>
         <p>If you fall, credits and unlocks are kept — you redeploy from camp and re-gear.</p>
       `),

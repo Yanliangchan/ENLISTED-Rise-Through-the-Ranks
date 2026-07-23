@@ -295,13 +295,13 @@ export class HUD {
   /** Reflect UAV recon state: live countdown while overhead, otherwise charge/cooldown readiness. */
   updateUAV(active: boolean, secondsRemaining: number, charges: number, cooldownRemaining: number): void {
     if (active) {
-      this.uavEl.textContent = `UAV ACTIVE — ${Math.ceil(secondsRemaining)}s (press M)`;
+      this.uavEl.textContent = `HERMES 900 UAV ACTIVE — ${Math.ceil(secondsRemaining)}s (press M)`;
       this.uavEl.style.color = "#7fd0ff";
     } else if (cooldownRemaining > 0) {
-      this.uavEl.textContent = `UAV recharging — ${Math.ceil(cooldownRemaining)}s`;
+      this.uavEl.textContent = `Hermes 900 UAV recharging — ${Math.ceil(cooldownRemaining)}s`;
       this.uavEl.style.color = "#8a9a84";
     } else {
-      this.uavEl.textContent = `UAV ready ×${charges} [Z]`;
+      this.uavEl.textContent = `Hermes 900 UAV ready ×${charges} [Z]`;
       this.uavEl.style.color = charges > 0 ? "#7fd0ff" : "#8a9a84";
     }
   }

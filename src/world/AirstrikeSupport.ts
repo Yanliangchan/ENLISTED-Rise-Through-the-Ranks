@@ -5,15 +5,20 @@ import { isUnlocked as isAdminUnlocked } from "@/core/AdminMode";
 
 const CHARGES_PER_RUN = 3; // max 3 air strikes per match, shared across the whole run
 const COOLDOWN_SEC = 45;
-const INBOUND_DELAY_SEC = 4; // time from confirming a target to impact
+const INBOUND_DELAY_SEC = 3; // faster deployment than Carpet Bombing — small-area guaranteed elimination
 const BLAST_RADIUS_M = 16;
-const BLAST_CENTRE_DAMAGE = 260;
+// Minimal splash damage just outside the guaranteed-kill radius — this is a
+// pin-point strike, not an area-denial weapon (see Carpet Bombing for that).
+const OUTER_SPLASH_DAMAGE = 25;
 
 /**
- * Precision air strike support ability. Equipped in the SPECIAL slot (alongside
- * the MATADOR and UAV). Firing it opens the tactical map to pick a target point;
- * after a short inbound delay a large HE strike lands there, dealing heavy
- * radius damage. Limited charges per deployment with a cooldown between calls.
+ * Precision Strike support ability. Equipped in the SPECIAL slot (alongside
+ * the MATADOR, Hermes 900 UAV, and Carpet Bombing). Firing it opens the
+ * tactical map to pick a target point; after a short inbound delay anything
+ * inside BLAST_RADIUS_M dies instantly, with only minimal splash damage just
+ * outside it. Small-area guaranteed elimination — fast to call in, but no
+ * crowd-control reach. Limited charges per deployment with a cooldown between
+ * calls.
  *
  * Targeting/UI flow lives in main.ts (which opens the map on request and feeds
  * back the picked world coordinate); this class owns the ammo economy, the
@@ -104,7 +109,10 @@ export class AirstrikeSupport {
 
   private detonate(at: Vector3): void {
     this.audio.explosion();
-    this.enemyManager.damageInRadius(at, BLAST_RADIUS_M, BLAST_CENTRE_DAMAGE);
+    // Guaranteed kill anywhere inside the strike radius...
+    this.enemyManager.killInRadius(at, BLAST_RADIUS_M);
+    // ...and only minimal splash damage in a thin band just outside it.
+    this.enemyManager.damageInRadius(at, BLAST_RADIUS_M * 1.4, OUTER_SPLASH_DAMAGE);
 
     // A bright flash sphere + debris burst — cheap, self-disposing.
     const flash = MeshBuilder.CreateSphere("airstrike_flash", { diameter: BLAST_RADIUS_M, segments: 10 }, this.scene);

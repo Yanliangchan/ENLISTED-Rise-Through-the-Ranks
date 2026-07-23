@@ -102,9 +102,9 @@ export const RANKS: Rank[] = [
   // ME1–ME3 ≈ specialist/warrant level; ME4+ (Senior Military Experts) hold
   // commissioned-equivalent status. Perks are gadget/cyber-flavoured — a nod to
   // the Digital & Intelligence Service.
-  { id: "me1", name: "Military Expert 1", abbr: "ME1", track: "military_expert", tier: 0, meritRequired: 1200, creditMultiplier: 1.15, perk: "Deploy a recon UAV (spots enemies) once per wave." },
+  { id: "me1", name: "Military Expert 1", abbr: "ME1", track: "military_expert", tier: 0, meritRequired: 1200, creditMultiplier: 1.15, perk: "Deploy a Hermes 900 UAV (spots enemies) once per wave." },
   { id: "me2", name: "Military Expert 2", abbr: "ME2", track: "military_expert", tier: 1, meritRequired: 2400, creditMultiplier: 1.2, perk: "+2 tripflares. Hack OPFOR recon drones to disable them." },
-  { id: "me3", name: "Military Expert 3", abbr: "ME3", track: "military_expert", tier: 2, meritRequired: 4200, creditMultiplier: 1.3, perk: "≈ Warrant status. UAV marks enemies for +damage." },
+  { id: "me3", name: "Military Expert 3", abbr: "ME3", track: "military_expert", tier: 2, meritRequired: 4200, creditMultiplier: 1.3, perk: "≈ Warrant status. Hermes 900 UAV marks enemies for +damage." },
   { id: "me4", name: "Military Expert 4", abbr: "ME4", track: "military_expert", tier: 3, meritRequired: 6800, creditMultiplier: 1.4, perk: "SENIOR ME (commissioned-equivalent). Command 1 AI + gadgets." },
   { id: "me5", name: "Military Expert 5", abbr: "ME5", track: "military_expert", tier: 4, meritRequired: 10000, creditMultiplier: 1.5, perk: "Deploy an automated sentry turret." },
   { id: "me6", name: "Military Expert 6", abbr: "ME6", track: "military_expert", tier: 5, meritRequired: 20000, creditMultiplier: 1.6, perk: "Hijack an OPFOR heavy drone to fight for you." },

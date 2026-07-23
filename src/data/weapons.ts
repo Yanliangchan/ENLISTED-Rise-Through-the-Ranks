@@ -230,6 +230,37 @@ export const WEAPONS: Record<string, Weapon> = {
     defaultAttachments: [],
   },
 
+  p90: {
+    id: "p90",
+    name: "FN P90",
+    class: "smg",
+    slot: "secondary",
+    realCaliber: "5.7×28mm FN",
+    fireModes: ["safe", "semi", "auto"],
+    magSize: 50, // top-mounted transparent magazine
+    effectiveRangeM: 150,
+    muzzleVelocityMps: 715,
+    realNotes:
+      "FN Herstal bullpup PDW. Top-mounted 50-round magazine, extremely high cyclic rate, and SS190 ammunition designed to penetrate soft body armour at close range. Compact and famously controllable — the benchmark personal defence weapon.",
+    // Highest fire rate and best hip-fire in the roster; per-shot damage kept
+    // low so it doesn't outclass the primaries at range — a close-range specialist.
+    damage: 20,
+    headshotMultiplier: 1.8,
+    fireRateRpm: 900,
+    reserveAmmo: 150,
+    reloadTimeSec: 2.4,
+    adsTimeSec: 0.15, // fastest ADS in the game — even quicker than the MP5K
+    falloff: { startM: 20, endM: 65, minMultiplier: 0.5 },
+    recoil: { vertical: 0.5, horizontal: 0.25, recovery: 10 },
+    spread: { hip: 1.2, ads: 0.5, movePenalty: 0.5 },
+    moveSpeedMult: 1.12,
+    isProjectile: false,
+    price: 3400,
+    unlockedByDefault: false,
+    attachmentSlots: ["optic", "muzzle", "laser"],
+    defaultAttachments: [],
+  },
+
   // =========================================================================
   // SNIPERS / MARKSMAN
   // =========================================================================
@@ -353,6 +384,35 @@ export const WEAPONS: Record<string, Weapon> = {
     defaultAttachments: [],
   },
 
+  ultimax100: {
+    id: "ultimax100",
+    name: "Ultimax 100",
+    class: "lmg",
+    slot: "primary",
+    realCaliber: "5.56×45mm NATO",
+    fireModes: ["safe", "auto"],
+    magSize: 100, // 100-round drum; also accepts STANAG mags
+    effectiveRangeM: 600,
+    muzzleVelocityMps: 970,
+    realNotes:
+      "ST Kinetics section automatic weapon, SAF issue since 1982. Constant Recoil System keeps the bolt forward at rest, giving it famously low recoil and tight full-auto groups for a light machine gun. Quick-change barrel, 100-round drum.",
+    damage: 28,
+    headshotMultiplier: 2.0,
+    fireRateRpm: 600,
+    reserveAmmo: 300,
+    reloadTimeSec: 5.5,
+    adsTimeSec: 0.45,
+    falloff: { startM: 80, endM: 280, minMultiplier: 0.8 },
+    // Signature trait: noticeably softer recoil than the FN MAG/Colt IAR despite the sustained-fire role.
+    recoil: { vertical: 1.1, horizontal: 0.5, recovery: 7 },
+    spread: { hip: 3.8, ads: 0.45, movePenalty: 1.8 },
+    moveSpeedMult: 0.85,
+    isProjectile: false,
+    price: 7800,
+    unlockedByDefault: false,
+    attachmentSlots: ["optic", "underbarrel", "magazine"],
+    defaultAttachments: [],
+  },
 
   // =========================================================================
   // SPECIAL / ANTI-ARMOUR
@@ -386,6 +446,27 @@ export const WEAPONS: Record<string, Weapon> = {
     defaultAttachments: [],
   },
 };
+
+/**
+ * Display grouping for the Armoury's Buy Menu and loadout Inventory —
+ * purely presentational (doesn't affect gameplay balance). Order here is the
+ * display order; a weapon id not yet added to WEAPONS just doesn't render.
+ */
+export interface WeaponCategory {
+  name: string;
+  icon: string;
+  weaponIds: string[];
+}
+
+export const WEAPON_CATEGORIES: WeaponCategory[] = [
+  { name: "Assault Rifles", icon: "🔫", weaponIds: ["sar21", "br18"] },
+  { name: "Sniper Rifles", icon: "🎯", weaponIds: ["m110", "trg22"] },
+  { name: "Machine Guns", icon: "💥", weaponIds: ["fnmag", "colt_iar", "ultimax100"] },
+  { name: "Submachine Guns", icon: "🔧", weaponIds: ["mp5k", "p90"] },
+  { name: "Personal Defence Weapons", icon: "🛡", weaponIds: [] }, // ST Kinetics CPW — not yet in the roster
+  { name: "Pistols", icon: "🔫", weaponIds: ["p30"] }, // FN Five-seven — not yet in the roster
+  { name: "Special / Anti-Armour", icon: "🚀", weaponIds: ["matador"] },
+];
 
 /** Weapons the player owns at the start of a fresh save. */
 export const STARTER_LOADOUT = {

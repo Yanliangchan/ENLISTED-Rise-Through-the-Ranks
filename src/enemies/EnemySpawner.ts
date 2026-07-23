@@ -391,6 +391,37 @@ export class EnemyManager {
     }
   }
 
+  /** Instantly kills every living enemy within radiusM — direct-hit blast zones (Precision Strike core, Carpet Bombing impacts). Returns kill count. */
+  killInRadius(center: Vector3, radiusM: number): number {
+    let kills = 0;
+    for (const enemy of this.enemies) {
+      if (enemy.isDead) continue;
+      if (Vector3.Distance(enemy.root.position, center) < radiusM) {
+        enemy.takeDamage(enemy.maxHealth * 50, false, undefined, true);
+        if (enemy.isDead) kills++;
+      }
+    }
+    return kills;
+  }
+
+  /** Carpet Bombing survivor debuffs (stun/slow/reduced accuracy) for every living enemy within radiusM of a centre point. */
+  applyBombingDebuffInRadius(
+    center: Vector3,
+    radiusM: number,
+    stunSec: number,
+    slowMult: number,
+    slowSec: number,
+    accuracyMult: number,
+    accuracySec: number
+  ): void {
+    for (const enemy of this.enemies) {
+      if (enemy.isDead) continue;
+      if (Vector3.Distance(enemy.root.position, center) < radiusM) {
+        enemy.applyBombingDebuff(stunSec, slowMult, slowSec, accuracyMult, accuracySec);
+      }
+    }
+  }
+
   anyEnemyWithin(center: Vector3, radiusM: number): boolean {
     return this.enemies.some((e) => !e.isDead && Vector3.Distance(e.root.position, center) < radiusM);
   }

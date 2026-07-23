@@ -67,19 +67,41 @@ export const THROWABLES: Record<string, Throwable> = {
  * (the MATADOR is the weapon-type special). Only one special is equipped at a
  * time; abilities are triggered with Z instead of being switched to with 3.
  */
-export const ABILITY_SPECIALS = ["uav", "airstrike"] as const;
+export const ABILITY_SPECIALS = ["uav", "airstrike", "carpetbombing"] as const;
 export type AbilitySpecial = (typeof ABILITY_SPECIALS)[number];
 export function isAbilitySpecial(id: string | null | undefined): id is AbilitySpecial {
-  return id === "uav" || id === "airstrike";
+  return id === "uav" || id === "airstrike" || id === "carpetbombing";
 }
 export const SPECIAL_ABILITY_LABELS: Record<AbilitySpecial, string> = {
-  uav: "UAV Recon",
-  airstrike: "Precision Air Strike",
+  uav: "Hermes 900 UAV",
+  airstrike: "Precision Strike",
+  carpetbombing: "Carpet Bombing",
 };
 /** One-time unlock cost, credits, before either call-in ability can be equipped. */
 export const SPECIAL_ABILITY_PRICES: Record<AbilitySpecial, number> = {
   uav: 8000,
   airstrike: 15000,
+  carpetbombing: 30000,
+};
+
+/** Large-area saturation bombing run (Z to fire, opens the tactical map to pick an impact zone). */
+export const CARPET_BOMBING = {
+  areaLengthM: 60, // long axis of the rectangular bombing box
+  areaWidthM: 22, // short axis
+  impactCount: 14, // number of individual bomb impacts spread across the box
+  impactSpreadSec: 1.4, // total time over which impacts land, staggered
+  directHitRadiusM: 6, // guaranteed instant kill within this radius of an impact
+  outerBlastRadiusM: 14, // heavy damage falloff zone beyond the direct-hit radius
+  outerBlastDamage: 140,
+  stunSec: 3, // survivors near any impact are stunned/disoriented
+  slowMult: 0.5, // survivor move-speed multiplier while affected
+  slowSec: 5,
+  accuracyMult: 0.4, // survivor accuracy multiplier while affected
+  accuracyDebuffSec: 5,
+  survivorEffectRadiusM: 20, // radius (from box centre) applying the survivor debuffs
+  inboundDelaySec: 7, // slower than Precision Strike — big, slow saturation run
+  cooldownSec: 90,
+  chargesPerRun: 1,
 };
 
 /** MATADOR blast (fired via the launcher weapon, not thrown). */

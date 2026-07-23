@@ -13,7 +13,7 @@ const BINDINGS: Array<[string, string]> = [
   ["1 / 2 / 3 / 4", "Primary / Secondary / Special / Throwable"],
   ["5", "Use first aid kit (heals 50% max health)"],
   ["Mouse Wheel", "Cycle equipped slots"],
-  ["Z", "Launch UAV recon (reveals enemies 20s)"],
+  ["Z", "Trigger equipped support ability (Hermes 900 UAV / Precision Strike / Carpet Bombing)"],
   ["Q", "BOTTY command wheel (if deployed)"],
   ["B", "Open armoury (between waves)"],
   ["M", "Tactical map"],
