@@ -8,7 +8,7 @@ import {
   TransformNode,
   Ray,
 } from "@babylonjs/core";
-import { ECONOMY, type EnemyType } from "@/data/gamedata";
+import { ECONOMY, ELITE_WAVE, OFFICER_BUFF_ACCURACY_MULT, OFFICER_BUFF_FIRE_RATE_MULT, type EnemyType } from "@/data/gamedata";
 import type { Damageable, HitMeshMetadata } from "@/weapons/Damageable";
 import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
@@ -105,6 +105,7 @@ const CLASS_ACCENT_COLOR: Record<string, Color3> = {
   opfor_grunt: new Color3(0.2, 0.75, 0.25), // green — baseline rifleman
   opfor_marksman: new Color3(0.2, 0.45, 0.95), // blue — long-range threat
   opfor_heavy: new Color3(0.12, 0.12, 0.14), // dark/black — armoured support gunner
+  opfor_officer: new Color3(0.95, 0.78, 0.15), // gold — high-priority, buffs nearby OPFOR
 };
 const classAccentCache = new WeakMap<Scene, Map<string, StandardMaterial>>();
 
@@ -237,6 +238,8 @@ export class EnemyInstance implements Damageable {
 
   onDeath?: (info: EnemyKillInfo) => void;
   onDamagePlayer?: (damage: number, sourcePosition: Vector3) => void;
+  /** Set every frame by EnemyManager while this soldier stands within a living Officer's buff radius. */
+  officerBuffed = false;
 
   constructor(
     private readonly scene: Scene,
@@ -246,10 +249,12 @@ export class EnemyInstance implements Damageable {
     private readonly audio: AudioManager,
     /** Fraction of base accuracy/fire-rate actually applied — ramps up over early waves. */
     private readonly difficultyMult: number = 1,
-    private readonly engageLimiter?: EngagementLimiter
+    private readonly engageLimiter?: EngagementLimiter,
+    /** True when spawned on an Elite Wave — scales health/damage/credit reward up. */
+    private readonly isElite: boolean = false
   ) {
     this.id = `enemy_${type.id}_${enemyCounter++}`;
-    this.maxHealth = Math.round(type.health * waveHealthMult);
+    this.maxHealth = Math.round(type.health * waveHealthMult * (isElite ? ELITE_WAVE.healthMult : 1));
     this.health = this.maxHealth;
     this.patrolTarget = spawnPosition.clone();
     // Magazine size by carried weapon class — LMG belt is large, DMR small.
@@ -533,7 +538,7 @@ export class EnemyInstance implements Damageable {
     this.state = "dead";
     this.engageLimiter?.releaseEngage(this.id);
     this.audio.enemyDeath();
-    const credits = this.type.creditReward + (headshot ? ECONOMY.headshotBonus : 0);
+    const credits = (this.type.creditReward + (headshot ? ECONOMY.headshotBonus : 0)) * (this.isElite ? ELITE_WAVE.creditRewardMult : 1);
     this.onDeath?.({ enemy: this, headshot, creditsAwarded: credits });
     // Collapse the body flat to the ground, then fade out after a few seconds.
     this.root.scaling = new Vector3(1, 0.16, 1);
@@ -864,13 +869,16 @@ export class EnemyInstance implements Damageable {
       return;
     }
     // Early waves fire slower and less accurately — ramps to full lethality by ~wave 7.
-    this.fireCooldown = 60 / (this.type.fireRateRpm * this.difficultyMult);
+    // An Officer's buff aura speeds up the cyclic rate of everyone near it.
+    const fireRateMult = this.officerBuffed ? OFFICER_BUFF_FIRE_RATE_MULT : 1;
+    this.fireCooldown = 60 / (this.type.fireRateRpm * this.difficultyMult * fireRateMult);
     this.roundsInMag -= 1;
     const hit = Math.random() < this.hitChance(player);
     this.audio.gunshot();
     if (hit) {
-      player.takeDamage(this.type.damage);
-      this.onDamagePlayer?.(this.type.damage, this.root.position.clone());
+      const damage = this.type.damage * (this.isElite ? ELITE_WAVE.damageMult : 1);
+      player.takeDamage(damage);
+      this.onDamagePlayer?.(damage, this.root.position.clone());
       this.audio.playerHurt();
     }
     // Emptied the magazine — go straight into a reload so fire can't continue.
@@ -883,7 +891,9 @@ export class EnemyInstance implements Damageable {
    * with range, and a suppression penalty while the soldier is under fire.
    */
   private hitChance(player: PlayerController): number {
-    const base = this.type.accuracy * this.difficultyMult * ACCURACY_GLOBAL;
+    // An Officer's buff aura sharpens the aim of everyone near it.
+    const officerMult = this.officerBuffed ? OFFICER_BUFF_ACCURACY_MULT : 1;
+    const base = this.type.accuracy * this.difficultyMult * ACCURACY_GLOBAL * officerMult;
     // Distance factor: 1.0 within ACCURACY_NEAR_M, easing to the floor at the
     // edge of this soldier's sight range.
     const dist = this.distanceToPlayer(player);

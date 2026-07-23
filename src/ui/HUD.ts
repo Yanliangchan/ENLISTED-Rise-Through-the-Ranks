@@ -396,7 +396,7 @@ export class HUD {
 
   update(
     isPointerLocked: boolean,
-    enemyPositions: Array<{ x: number; z: number }>,
+    enemyPositions: Array<{ x: number; z: number; isOfficer?: boolean }>,
     interactPrompt: string | null = null,
     cratePositions: Array<{ x: number; z: number; type: "ammo" | "health" }> = [],
     bottyPos: { x: number; z: number; isDown: boolean } | null = null
@@ -573,7 +573,7 @@ export class HUD {
     }
   }
 
-  private renderRadar(enemyPositions: Array<{ x: number; z: number }>): void {
+  private renderRadar(enemyPositions: Array<{ x: number; z: number; isOfficer?: boolean }>): void {
     const ctx = this.radarCtx;
     const size = this.radarCanvas.width;
     const range = 100; // metres shown edge-to-edge
@@ -629,16 +629,28 @@ export class HUD {
       ctx.restore();
     }
 
-    ctx.fillStyle = "#ff5540";
     for (const p of enemyPositions) {
       const dx = p.x - this.player.position.x;
       const dz = p.z - this.player.position.z;
       const rx = (dx / range) * size;
       const rz = (dz / range) * size;
       if (Math.abs(rx) > size / 2 || Math.abs(rz) > size / 2) continue;
-      ctx.beginPath();
-      ctx.arc(rx, -rz, 3, 0, Math.PI * 2);
-      ctx.fill();
+      // Officers get a distinct gold high-priority marker (ring + bigger dot)
+      // instead of the default red blip — buffs nearby OPFOR, worth calling out.
+      if (p.isOfficer) {
+        ctx.fillStyle = "#f0c419";
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(rx, -rz, 5.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = "#ff5540";
+        ctx.beginPath();
+        ctx.arc(rx, -rz, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // BOTTY: a distinct blue triangle (grey when downed) so he's never

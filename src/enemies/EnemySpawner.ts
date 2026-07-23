@@ -1,5 +1,5 @@
 import { Scene, Vector3, Ray } from "@babylonjs/core";
-import { ENEMIES, WAVES } from "@/data/gamedata";
+import { ENEMIES, WAVES, ELITE_WAVE, OFFICER_BUFF_RADIUS_M } from "@/data/gamedata";
 import { EnemyInstance, type EnemyKillInfo } from "@/enemies/EnemyAI";
 import { blastDamageAtDistance } from "@/weapons/ballistics";
 import { ensureClearOfCamp } from "@/world/SafeZone";
@@ -24,6 +24,7 @@ const FRONT_VIEW_COS = Math.cos((55 * Math.PI) / 180); // forward view half-angl
 /** Enemy-type mix per wave band, roughly matching the story's escalation. */
 function pickTypeForWave(wave: number): string {
   const roll = Math.random();
+  if (wave >= 8 && roll < 0.06) return "opfor_officer"; // rare outside Elite Waves, where one is guaranteed instead
   if (wave >= 10 && roll < 0.25) return "opfor_heavy";
   if (wave >= 5 && roll < 0.4) return "opfor_marksman";
   return "opfor_grunt";
@@ -55,6 +56,8 @@ export interface EnemyIntel {
   x: number;
   z: number;
   status: "confirmed" | "suspected";
+  /** Flags an Officer contact — high-priority, buffs nearby OPFOR — for a distinct tactical-map/minimap marker. */
+  isOfficer?: boolean;
 }
 
 const INTEL_CONFIRM_RANGE = 60; // metres — within this the contact is "confirmed"
@@ -76,10 +79,10 @@ export class EnemyManager {
     return this.enemies.filter((e) => !e.isDead).length;
   }
 
-  livePositions(): Array<{ x: number; z: number }> {
+  livePositions(): Array<{ x: number; z: number; isOfficer?: boolean }> {
     return this.enemies
       .filter((e) => !e.isDead)
-      .map((e) => ({ x: e.root.position.x, z: e.root.position.z }));
+      .map((e) => ({ x: e.root.position.x, z: e.root.position.z, isOfficer: e.type.id === "opfor_officer" }));
   }
 
   /** Live enemy instances — read by BOTTY for targeting (position + the Damageable interface to fire on). */
@@ -103,11 +106,12 @@ export class EnemyManager {
         x: e.root.position.x,
         z: e.root.position.z,
         dist: Math.hypot(e.root.position.x - playerPos.x, e.root.position.z - playerPos.z),
+        isOfficer: e.type.id === "opfor_officer",
       }))
       .sort((a, b) => a.dist - b.dist);
 
     if (revealAll) {
-      return live.map((c) => ({ x: c.x, z: c.z, status: "confirmed" as const }));
+      return live.map((c) => ({ x: c.x, z: c.z, status: "confirmed" as const, isOfficer: c.isOfficer }));
     }
 
     const out: EnemyIntel[] = [];
@@ -115,11 +119,17 @@ export class EnemyManager {
     const suspected = live.filter((c) => c.dist >= INTEL_CONFIRM_RANGE);
     // Nearest confirmed contact (live position).
     if (confirmed.length > 0) {
-      out.push({ x: confirmed[0].x, z: confirmed[0].z, status: "confirmed" });
+      out.push({ x: confirmed[0].x, z: confirmed[0].z, status: "confirmed", isOfficer: confirmed[0].isOfficer });
     }
     // Two next-nearest as suspected — still at their exact current positions.
     for (const s of suspected.slice(0, 2)) {
-      out.push({ x: s.x, z: s.z, status: "suspected" });
+      out.push({ x: s.x, z: s.z, status: "suspected", isOfficer: s.isOfficer });
+    }
+    // Officers are always flagged — high-priority, buffs nearby OPFOR — even
+    // past the normal sparse confirmed/suspected cap.
+    for (const officer of live.filter((c) => c.isOfficer)) {
+      if (out.some((o) => o.x === officer.x && o.z === officer.z)) continue;
+      out.push({ x: officer.x, z: officer.z, status: officer.dist < INTEL_CONFIRM_RANGE ? "confirmed" : "suspected", isOfficer: true });
     }
     return out;
   }
@@ -137,8 +147,9 @@ export class EnemyManager {
     return Math.pow(1 + WAVES.healthScalingPerWave, wave - 1);
   }
 
-  isBossWave(wave: number): boolean {
-    return wave % WAVES.bossEvery === 0;
+  /** True on Waves 5, 10, 15, 20, ... — stronger spawn mix, scaled-up enemies, bigger rewards. Also the checkpoint interval. */
+  isEliteWave(wave: number): boolean {
+    return wave % WAVES.eliteEvery === 0;
   }
 
   /**
@@ -161,6 +172,11 @@ export class EnemyManager {
     this.engagedIds.clear();
     const count = this.waveEnemyCount(wave);
     const pairCount = Math.ceil(count / SPAWN_PAIR_SIZE);
+    const elite = this.isEliteWave(wave);
+    // On an Elite Wave, guarantee one Officer somewhere in the wave (unless the
+    // wave is too small to spare a slot) — everything else uses the boosted
+    // heavy-fraction mix.
+    let officerPending = elite && ELITE_WAVE.guaranteesOfficer && count > 0;
 
     let spawned = 0;
     for (let p = 0; p < pairCount && spawned < count; p++) {
@@ -171,11 +187,16 @@ export class EnemyManager {
         const jitter = new Vector3((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4);
         let position = ensureClearOfCamp(anchor.add(jitter));
         position = ensureClearOfCamp(findNearestNavigable(this.scene, position));
-        const typeId =
-          this.isBossWave(wave) && spawned < Math.ceil(count * 0.4)
-            ? "opfor_heavy"
-            : pickTypeForWave(wave);
-        this.spawnEnemy(typeId, position, wave);
+        let typeId: string;
+        if (officerPending) {
+          typeId = "opfor_officer";
+          officerPending = false;
+        } else if (elite && spawned < Math.ceil(count * ELITE_WAVE.heavyFraction)) {
+          typeId = "opfor_heavy";
+        } else {
+          typeId = pickTypeForWave(wave);
+        }
+        this.spawnEnemy(typeId, position, wave, elite);
         spawned++;
       }
     }
@@ -254,13 +275,27 @@ export class EnemyManager {
   }
 
   update(dt: number, player: PlayerController, wave: number): void {
+    this.applyOfficerBuffAura();
     for (const enemy of this.enemies) {
       enemy.update(dt, player, wave);
     }
     this.enemies = this.enemies.filter((e) => !e.disposed);
   }
 
-  private spawnEnemy(typeId: string, position: Vector3, wave: number): void {
+  /** Refreshes each soldier's `officerBuffed` flag: true while standing within a living Officer's buff radius. */
+  private applyOfficerBuffAura(): void {
+    const officers = this.enemies.filter((e) => !e.isDead && e.type.id === "opfor_officer");
+    if (officers.length === 0) {
+      for (const enemy of this.enemies) enemy.officerBuffed = false;
+      return;
+    }
+    for (const enemy of this.enemies) {
+      if (enemy.isDead || enemy.type.id === "opfor_officer") continue;
+      enemy.officerBuffed = officers.some((o) => Vector3.Distance(o.root.position, enemy.root.position) <= OFFICER_BUFF_RADIUS_M);
+    }
+  }
+
+  private spawnEnemy(typeId: string, position: Vector3, wave: number, isElite = false): void {
     const type = ENEMIES[typeId];
     if (!type) return;
     const enemy = new EnemyInstance(
@@ -270,7 +305,8 @@ export class EnemyManager {
       this.waveHealthMultiplier(wave),
       this.audio,
       difficultyMultForWave(wave),
-      this
+      this,
+      isElite
     );
     enemy.onDeath = (info: EnemyKillInfo) => {
       this.engagedIds.delete(enemy.id);

@@ -169,10 +169,14 @@ async function boot(): Promise<void> {
       hud.notifyPlayerHurt(dmg);
       player.shakeCamera(dmg);
     },
-    onWaveStart: (wave) => {
+    onWaveStart: (wave, isElite) => {
       applyWaveArcLighting(game.scene, wave);
       const beat = [...STORY_BEATS].reverse().find(([w]) => wave === w);
-      hud.showCenterMessage(beat ? beat[1] : `WAVE ${wave}`, 3000);
+      if (isElite) {
+        hud.showCenterMessage(`⚠ ELITE WAVE ${wave} — reinforced OPFOR, bigger payout`, 3500);
+      } else {
+        hud.showCenterMessage(beat ? beat[1] : `WAVE ${wave}`, 3000);
+      }
     },
     onWaveClear: (wave, bonus) => {
       hud.showCenterMessage(`WAVE ${wave} CLEAR — +${bonus} credits`, 2000);

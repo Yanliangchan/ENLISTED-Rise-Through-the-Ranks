@@ -187,19 +187,19 @@ export interface EnemyType {
 
 export const ENEMIES: Record<string, EnemyType> = {
   opfor_grunt: {
-    id: "opfor_grunt", name: "OPFOR Rifleman", health: 100, moveSpeed: 3.5,
+    id: "opfor_grunt", name: "Infantry", health: 100, moveSpeed: 3.5,
     damage: 12, fireRateRpm: 500, accuracy: 0.45, sightRangeM: 60, hearingRangeM: 40,
     creditReward: 25, weapon: "generic_rifle", armorMultiplier: 1.0,
     realNotes: "Baseline hostile infantry. Fills early waves.",
   },
   opfor_marksman: {
-    id: "opfor_marksman", name: "OPFOR Marksman", health: 90, moveSpeed: 2.5,
+    id: "opfor_marksman", name: "Marksman", health: 90, moveSpeed: 2.5,
     damage: 45, fireRateRpm: 60, accuracy: 0.8, sightRangeM: 120, hearingRangeM: 40,
     creditReward: 45, weapon: "generic_dmr", armorMultiplier: 1.0,
     realNotes: "Long-range threat; holds back and picks off the player. Prioritise or use smoke.",
   },
   opfor_heavy: {
-    id: "opfor_heavy", name: "OPFOR Heavy", health: 250, moveSpeed: 2.2,
+    id: "opfor_heavy", name: "Heavy Infantry", health: 250, moveSpeed: 2.2,
     damage: 20, fireRateRpm: 650, accuracy: 0.4, sightRangeM: 50, hearingRangeM: 40,
     creditReward: 70, weapon: "generic_lmg",
     // Plate carrier soaks 30% of small-arms damage; FMJ ammo bypasses this
@@ -207,7 +207,19 @@ export const ENEMIES: Record<string, EnemyType> = {
     armorMultiplier: 0.7,
     realNotes: "Armoured, high HP, suppressing fire. Rewards MATADOR / headshots / .50 cal / FMJ ammo.",
   },
+  opfor_officer: {
+    id: "opfor_officer", name: "Officer", health: 130, moveSpeed: 3.0,
+    damage: 16, fireRateRpm: 450, accuracy: 0.5, sightRangeM: 65, hearingRangeM: 40,
+    creditReward: 120, weapon: "generic_rifle", armorMultiplier: 0.85,
+    realNotes: "Commands nearby OPFOR — buffs the accuracy and fire rate of soldiers near it while alive. High-value, high-priority target; flagged distinctly on the tactical map.",
+  },
 };
+
+/** Radius (m) within which a living Officer buffs nearby OPFOR — see EnemySpawner's officer-aura pass. */
+export const OFFICER_BUFF_RADIUS_M = 20;
+/** Multiplier applied to accuracy/fire-rate for soldiers inside an Officer's buff radius. */
+export const OFFICER_BUFF_ACCURACY_MULT = 1.25;
+export const OFFICER_BUFF_FIRE_RATE_MULT = 1.2;
 
 // ===========================================================================
 // ECONOMY & WAVE SCALING
@@ -228,5 +240,20 @@ export const WAVES = {
   enemiesBase: 6,          // enemies in wave 1
   enemiesPerWave: 3,       // +3 each wave
   healthScalingPerWave: 0.06, // enemies +6% HP per wave
-  bossEvery: 5,            // a heavy/boss wave every 5 waves
+  eliteEvery: 5,           // an Elite Wave every 5 waves (5, 10, 15, 20, ...) — also the checkpoint interval
+};
+
+/**
+ * Elite Waves (every WAVES.eliteEvery-th wave) skew the spawn mix toward
+ * stronger variants and scale every spawned enemy up further on top of the
+ * normal per-wave health curve, in exchange for a bigger credit payout —
+ * both per kill and on the wave-clear bonus.
+ */
+export const ELITE_WAVE = {
+  healthMult: 1.35,
+  damageMult: 1.2,
+  creditRewardMult: 1.5,
+  waveClearBonusMult: 1.75,
+  heavyFraction: 0.4, // fraction of the wave guaranteed to be Heavy Infantry
+  guaranteesOfficer: true, // at least one Officer spawns if the map profile allows it
 };

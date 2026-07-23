@@ -1,13 +1,13 @@
 import type { PlayerController } from "@/player/PlayerController";
 import { EnemyManager } from "@/enemies/EnemySpawner";
-import { ECONOMY } from "@/data/gamedata";
+import { ECONOMY, ELITE_WAVE } from "@/data/gamedata";
 import type { GameState } from "@/core/GameState";
 import type { AudioManager } from "@/core/AudioManager";
 
 export type RunPhase = "intro" | "combat" | "armoury" | "gameover";
 
 export interface WaveManagerCallbacks {
-  onWaveStart?: (wave: number, isBoss: boolean) => void;
+  onWaveStart?: (wave: number, isElite: boolean) => void;
   onWaveClear?: (wave: number, bonus: number) => void;
   onPhaseChange?: (phase: RunPhase) => void;
   onKillFeed?: (enemyName: string, headshot: boolean) => void;
@@ -88,11 +88,11 @@ export class WaveManager {
     // off (or is still mid-armoury) never gets caught out in an unsafe spot the
     // instant OPFOR forms up. Position only: health/armour are untouched.
     this.player.teleportTo(this.spawnPosition);
-    const isBoss = this.enemyManager.isBossWave(this.wave);
+    const isElite = this.enemyManager.isEliteWave(this.wave);
     this.enemyManager.startWave(this.wave, this.player);
     this.audio.waveStart();
     this.callbacks.onPhaseChange?.(this.phase);
-    this.callbacks.onWaveStart?.(this.wave, isBoss);
+    this.callbacks.onWaveStart?.(this.wave, isElite);
   }
 
   update(dt: number): void {
@@ -126,8 +126,9 @@ export class WaveManager {
   }
 
   private clearWave(): void {
+    const eliteMult = this.enemyManager.isEliteWave(this.wave) ? ELITE_WAVE.waveClearBonusMult : 1;
     const bonus = Math.round(
-      ECONOMY.waveClearBonus * Math.pow(ECONOMY.waveClearScaling, this.wave - 1)
+      ECONOMY.waveClearBonus * Math.pow(ECONOMY.waveClearScaling, this.wave - 1) * eliteMult
     );
     this.gameState.addCredits(bonus);
     this.gameState.data.highestWaveCleared = Math.max(
