@@ -1,5 +1,5 @@
 import type { Weapon, DamageFalloff } from "@/data/weapons";
-import { ATTACHMENTS, type AttachmentDeltas } from "@/data/attachments";
+import { ATTACHMENTS, type AttachmentDeltas, type ReticleStyle } from "@/data/attachments";
 
 export interface EffectiveStats {
   damage: number;
@@ -22,6 +22,8 @@ export interface EffectiveStats {
   /** Visual muzzle flash size multiplier: 0 = hidden (suppressor/flash hider), >1 = compensator's bigger bloom. */
   muzzleFlashScale: number;
   zoom: number;
+  /** Reticle family of the fitted optic (undefined = iron sights / none). */
+  reticle?: ReticleStyle;
   fittedAttachmentIds: string[];
 }
 
@@ -46,6 +48,7 @@ export function computeEffectiveStats(weapon: Weapon, fittedAttachmentIds: strin
     hasFmj: false,
     muzzleFlashScale: 1,
     zoom: 1,
+    reticle: undefined,
     fittedAttachmentIds: [...fittedAttachmentIds],
   };
 
@@ -54,6 +57,7 @@ export function computeEffectiveStats(weapon: Weapon, fittedAttachmentIds: strin
     if (!attachment) continue;
     applyDeltas(stats, attachment.deltas);
     if (attachment.zoom) stats.zoom = attachment.zoom;
+    if (attachment.reticle) stats.reticle = attachment.reticle;
     if (attachment.flags?.suppressed) stats.suppressed = true;
     if (attachment.flags?.bipod) stats.hasBipod = true;
     if (attachment.flags?.laser) stats.hasLaser = true;

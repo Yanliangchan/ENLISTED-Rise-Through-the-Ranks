@@ -123,6 +123,18 @@ export const M203_BLAST = {
   realNotes: "40mm HE grenade, impact detonation, wide splash damage.",
 };
 
+/**
+ * M203 launch ballistics — the single source of truth for the projectile the
+ * WeaponController fires AND the drop-compensating range ladder the HUD draws,
+ * so the sight's tick marks always match where the grenade actually lands.
+ */
+export const M203_BALLISTICS = {
+  speedMps: 45,
+  maxRangeM: 180,
+  gravityMps2: 9.0,
+  muzzleHeightM: 1.5, // approximate launch height above ground, for the drop solution
+};
+
 // ===========================================================================
 // GEAR & ARMOUR
 // ===========================================================================

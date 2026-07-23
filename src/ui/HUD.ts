@@ -4,8 +4,40 @@ import type { Loadout } from "@/weapons/Loadout";
 import type { GameState } from "@/core/GameState";
 import type { WaveManager } from "@/world/WaveManager";
 import { ATTACHMENTS } from "@/data/attachments";
-import { isAbilitySpecial, SPECIAL_ABILITY_LABELS } from "@/data/gamedata";
+import { isAbilitySpecial, SPECIAL_ABILITY_LABELS, M203_BALLISTICS } from "@/data/gamedata";
 import type { BuildingFootprint } from "@/world/Level";
+
+/** Camera vertical FOV (radians) at hip — must match BASE_FOV in WeaponController; the M203 is fired unscoped. */
+const HIP_FOV_RAD = 1.1;
+
+/**
+ * Drop-compensating M203 range ladder: for each ground range R, solve the
+ * launch elevation θ that lands a grenade there (speed/gravity/height from
+ * M203_BALLISTICS), then place the aiming pip at the screen angle where a
+ * target at R appears under that elevation — expressed as a % of viewport
+ * height below the reticle centre. The marks below centre are therefore the
+ * genuine "hold this line on the target for range R" points, not decoration.
+ */
+function computeM203Ladder(): Array<{ rangeM: number; offsetVh: number }> {
+  const { speedMps: v, gravityMps2: g, muzzleHeightM: h } = M203_BALLISTICS;
+  const ranges = [25, 50, 75, 100, 125, 150];
+  const out: Array<{ rangeM: number; offsetVh: number }> = [];
+  for (const R of ranges) {
+    // Solve k·u² − R·u + (k − h) = 0 for u = tan(θ), k = g·R²/(2v²); take the
+    // low (flatter) trajectory root.
+    const k = (g * R * R) / (2 * v * v);
+    const disc = R * R - 4 * k * (k - h);
+    if (disc < 0) continue; // out of the launcher's reach — no mark
+    const u = (R - Math.sqrt(disc)) / (2 * k);
+    const theta = Math.atan(u); // launch elevation above horizontal
+    // Depression of the ground target below the horizon from the muzzle height.
+    const depression = Math.atan(h / R);
+    // The pip sits (θ + depression) below the camera-forward centre.
+    const pipAngle = theta + depression;
+    out.push({ rangeM: R, offsetVh: (pipAngle / HIP_FOV_RAD) * 100 });
+  }
+  return out;
+}
 
 interface KillFeedEntry {
   text: string;
@@ -257,20 +289,36 @@ export class HUD {
     `;
     this.radarCtx = this.radarCanvas.getContext("2d")!;
 
-    // Dedicated M203 grenade-launcher sight: an amber ring with elevation
-    // ladder ticks, shown instead of the rifle crosshair while the M203 is
-    // toggled active — a clear "you're lobbing a grenade now" read.
+    // Dedicated M203 grenade-launcher sight: an amber aiming pip at the muzzle
+    // line with a drop-compensating range ladder BELOW it (each rung is the
+    // hold-point for that range in metres). Shown instead of the rifle
+    // crosshair while the M203 is toggled active — a clear "you're lobbing a
+    // grenade now" read, and the marks actually match the projectile arc.
     this.m203Sight = el("div", `
-      position: absolute; top: 50%; left: 50%; width: 90px; height: 90px;
-      transform: translate(-50%, -50%); display: none; opacity: 0;
+      position: absolute; inset: 0; display: none; opacity: 0;
     `);
+    const ladder = computeM203Ladder();
+    const rungs = ladder
+      .map(
+        ({ rangeM, offsetVh }) => `
+      <div style="position:absolute; top:calc(50% + ${offsetVh}vh); left:50%; transform:translate(-50%,-50%); display:flex; align-items:center; gap:6px;">
+        <div style="width:22px; height:1.5px; background:#e0a83a; box-shadow:0 0 2px rgba(224,168,58,0.7);"></div>
+        <div style="font-size:10px; letter-spacing:0.5px; color:#e0a83a; text-shadow:1px 1px 2px rgba(0,0,0,0.9);">${rangeM}</div>
+      </div>`
+      )
+      .join("");
+    const lastOffset = ladder.length ? ladder[ladder.length - 1].offsetVh : 30;
     this.m203Sight.innerHTML = `
-      <div style="position:absolute; inset:0; border:2px solid #e0a83a; border-radius:50%; box-shadow:0 0 6px rgba(224,168,58,0.6);"></div>
-      <div style="position:absolute; top:50%; left:50%; width:4px; height:4px; margin:-2px; border-radius:50%; background:#e0a83a;"></div>
-      ${[0.2, 0.4, 0.6, 0.8].map((f) => `
-        <div style="position:absolute; left:50%; top:${50 - f * 42}%; width:14px; height:1.5px; margin-left:-7px; background:#e0a83a; opacity:${0.55 + f * 0.3};"></div>
-      `).join("")}
-      <div style="position:absolute; top:100%; left:50%; transform:translate(-50%,4px); font-size:10px; letter-spacing:1px; color:#e0a83a; white-space:nowrap; text-shadow:1px 1px 2px rgba(0,0,0,0.9);">M203 — LMB TO FIRE</div>
+      <!-- centre aiming pip: chevron tip on the muzzle line -->
+      <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);">
+        <div style="position:absolute; left:-9px; top:-1px; width:18px; height:2px; background:#e0a83a; box-shadow:0 0 3px rgba(224,168,58,0.8);"></div>
+        <div style="position:absolute; top:-9px; left:-1px; width:2px; height:18px; background:#e0a83a; box-shadow:0 0 3px rgba(224,168,58,0.8);"></div>
+        <div style="position:absolute; left:-3px; top:-3px; width:6px; height:6px; border-radius:50%; border:1.5px solid #e0a83a;"></div>
+      </div>
+      <!-- vertical drop ladder line -->
+      <div style="position:absolute; top:50%; left:50%; width:1.5px; height:${lastOffset}vh; background:linear-gradient(#e0a83a,rgba(224,168,58,0.25)); transform:translateX(-50%);"></div>
+      ${rungs}
+      <div style="position:absolute; top:calc(50% - 5vh); left:50%; transform:translate(-50%,-50%); font-size:10px; letter-spacing:1px; color:#e0a83a; white-space:nowrap; text-shadow:1px 1px 2px rgba(0,0,0,0.9);">M203 — HOLD RANGE LINE · LMB FIRE</div>
     `;
 
     this.root.appendChild(this.crosshair);

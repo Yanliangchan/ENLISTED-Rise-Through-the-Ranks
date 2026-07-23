@@ -11,6 +11,18 @@
 
 import type { AttachmentSlot } from "./weapons";
 
+/**
+ * Reticle families for the scope overlay — each optic renders a visually
+ * distinct sight picture:
+ *  - "dot"     : red-dot / micro RDS — a small glowing dot + faint ring.
+ *  - "holo"    : holographic / reflex — open ring, centre dot, lower post.
+ *  - "duplex"  : low-power combat glass (1.5–3×) — thick-to-thin duplex cross.
+ *  - "chevron" : 4× ACOG-style — upward chevron tip on the aimpoint + stadia post.
+ *  - "mildot"  : 6× marksman — fine cross with a mil-dot ranging ladder.
+ *  - "tree"    : 8×+ sniper — fine cross + a Christmas-tree holdover grid.
+ */
+export type ReticleStyle = "dot" | "holo" | "duplex" | "chevron" | "mildot" | "tree";
+
 export interface AttachmentDeltas {
   damage?: number;
   adsTimeSec?: number; // negative = faster
@@ -31,6 +43,7 @@ export interface Attachment {
   compatibleWith: string[]; // weapon ids; [] = any with the slot
   price: number;
   zoom?: number; // optic magnification; 1 = none
+  reticle?: ReticleStyle; // optics only — which sight picture the scope overlay draws
   deltas: AttachmentDeltas;
   /** Special behaviour flags for game logic to read. */
   flags?: {
@@ -68,6 +81,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["sar21"],
     price: 0,
     zoom: 1.5,
+    reticle: "duplex",
     deltas: {},
     realNotes: "SAR 21 factory integral 1.5x sight. Default.",
   },
@@ -78,6 +92,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: [],
     price: 300,
     zoom: 1.15,
+    reticle: "dot",
     deltas: { adsTimeSec: -0.03, spreadAds: -0.02 },
   },
   optic_holo: {
@@ -87,6 +102,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: [],
     price: 400,
     zoom: 1.2,
+    reticle: "holo",
     deltas: { adsTimeSec: -0.02 },
   },
   optic_sharpshooter_3x: {
@@ -96,6 +112,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["sar21", "br18"],
     price: 700,
     zoom: 3.0,
+    reticle: "duplex",
     deltas: { adsTimeSec: 0.05, effectiveRangeM: 40 },
     realNotes: "Mirrors the SAR 21 Sharpshooter variant's 3x optic.",
   },
@@ -107,6 +124,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["br18"],
     price: 1000,
     zoom: 6.0, // variable; game can toggle 1x/6x
+    reticle: "chevron",
     deltas: { adsTimeSec: 0.04, effectiveRangeM: 50 },
   },
   optic_variable_3_9x: {
@@ -116,6 +134,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["m110"],
     price: 0,
     zoom: 9.0,
+    reticle: "mildot",
     deltas: { effectiveRangeM: 100 },
   },
   optic_precision_5_25x: {
@@ -125,6 +144,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["trg22"],
     price: 0,
     zoom: 25.0,
+    reticle: "tree",
     deltas: { effectiveRangeM: 200 },
   },
   optic_micro_rds: {
@@ -134,6 +154,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["p30"],
     price: 300,
     zoom: 1.1,
+    reticle: "dot",
     deltas: { adsTimeSec: -0.02 },
   },
   optic_reflex: {
@@ -143,6 +164,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: [],
     price: 400,
     zoom: 1.25,
+    reticle: "holo",
     deltas: { adsTimeSec: -0.02, spreadAds: -0.03 },
     realNotes: "Wide-fov reflex sight — bigger sight window than a micro red dot, faster target pickup at close range.",
   },
@@ -153,6 +175,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: [],
     price: 500,
     zoom: 2.0,
+    reticle: "duplex",
     deltas: { adsTimeSec: 0.01 },
   },
   optic_4x_acog: {
@@ -162,6 +185,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["sar21", "br18", "fnmag", "colt_iar", "m110", "trg22"],
     price: 800,
     zoom: 4.0,
+    reticle: "chevron",
     deltas: { adsTimeSec: 0.02, effectiveRangeM: 15 },
     realNotes: "Fixed 4x prismatic combat optic — bridges the gap between red dots and dedicated marksman glass.",
   },
@@ -172,6 +196,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["br18", "fnmag", "colt_iar", "m110", "trg22"],
     price: 1000,
     zoom: 6.0,
+    reticle: "mildot",
     deltas: { adsTimeSec: 0.03, effectiveRangeM: 30 },
   },
   optic_8x_sniper: {
@@ -181,6 +206,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["m110", "trg22"],
     price: 1500,
     zoom: 8.0,
+    reticle: "tree",
     deltas: { adsTimeSec: 0.04, effectiveRangeM: 60 },
   },
   optic_10x_longrange: {
@@ -190,6 +216,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["trg22"],
     price: 1900,
     zoom: 10.0,
+    reticle: "tree",
     deltas: { adsTimeSec: 0.05, effectiveRangeM: 90 },
   },
   optic_12x_longrange: {
@@ -199,6 +226,7 @@ export const ATTACHMENTS: Record<string, Attachment> = {
     compatibleWith: ["trg22"],
     price: 2200,
     zoom: 12.0,
+    reticle: "tree",
     deltas: { adsTimeSec: 0.06, effectiveRangeM: 120 },
     realNotes: "Apex long-range glass for the TRG 22 — narrowest FOV, biggest reach.",
   },

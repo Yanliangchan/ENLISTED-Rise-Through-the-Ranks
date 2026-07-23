@@ -2,7 +2,7 @@ import { Scene, Vector3, Matrix, MeshBuilder, StandardMaterial, Color3, LinesMes
 import { isNightMode } from "@/world/Level";
 import type { Weapon } from "@/data/weapons";
 import { WEAPONS } from "@/data/weapons";
-import { GEAR, MATADOR_BLAST, M203_BLAST } from "@/data/gamedata";
+import { GEAR, MATADOR_BLAST, M203_BLAST, M203_BALLISTICS } from "@/data/gamedata";
 import { computeEffectiveStats, damageAtRange, type EffectiveStats } from "@/weapons/ballistics";
 import { buildViewmodel, type Viewmodel } from "@/weapons/ViewmodelFactory";
 import { fireProjectile } from "@/weapons/Projectile";
@@ -314,7 +314,7 @@ export class WeaponController {
     // for the arc to read clearly; travels much farther than a hand throw
     // (THROW_SPEED 11 m/s, capped range) thanks to both speed and gravity tuned
     // for a flatter, longer trajectory.
-    this.fireProjectileFromMuzzle(M203_BLAST, 45, 180, 9.0);
+    this.fireProjectileFromMuzzle(M203_BLAST, M203_BALLISTICS.speedMps, M203_BALLISTICS.maxRangeM, M203_BALLISTICS.gravityMps2);
     this.callbacks.onSecondaryFire?.(this.weapon, this.effective);
   }
 
@@ -365,7 +365,12 @@ export class WeaponController {
     const swayX = Math.sin(this.swayTime * 1.3) * swayScale;
     const swayY = Math.cos(this.swayTime * 0.9) * swayScale * 0.6;
 
-    this.scopeOverlay?.update(isScope ? "scope" : isReflex ? "reddot" : "none", this.adsBlend, this.effective.zoom);
+    this.scopeOverlay?.update(
+      isScope ? "scope" : isReflex ? "reddot" : "none",
+      this.adsBlend,
+      this.effective.zoom,
+      this.effective.reticle
+    );
 
     if (this.activeViewmodel) {
       // Hip-rest position, lowered/offset per weapon class so the model never

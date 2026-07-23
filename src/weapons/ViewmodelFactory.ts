@@ -415,25 +415,47 @@ export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
         parts.push(bolt, boltKnob);
       }
 
-      // Full scope: tube + objective/ocular lenses (tinted glass) + turret knobs
-      // (kept small — see rifle note above).
+      // Full scope: a main tube on TWO mounting rings that actually bolt it to
+      // the receiver rail (the old model floated the tube in mid-air above the
+      // gun — the Sako TRG-22 "detached scope" bug), an objective bell up
+      // front, tinted objective/ocular lenses, and an elevation turret.
       sightOffset = new Vector3(0, 0.1, 0.05);
-      const scopeTube = MeshBuilder.CreateCylinder("scopeTube", { diameter: 0.012, height: 0.075 }, scene);
+      const receiverTopY = 0.055; // top face of the 0.11-tall receiver body
+      const scopeTube = MeshBuilder.CreateCylinder("scopeTube", { diameter: 0.014, height: 0.14, tessellation: 16 }, scene);
       scopeTube.rotation.x = Math.PI / 2;
       scopeTube.position.copyFrom(sightOffset);
       scopeTube.material = mat;
-      const objective = MeshBuilder.CreateCylinder("objectiveLens", { diameter: 0.015, height: 0.004 }, scene);
+      // Two rings clamping the tube down onto the rail — each spans the gap
+      // from the receiver top up to the tube, so nothing hangs unsupported.
+      const ringMeshes: Mesh[] = [];
+      for (const [i, rz] of [sightOffset.z + 0.045, sightOffset.z - 0.045].entries()) {
+        const ringGap = sightOffset.y - receiverTopY; // vertical span to cover
+        const ring = MeshBuilder.CreateBox(`scopeRing_${i}`, { width: 0.02, height: ringGap + 0.01, depth: 0.016 }, scene);
+        ring.position.set(sightOffset.x, receiverTopY + ringGap / 2, rz);
+        ring.material = housingMat;
+        ringMeshes.push(ring);
+      }
+      // Objective bell (wider front housing) + the tinted front lens sunk into it.
+      const bell = MeshBuilder.CreateCylinder("scopeBell", { diameterTop: 0.02, diameterBottom: 0.014, height: 0.03, tessellation: 16 }, scene);
+      bell.rotation.x = -Math.PI / 2;
+      bell.position.set(sightOffset.x, sightOffset.y, sightOffset.z + 0.085);
+      bell.material = mat;
+      const objective = MeshBuilder.CreateCylinder("objectiveLens", { diameter: 0.018, height: 0.004 }, scene);
       objective.rotation.x = Math.PI / 2;
-      objective.position.set(sightOffset.x, sightOffset.y, sightOffset.z + 0.038);
+      objective.position.set(sightOffset.x, sightOffset.y, sightOffset.z + 0.1);
       objective.material = lensMaterial(scene, `objectiveLens_${weapon.id}`, new Color3(0.2, 0.5, 0.65));
-      const ocular = MeshBuilder.CreateCylinder("ocularLens", { diameter: 0.011, height: 0.003 }, scene);
+      const ocular = MeshBuilder.CreateCylinder("ocularLens", { diameter: 0.013, height: 0.003 }, scene);
       ocular.rotation.x = Math.PI / 2;
-      ocular.position.set(sightOffset.x, sightOffset.y, sightOffset.z - 0.037);
+      ocular.position.set(sightOffset.x, sightOffset.y, sightOffset.z - 0.07);
       ocular.material = lensMaterial(scene, `ocularLens_${weapon.id}`, new Color3(0.15, 0.35, 0.5));
-      const turret = MeshBuilder.CreateCylinder("turret", { diameter: 0.006, height: 0.008 }, scene);
-      turret.position.set(sightOffset.x, sightOffset.y + 0.008, sightOffset.z);
+      const turret = MeshBuilder.CreateCylinder("turret", { diameter: 0.01, height: 0.01 }, scene);
+      turret.position.set(sightOffset.x, sightOffset.y + 0.01, sightOffset.z);
       turret.material = housingMat;
-      sightParts.push(scopeTube, objective, ocular, turret);
+      const windageTurret = MeshBuilder.CreateCylinder("windageTurret", { diameter: 0.009, height: 0.01 }, scene);
+      windageTurret.rotation.z = Math.PI / 2;
+      windageTurret.position.set(sightOffset.x + 0.01, sightOffset.y, sightOffset.z);
+      windageTurret.material = housingMat;
+      sightParts.push(scopeTube, ...ringMeshes, bell, objective, ocular, turret, windageTurret);
       break;
     }
     case "lmg": {
