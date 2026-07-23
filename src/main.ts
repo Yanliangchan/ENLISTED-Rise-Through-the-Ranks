@@ -12,7 +12,7 @@ import { LeaderboardPage } from "@/ui/LeaderboardPage";
 import { WaveSelect } from "@/ui/WaveSelect";
 import { PlayerController } from "@/player/PlayerController";
 import { applyGearToPlayer, maxThrowableCapacity } from "@/player/Gear";
-import { buildLevel, applyWaveArcLighting, generateBuildingLayout, CAMP_POSITION } from "@/world/Level";
+import { buildLevel, applyWaveArcLighting, generateBuildingLayout, CAMP_POSITION, admitLightToFrozenWorld, isNightMode } from "@/world/Level";
 import { WaveManager } from "@/world/WaveManager";
 import { WeaponController } from "@/weapons/WeaponController";
 import { Loadout } from "@/weapons/Loadout";
@@ -239,6 +239,10 @@ async function boot(): Promise<void> {
     },
     scopeOverlay
   );
+  // The flashlight SpotLight only exists from here on — let the world's
+  // frozen materials pick it up once so toggling it actually lights buildings
+  // and terrain, not just dynamic actors.
+  admitLightToFrozenWorld(game.scene);
 
   const loadout = new Loadout(input, gameState, weaponController);
 
@@ -608,7 +612,8 @@ async function boot(): Promise<void> {
     landingPage = new LandingPage(uiRoot, settings, audio, player);
     landingPage.onDeploy = () => {
       const startDeployment = (startWave: number) => {
-        hud.showCenterMessage("OPERATION SENTINEL SHIELD — Scout the sector before OPFOR forms up", 4000);
+        const timeOfDay = isNightMode() ? "NIGHT" : "DAY";
+        hud.showCenterMessage(`OPERATION SENTINEL SHIELD — ${timeOfDay} DEPLOYMENT. Scout the sector before OPFOR forms up`, 4000);
         loadout.switchTo("primary"); // guarantee the real loadout weapon, not whatever the range last had equipped
         waveManager.beginRunAt(startWave);
         beginDeployment();

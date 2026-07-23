@@ -219,38 +219,54 @@ export function generateBuildingLayout(): BuildingFootprint[] {
  * streetscape. Spawn points (EnemySpawner) ring the outside so OPFOR has to
  * move through the blocks and cover to reach the plaza.
  */
-export function buildLevel(scene: Scene): void {
-  // NIGHT ATMOSPHERE. The map runs a fixed night now (rain removed): a dim,
-  // blue-tinted ambient so unlit faces stay readable but dark, with a low, cool
-  // moon as the key light. Visibility stays fair while flashlights, muzzle
-  // flash, streetlights and building glow become genuinely useful.
-  const hemi = new HemisphericLight("hemiLight", new Vector3(0, 1, 0), scene);
-  hemi.intensity = 0.2;
-  // Cool moonlit sky from above, faint warm sodium bounce from the streets below.
-  hemi.diffuse = new Color3(0.34, 0.42, 0.64);
-  hemi.groundColor = new Color3(0.07, 0.07, 0.07);
+let currentIsNight = true;
+/** Whether the currently-built level is running its night lighting preset — flashlight/muzzle-flash punch and other night-only gameplay reads this. */
+export function isNightMode(): boolean {
+  return currentIsNight;
+}
 
-  // Moonlight: the key light, low and cool. Still casts shadows for shape.
+export function buildLevel(scene: Scene, night: boolean = Math.random() < 0.5): void {
+  currentIsNight = night;
+  // DAY/NIGHT ATMOSPHERE (rain removed). Night keeps the dim, blue-tinted
+  // ambient with a low, cool moon as the key light, tuned dark enough that
+  // flashlights/muzzle flash/streetlights/building glow genuinely matter —
+  // but never below a floor that leaves the map unreadable. Day swaps in a
+  // bright, warm-white sun rig with far less fog for open-sky visibility.
+  const hemi = new HemisphericLight("hemiLight", new Vector3(0, 1, 0), scene);
   const sun = new DirectionalLight("sunLight", new Vector3(-0.5, -1, 0.3), scene);
-  sun.intensity = 0.32;
+  const fill = new DirectionalLight("fillLight", new Vector3(0.45, -0.35, -0.35), scene);
   sun.position = new Vector3(90, 180, -54);
   sun.autoCalcShadowZBounds = true;
-  sun.diffuse = new Color3(0.52, 0.6, 0.82); // moonlight blue-white
-  sun.specular = new Color3(0.48, 0.55, 0.76);
-
-  // Soft cool fill from the opposite azimuth so shadowed walls keep just enough
-  // shape to read without lifting the overall darkness.
-  const fill = new DirectionalLight("fillLight", new Vector3(0.45, -0.35, -0.35), scene);
-  fill.intensity = 0.09;
-  fill.diffuse = new Color3(0.34, 0.44, 0.66);
   fill.specular = Color3.Black();
-
-  // Night fog — deep blue, closing in tighter for a murky, tactical feel.
   scene.fogMode = Scene.FOGMODE_LINEAR;
-  scene.fogStart = 38;
-  scene.fogEnd = 150;
-  scene.fogColor = new Color3(0.03, 0.04, 0.08);
-  scene.clearColor = new Color4(0.015, 0.025, 0.05, 1);
+
+  if (night) {
+    hemi.intensity = 0.16; // darker than before — flashlight/muzzle flash now carry real weight
+    hemi.diffuse = new Color3(0.34, 0.42, 0.64); // cool moonlit sky from above
+    hemi.groundColor = new Color3(0.05, 0.05, 0.05);
+    sun.intensity = 0.26; // moonlight key light
+    sun.diffuse = new Color3(0.52, 0.6, 0.82);
+    sun.specular = new Color3(0.48, 0.55, 0.76);
+    fill.intensity = 0.07;
+    fill.diffuse = new Color3(0.34, 0.44, 0.66);
+    scene.fogStart = 34;
+    scene.fogEnd = 140;
+    scene.fogColor = new Color3(0.03, 0.04, 0.08);
+    scene.clearColor = new Color4(0.015, 0.025, 0.05, 1);
+  } else {
+    hemi.intensity = 0.85; // bright open-sky ambient
+    hemi.diffuse = new Color3(0.75, 0.82, 0.95); // clear-sky blue from above
+    hemi.groundColor = new Color3(0.22, 0.2, 0.17); // warm ground bounce
+    sun.intensity = 1.15; // real midday sun, the key light
+    sun.diffuse = new Color3(1, 0.97, 0.88);
+    sun.specular = new Color3(1, 0.95, 0.85);
+    fill.intensity = 0.28;
+    fill.diffuse = new Color3(0.6, 0.68, 0.8);
+    scene.fogStart = 90;
+    scene.fogEnd = 320;
+    scene.fogColor = new Color3(0.72, 0.8, 0.88);
+    scene.clearColor = new Color4(0.42, 0.62, 0.85, 1);
+  }
 
   const groundMat = new WorldMaterial("groundMat", scene);
   groundMat.diffuseColor = new Color3(0.3, 0.32, 0.28);
@@ -264,7 +280,7 @@ export function buildLevel(scene: Scene): void {
   ground.material = groundMat;
   ground.checkCollisions = true;
 
-  const skyBox = buildSkybox(scene);
+  const skyBox = buildSkybox(scene, night);
 
   // HDR image-based lighting: render the procedural sky into a cube once and
   // feed it to every PBR material as the environment — sky-blue ambient from
@@ -275,7 +291,7 @@ export function buildLevel(scene: Scene): void {
   envProbe.position.set(0, 40, 0);
   envProbe.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
   scene.environmentTexture = envProbe.cubeTexture;
-  scene.environmentIntensity = 0.2; // dark night IBL — the sky barely lifts the scene
+  scene.environmentIntensity = night ? 0.18 : 0.9; // dark night IBL vs bright daylight IBL
 
   const layout = generateBuildingLayout();
   buildRoads(scene);
@@ -302,7 +318,7 @@ export function buildLevel(scene: Scene): void {
   buildMbsLandmark(scene);
   buildMrtViaduct(scene);
   buildMrtStation(scene);
-  buildNightWindows(scene, layout);
+  if (night) buildNightWindows(scene, layout); // lit windows only make sense after dark
 
   const wallMat = new WorldMaterial("wallMat", scene);
   wallMat.diffuseColor = new Color3(0.5, 0.5, 0.52);
@@ -350,6 +366,30 @@ export function buildLevel(scene: Scene): void {
     if (material.name === "skyMat") continue; // sky keeps its own update path
     material.freeze();
   }
+}
+
+/**
+ * `material.freeze()` locks in the set of lights each shader was prepared
+ * against at the moment it was frozen. The weapon flashlight (a SpotLight)
+ * is created afterwards, when WeaponController spins up — so every frozen
+ * world material was compiled with no idea it would ever exist, and toggling
+ * it on did nothing to buildings/ground/props (only unfrozen dynamic actors
+ * ever picked it up). Call this once, right after that light exists, to let
+ * materials re-prepare with it included, then immediately re-freeze so the
+ * per-frame cost this optimisation exists to avoid doesn't come back.
+ */
+export function admitLightToFrozenWorld(scene: Scene): void {
+  for (const material of scene.materials) {
+    if (material.name === "skyMat") continue;
+    material.unfreeze();
+    material.markAsDirty(Material.LightDirtyFlag);
+  }
+  scene.onAfterRenderObservable.addOnce(() => {
+    for (const material of scene.materials) {
+      if (material.name === "skyMat") continue;
+      material.freeze();
+    }
+  });
 }
 
 /**
@@ -492,42 +532,79 @@ function buildNightWindows(scene: Scene, layout: BuildingFootprint[]): void {
   merged.freezeWorldMatrix();
 }
 
-function buildSkybox(scene: Scene): Mesh {
-  // Night sky: a dark vertical gradient (deep navy zenith → faint sodium
-  // city-glow at the horizon) with scattered stars and a soft moon. Unlit and
-  // painted procedurally so it also drives a suitably dark IBL via the probe.
+function buildSkybox(scene: Scene, night: boolean): Mesh {
   const tex = new DynamicTexture("skyMat_tex", { width: 512, height: 512 }, scene, false);
   const ctx = tex.getContext() as CanvasRenderingContext2D;
-  const g = ctx.createLinearGradient(0, 0, 0, 512);
-  g.addColorStop(0, "#05070f"); // zenith
-  g.addColorStop(0.55, "#0a1020");
-  g.addColorStop(0.82, "#141c33");
-  g.addColorStop(1, "#2a2f3a"); // horizon haze / distant city glow
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 512, 512);
-  // Stars (upper two-thirds only).
-  let seed = 20260721;
-  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-  for (let i = 0; i < 260; i++) {
-    const x = rnd() * 512;
-    const y = rnd() * 330;
-    const r = rnd() * 1.1 + 0.2;
-    ctx.fillStyle = `rgba(220,228,255,${0.35 + rnd() * 0.5})`;
+
+  if (night) {
+    // Night sky: a dark vertical gradient (deep navy zenith → faint sodium
+    // city-glow at the horizon) with scattered stars and a soft moon. Unlit and
+    // painted procedurally so it also drives a suitably dark IBL via the probe.
+    const g = ctx.createLinearGradient(0, 0, 0, 512);
+    g.addColorStop(0, "#05070f"); // zenith
+    g.addColorStop(0.55, "#0a1020");
+    g.addColorStop(0.82, "#141c33");
+    g.addColorStop(1, "#2a2f3a"); // horizon haze / distant city glow
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 512, 512);
+    // Stars (upper two-thirds only).
+    let seed = 20260721;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    for (let i = 0; i < 260; i++) {
+      const x = rnd() * 512;
+      const y = rnd() * 330;
+      const r = rnd() * 1.1 + 0.2;
+      ctx.fillStyle = `rgba(220,228,255,${0.35 + rnd() * 0.5})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Moon with a soft halo.
+    const mx = 380, my = 96;
+    const halo = ctx.createRadialGradient(mx, my, 4, mx, my, 60);
+    halo.addColorStop(0, "rgba(210,222,245,0.5)");
+    halo.addColorStop(1, "rgba(210,222,245,0)");
+    ctx.fillStyle = halo;
+    ctx.fillRect(mx - 60, my - 60, 120, 120);
+    ctx.fillStyle = "#e6ecf7";
     ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.arc(mx, my, 17, 0, Math.PI * 2);
     ctx.fill();
+  } else {
+    // Day sky: bright blue zenith easing to a warm hazy horizon, a sun disc
+    // with a soft glare halo, and a scatter of flat cloud puffs.
+    const g = ctx.createLinearGradient(0, 0, 0, 512);
+    g.addColorStop(0, "#1f5fb0"); // zenith
+    g.addColorStop(0.45, "#4f8fd4");
+    g.addColorStop(0.78, "#a8c9e6");
+    g.addColorStop(1, "#dce8ee"); // horizon haze
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 512, 512);
+    // Sun with a bright glare halo.
+    const sx = 370, sy = 90;
+    const halo = ctx.createRadialGradient(sx, sy, 6, sx, sy, 130);
+    halo.addColorStop(0, "rgba(255,250,225,0.9)");
+    halo.addColorStop(0.35, "rgba(255,244,205,0.35)");
+    halo.addColorStop(1, "rgba(255,244,205,0)");
+    ctx.fillStyle = halo;
+    ctx.fillRect(sx - 130, sy - 130, 260, 260);
+    ctx.fillStyle = "#fffdf2";
+    ctx.beginPath();
+    ctx.arc(sx, sy, 22, 0, Math.PI * 2);
+    ctx.fill();
+    // Flat cloud puffs, lower half of the sky only.
+    let seed = 20260723;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    for (let i = 0; i < 14; i++) {
+      const cx = rnd() * 512;
+      const cy = 180 + rnd() * 220;
+      const cw = 40 + rnd() * 70;
+      ctx.fillStyle = `rgba(255,255,255,${0.25 + rnd() * 0.3})`;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, cw, cw * 0.32, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
-  // Moon with a soft halo.
-  const mx = 380, my = 96;
-  const halo = ctx.createRadialGradient(mx, my, 4, mx, my, 60);
-  halo.addColorStop(0, "rgba(210,222,245,0.5)");
-  halo.addColorStop(1, "rgba(210,222,245,0)");
-  ctx.fillStyle = halo;
-  ctx.fillRect(mx - 60, my - 60, 120, 120);
-  ctx.fillStyle = "#e6ecf7";
-  ctx.beginPath();
-  ctx.arc(mx, my, 17, 0, Math.PI * 2);
-  ctx.fill();
   tex.update();
 
   const skyMat = new StandardMaterial("skyMat", scene);
@@ -4004,8 +4081,9 @@ const ARC_LIGHTING: Array<[number, Color3, number]> = [
   [15, new Color3(0.55, 0.35, 0.28), 0.7],
 ];
 
-/** Nudges ambient colour/intensity per the story's wave arc (defence -> holding -> counter-attack -> retake). */
+/** Nudges ambient colour/intensity per the story's wave arc (defence -> holding -> counter-attack -> retake). Night-only — a bright Day match keeps its own clear sky/fog untouched by wave progression. */
 export function applyWaveArcLighting(scene: Scene, wave: number): void {
+  if (!currentIsNight) return;
   let band = ARC_LIGHTING[0];
   for (const entry of ARC_LIGHTING) {
     if (wave >= entry[0]) band = entry;

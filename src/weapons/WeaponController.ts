@@ -1,4 +1,5 @@
-import { Scene, Vector3, Matrix, MeshBuilder, StandardMaterial, Color3, LinesMesh, Ray, SpotLight, type AbstractMesh } from "@babylonjs/core";
+import { Scene, Vector3, Matrix, MeshBuilder, StandardMaterial, Color3, LinesMesh, Ray, SpotLight, PointLight, type AbstractMesh } from "@babylonjs/core";
+import { isNightMode } from "@/world/Level";
 import type { Weapon } from "@/data/weapons";
 import { WEAPONS } from "@/data/weapons";
 import { GEAR, MATADOR_BLAST, M203_BLAST } from "@/data/gamedata";
@@ -111,9 +112,14 @@ export class WeaponController {
     );
     this.flashlight.parent = this.player.camera;
     this.flashlight.diffuse = new Color3(1, 0.97, 0.88);
+    this.flashlight.specular = new Color3(0.6, 0.58, 0.53);
     this.flashlight.intensity = 0;
     this.flashlight.range = 55; // practical night beam distance
   }
+
+  /** SpotLight intensity while the beam is on — real illumination, not a cosmetic glow. */
+  private static readonly FLASHLIGHT_INTENSITY_DAY = 3.4;
+  private static readonly FLASHLIGHT_INTENSITY_NIGHT = 7.5;
 
   private flashlight!: SpotLight;
   /** Player-toggled flashlight state (F). Only takes effect when a flashlight is fitted. */
@@ -213,9 +219,12 @@ export class WeaponController {
 
   /** Sync rail-accessory side effects: flashlight beam on/off, laser visibility penalty. */
   private applyAccessoryState(): void {
-    // Bright enough to genuinely light dark corners and dynamic actors at night;
-    // gated by the F toggle so players use it tactically rather than always-on.
-    this.flashlight.intensity = this.effective.hasFlashlight && this.flashlightOn ? 3.4 : 0;
+    // Bright enough to genuinely light dark corners, buildings, and dynamic
+    // actors; much stronger at night where it actually matters tactically,
+    // gated by the F toggle so players use it deliberately rather than always-on.
+    this.flashlight.intensity = this.effective.hasFlashlight && this.flashlightOn
+      ? (isNightMode() ? WeaponController.FLASHLIGHT_INTENSITY_NIGHT : WeaponController.FLASHLIGHT_INTENSITY_DAY)
+      : 0;
     // The LAD's visible beam cuts hip spread (stat delta) but also makes the
     // player easier for OPFOR to spot — EnemyAI reads this flag.
     this.player.laserOn = this.effective.hasLaser;
@@ -758,6 +767,16 @@ export class WeaponController {
     flash.isPickable = false;
     flash.material = this.fxMat("flash");
     setTimeout(() => flash.dispose(), 28);
+
+    // At night the muzzle flash should actually throw light, not just be a
+    // bright decal — a brief, cheap PointLight that self-disposes with the flash.
+    if (isNightMode()) {
+      const flashLight = new PointLight("muzzleFlashLight", flash.getAbsolutePosition(), this.scene);
+      flashLight.diffuse = new Color3(1, 0.78, 0.42);
+      flashLight.intensity = 2.2 * this.effective.muzzleFlashScale;
+      flashLight.range = 12;
+      setTimeout(() => flashLight.dispose(), 28);
+    }
   }
 
   private drawTracer(from: Vector3, to: Vector3): void {

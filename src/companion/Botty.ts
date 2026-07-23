@@ -42,6 +42,9 @@ const SUPPRESSION_CHANCE = [0, 0.12, 0.22, 0.35];
 const SUPPRESSION_RADIUS_M = [0, 4, 5, 6];
 const SUPPRESSION_DURATION_SEC = [0, 1.5, 2, 2.5];
 const SMOKE_CHARGES = [1, 2, 3, 4];
+const SMOKE_DIAMETER = 9; // +50% over the original 6 — a wider, more reliable screen
+const SMOKE_COOLDOWN_SEC = 8; // shared across every trigger, so BOTTY can't dump charges back-to-back
+const PLAYER_DAMAGE_SMOKE_THRESHOLD = 12; // sudden player HP drop this large (in one frame) reads as "under fire right now"
 
 function litMat(scene: Scene, name: string, diffuse: Color3, emissive = 0.35): StandardMaterial {
   const mat = new StandardMaterial(name, scene);
@@ -95,6 +98,13 @@ export class BottyController {
   private escapeTimer = 0;
   private wasFiredUpon = false;
   private smokeThrownThisOrder = false;
+  // Cooldown shared by every smoke trigger (retreat, cover-the-player,
+  // under-fire, critical-health) so a fast run of triggers can't dump every
+  // charge in the same few seconds.
+  private smokeCooldown = 0;
+  // Tracks the player's health frame-to-frame so BOTTY can react to a sudden
+  // drop (under fire right now) even outside the Cover Me / Engage stances.
+  private lastPlayerHealth = -1;
   // Target acquisition runs LOS raycasts across every live enemy — far too
   // expensive per-frame. Same fix as EnemyAI's throttled perception: refresh
   // on a short timer and read the cached target in between.
@@ -116,6 +126,7 @@ export class BottyController {
   /** Tops smoke charges back up to full — called on every fresh deployment/redeploy, same as UAV/Air Strike charges. */
   resetSmoke(): void {
     this.smokeChargesRemaining = SMOKE_CHARGES[this.upgrades.smoke] ?? 1;
+    this.smokeCooldown = 0;
   }
 
   constructor(
@@ -502,12 +513,18 @@ export class BottyController {
     if (this.throwSmoke(this.currentTarget?.root.position ?? null, player)) this.smokeThrownThisOrder = true;
   }
 
-  private throwSmoke(threat: Vector3 | null, player: PlayerController): boolean {
-    if (this.smokeChargesRemaining <= 0) return false;
+  /**
+   * @param at Explicit world point to smoke (e.g. the player's own position
+   * when screening them, not BOTTY). Falls back to the old BOTTY↔threat
+   * midpoint behaviour when omitted.
+   */
+  private throwSmoke(threat: Vector3 | null, player: PlayerController, at?: Vector3): boolean {
+    if (this.smokeChargesRemaining <= 0 || this.smokeCooldown > 0) return false;
     this.smokeChargesRemaining--;
-    const between = threat ? Vector3.Lerp(this.position, threat, 0.4) : this.position.add(new Vector3(0, 0, 2));
-    const puff = MeshBuilder.CreateSphere("botty_smoke", { diameter: 6 }, this.scene);
-    puff.position = between;
+    this.smokeCooldown = SMOKE_COOLDOWN_SEC;
+    const target = at ?? (threat ? Vector3.Lerp(this.position, threat, 0.4) : this.position.add(new Vector3(0, 0, 2)));
+    const puff = MeshBuilder.CreateSphere("botty_smoke", { diameter: SMOKE_DIAMETER }, this.scene);
+    puff.position = target.clone();
     puff.position.y = 1.2;
     const mat = new StandardMaterial("botty_smokeMat", this.scene);
     mat.diffuseColor = new Color3(0.1, 0.35, 0.9);
@@ -524,8 +541,27 @@ export class BottyController {
     return true;
   }
 
+  /** Screens the player's own position (not BOTTY's) — used when the player is visibly taking fire right now. */
+  private maybeCoverPlayerWithSmoke(player: PlayerController): void {
+    if (this.lastPlayerHealth < 0) {
+      this.lastPlayerHealth = player.health;
+      return;
+    }
+    const drop = this.lastPlayerHealth - player.health;
+    this.lastPlayerHealth = player.health;
+    if (drop < PLAYER_DAMAGE_SMOKE_THRESHOLD) return;
+    // Only worth it if BOTTY is close enough for the screen to actually cover the player.
+    if (Vector3.Distance(this.position, player.position) > 22) return;
+    this.throwSmoke(null, player, player.position);
+  }
+
   update(dt: number, player: PlayerController): void {
     if (this.isDown) return;
+
+    if (this.smokeCooldown > 0) this.smokeCooldown -= dt;
+    // Baseline behaviour, not gated by a smoke upgrade level: screen the
+    // player the instant they take a heavy hit while BOTTY is nearby.
+    this.maybeCoverPlayerWithSmoke(player);
 
     // Decay the muzzle flash from the previous shot.
     if (this.muzzleFlashTimer > 0) {
