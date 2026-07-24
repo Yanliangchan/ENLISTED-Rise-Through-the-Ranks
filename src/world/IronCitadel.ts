@@ -14,6 +14,7 @@ import {
   Material,
 } from "@babylonjs/core";
 import { WorldMaterial } from "@/world/WorldMaterial";
+import { createDetailNormalTexture } from "@/world/Level";
 
 /**
  * OPERATION IRON CITADEL — a premium single-floor tactical CQB map: a captured
@@ -144,13 +145,17 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-  const makeTex = (name: string, draw: (ctx: CanvasRenderingContext2D, s: number) => void, size = 256): DynamicTexture => {
+  const makeTex = (name: string, draw: (ctx: CanvasRenderingContext2D, s: number) => void, size = 384): DynamicTexture => {
+    // 384px default (up from 256): the procedural draw routines already place
+    // fine detail (grout, scuffs, speckle), so the extra resolution reads as
+    // sharper surfaces close-up without changing any layout. Higher anisotropy
+    // keeps floors/walls crisp at grazing angles.
     const tex = new DynamicTexture(`ic_tex_${name}`, { width: size, height: size }, scene, true);
     draw(tex.getContext() as CanvasRenderingContext2D, size);
     tex.update(false);
     tex.wrapU = Texture.WRAP_ADDRESSMODE;
     tex.wrapV = Texture.WRAP_ADDRESSMODE;
-    tex.anisotropicFilteringLevel = 4;
+    tex.anisotropicFilteringLevel = 8;
     return tex;
   };
   const speckle = (ctx: CanvasRenderingContext2D, s: number, rand: () => number, n: number, tone: () => string, dot = 1.6) => {
@@ -279,6 +284,18 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     [M.carpetA, 2], [M.carpetB, 2], [M.tile, 2], [M.concrete, 3],
     [M.wallPaint, 2.4], [M.wallCool, 2.4], [M.ceil, 0.6], [M.wood, 1.8],
   ]);
+  // Shared micro-relief for the big matte interior surfaces. scaleUV bakes
+  // tiling into each mesh's UVs, so this bump samples the same coordinates as
+  // the albedo and tiles with it automatically — no per-material scaling. Kept
+  // subtle so carpet/paint read as textured, not lumpy.
+  const icNormal = createDetailNormalTexture(scene, "icDetailNormal", 313, 1.1);
+  for (const [mtl, level] of [
+    [M.carpetA, 0.5], [M.carpetB, 0.5], [M.tile, 0.3], [M.concrete, 0.55],
+    [M.wallPaint, 0.3], [M.wallCool, 0.3],
+  ] as Array<[WorldMaterial, number]>) {
+    mtl.bumpTexture = icNormal;
+    mtl.bumpTexture.level = level;
+  }
   // Realistic glass: PBR alpha-blend so panes pick up IBL/skyline reflection
   // instead of the old flat emissive tint.
   const glassMat = new WorldMaterial("ic_glassPbr", scene);

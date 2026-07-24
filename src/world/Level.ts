@@ -275,6 +275,12 @@ export function buildLevel(scene: Scene, night: boolean = Math.random() < 0.5): 
   pavementTex.uScale = 50;
   pavementTex.vScale = 50;
   groundMat.diffuseTexture = pavementTex;
+  // Micro surface relief so the ground catches the sun/moon instead of reading flat.
+  const groundNormal = createDetailNormalTexture(scene, "groundNormal", 91, 2.0);
+  groundNormal.uScale = 50;
+  groundNormal.vScale = 50;
+  groundMat.bumpTexture = groundNormal;
+  groundMat.bumpTexture.level = 0.7;
 
   const ground = MeshBuilder.CreateGround("ground", { width: MAP_SPAN + 20, height: MAP_SPAN + 20 }, scene);
   ground.material = groundMat;
@@ -310,6 +316,7 @@ export function buildLevel(scene: Scene, night: boolean = Math.random() < 0.5): 
   buildParkedCars(scene, layout);
   buildStreetFurniture(scene, layout);
   buildUrbanClutter(scene, layout);
+  buildGroundDetail(scene, layout);
   buildRoadsideTrees(scene, layout);
   buildContainerYard(scene);
   buildCarPark(scene);
@@ -1141,6 +1148,13 @@ function buildRoads(scene: Scene): void {
   for (const kind of Object.keys(roadMats) as RoadKind[]) {
     (roadMats[kind].diffuseTexture as Texture).vScale = 18;
   }
+  // Shared asphalt relief for all three road kinds (they share UV tiling).
+  const roadNormal = createDetailNormalTexture(scene, "roadNormal", 43, 1.4);
+  roadNormal.vScale = 18;
+  for (const kind of Object.keys(roadMats) as RoadKind[]) {
+    roadMats[kind].bumpTexture = roadNormal;
+    roadMats[kind].bumpTexture!.level = 0.5;
+  }
 
   const sidewalkTex = createSidewalkTexture(scene, "sidewalkTex");
   const sidewalkMat = new WorldMaterial("sidewalkMat", scene);
@@ -1149,6 +1163,11 @@ function buildRoads(scene: Scene): void {
   sidewalkMat.diffuseTexture = sidewalkTex;
   sidewalkTex.uScale = 40;
   sidewalkTex.vScale = 4;
+  const sidewalkNormal = createDetailNormalTexture(scene, "sidewalkNormal", 71, 1.6);
+  sidewalkNormal.uScale = 40;
+  sidewalkNormal.vScale = 4;
+  sidewalkMat.bumpTexture = sidewalkNormal;
+  sidewalkMat.bumpTexture.level = 0.6;
 
   const segments = sidewalkSegments();
   const sideW = 1.4;
@@ -1496,6 +1515,16 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
   hdbAccentMat.diffuseColor = HDB_ACCENT;
   hdbAccentMat.specularColor = Color3.Black();
 
+  // Shared concrete micro-relief for the matte (non-glass) facades so walls
+  // catch the sun/moon with real texture instead of reading as flat paint.
+  const facadeNormal = createDetailNormalTexture(scene, "facadeNormal", 131, 1.3);
+  facadeNormal.uScale = 4;
+  facadeNormal.vScale = 6;
+  for (const mat of [...shophouseMats, ...hdbMats, ...industrialMats, hdbAccentMat]) {
+    mat.bumpTexture = facadeNormal;
+    mat.bumpTexture.level = 0.35;
+  }
+
   layout.forEach(({ x, z, size, height, type }, i) => {
     const building = MeshBuilder.CreateBox(`building_${i}`, { width: size, height, depth: size }, scene);
     building.position.set(x, height / 2, z);
@@ -1781,9 +1810,11 @@ function poleGrayMat(scene: Scene, name: string): WorldMaterial {
 
 /** Tiled concrete-slab texture, reused for the ground and (in a lighter shade) sidewalks. */
 function createPavementTexture(scene: Scene, name: string, base: string): DynamicTexture {
-  // 256px with speckle, tonal blotches, hairline cracks and expansion joints —
-  // reads as worn concrete at ground level instead of a flat grey wash.
-  const size = 256;
+  // 512px worn concrete: aggregate speckle, tonal weathering blotches, oil/damp
+  // stains, hairline cracks, a fine paver grid and expansion joints — reads as
+  // real ground rather than a flat grey wash, and pairs with a normal map for
+  // relief under the sun/moon.
+  const size = 512;
   const tex = new DynamicTexture(name, { width: size, height: size }, scene, false);
   const ctx = tex.getContext() as CanvasRenderingContext2D;
   ctx.fillStyle = base;
@@ -1791,32 +1822,53 @@ function createPavementTexture(scene: Scene, name: string, base: string): Dynami
 
   const rand = mulberry32(55);
   // Large soft tonal blotches (weathering/staining).
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 60; i++) {
     const shade = 30 + Math.floor(rand() * 40);
     ctx.fillStyle = `rgba(${shade},${shade + 2},${shade - 2},0.1)`;
     ctx.beginPath();
-    ctx.ellipse(rand() * size, rand() * size, 12 + rand() * 30, 8 + rand() * 22, rand() * Math.PI, 0, Math.PI * 2);
+    ctx.ellipse(rand() * size, rand() * size, 18 + rand() * 60, 12 + rand() * 44, rand() * Math.PI, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Fine aggregate speckle.
-  for (let i = 0; i < 1400; i++) {
-    const shade = 20 + Math.floor(rand() * 34);
-    ctx.fillStyle = `rgba(${shade},${shade + 2},${shade - 2},0.35)`;
+  // Damp/oil stains — darker, irregular soft patches.
+  for (let i = 0; i < 10; i++) {
+    const cx = rand() * size, cy = rand() * size, r = 14 + rand() * 40;
+    const grd = ctx.createRadialGradient(cx, cy, 1, cx, cy, r);
+    grd.addColorStop(0, "rgba(0,0,0,0.22)");
+    grd.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r, r * (0.6 + rand() * 0.4), rand() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Fine aggregate speckle (both dark grit and lighter flecks).
+  for (let i = 0; i < 5200; i++) {
+    const light = rand() < 0.35;
+    const shade = light ? 70 + Math.floor(rand() * 40) : 18 + Math.floor(rand() * 34);
+    ctx.fillStyle = `rgba(${shade},${shade + 2},${shade - 2},${light ? 0.22 : 0.35})`;
     ctx.fillRect(rand() * size, rand() * size, 1.4, 1.4);
   }
   // Hairline cracks: short random polylines.
   ctx.strokeStyle = "rgba(0,0,0,0.28)";
   ctx.lineWidth = 1;
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 16; i++) {
     let cx = rand() * size;
     let cy = rand() * size;
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    for (let s = 0; s < 5; s++) {
-      cx += (rand() - 0.5) * 34;
-      cy += (rand() - 0.5) * 34;
+    for (let s = 0; s < 6; s++) {
+      cx += (rand() - 0.5) * 46;
+      cy += (rand() - 0.5) * 46;
       ctx.lineTo(cx, cy);
     }
+    ctx.stroke();
+  }
+  // Internal paver grid so the ground reads as slabs, not one endless pour.
+  ctx.strokeStyle = "rgba(0,0,0,0.16)";
+  ctx.lineWidth = 1.5;
+  for (let g = 1; g < 4; g++) {
+    ctx.beginPath();
+    ctx.moveTo((g * size) / 4, 0); ctx.lineTo((g * size) / 4, size);
+    ctx.moveTo(0, (g * size) / 4); ctx.lineTo(size, (g * size) / 4);
     ctx.stroke();
   }
   // Expansion joints on the tile border (tiles into a paving grid).
@@ -1829,18 +1881,82 @@ function createPavementTexture(scene: Scene, name: string, base: string): Dynami
   return tex;
 }
 
+/**
+ * Procedural tangent-space normal map from a few octaves of smoothed value
+ * noise, for micro surface relief on the big shared surfaces (ground, roads,
+ * facades). One small texture, generated once at load, shared across every
+ * mesh that uses the material — a real lighting response for pennies of cost.
+ * PBR derives the tangent frame from screen-space derivatives, so meshes need
+ * no vertex tangents.
+ */
+export function createDetailNormalTexture(scene: Scene, name: string, seed = 7, strength = 2.2, size = 256): Texture {
+  const tex = new DynamicTexture(name, { width: size, height: size }, scene, false);
+  const ctx = tex.getContext() as CanvasRenderingContext2D;
+  const rand = mulberry32(seed);
+  const n = size * size;
+  let h: Float32Array = new Float32Array(n);
+  for (let i = 0; i < n; i++) h[i] = rand();
+  const blur = (src: Float32Array): Float32Array => {
+    const d: Float32Array = new Float32Array(n);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        let s = 0;
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++)
+            s += src[((y + dy + size) % size) * size + ((x + dx + size) % size)];
+        d[y * size + x] = s / 9;
+      }
+    }
+    return d;
+  };
+  for (let i = 0; i < 3; i++) h = blur(h); // smooth into soft bumps
+  for (let i = 0; i < n; i++) h[i] = h[i] * 0.82 + rand() * 0.18; // re-add fine grain
+  const img = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const l = h[y * size + ((x - 1 + size) % size)];
+      const r = h[y * size + ((x + 1) % size)];
+      const u = h[((y - 1 + size) % size) * size + x];
+      const dn = h[((y + 1 + size) % size) * size + x];
+      let nx = (l - r) * strength, ny = (u - dn) * strength, nz = 1;
+      const inv = 1 / Math.hypot(nx, ny, nz);
+      nx *= inv; ny *= inv; nz *= inv;
+      const o = (y * size + x) * 4;
+      img.data[o] = Math.round((nx * 0.5 + 0.5) * 255);
+      img.data[o + 1] = Math.round((ny * 0.5 + 0.5) * 255);
+      img.data[o + 2] = Math.round((nz * 0.5 + 0.5) * 255);
+      img.data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  tex.update();
+  tex.wrapU = Texture.WRAP_ADDRESSMODE;
+  tex.wrapV = Texture.WRAP_ADDRESSMODE;
+  return tex;
+}
+
 function createWindowTexture(scene: Scene, name: string, base: string): DynamicTexture {
-  const size = 256;
+  // 512px facade: a denser window grid with lit/unlit variation, frames,
+  // mullions and blinds, plus concrete wall speckle and vertical rain-streak
+  // grime under the sills so walls read as weathered surfaces, not flat paint.
+  const size = 512;
   const tex = new DynamicTexture(name, { width: size, height: size }, scene, false);
   const ctx = tex.getContext() as CanvasRenderingContext2D;
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, size, size);
 
-  const cols = 6;
-  const rows = 8;
+  const rand = mulberry32(7);
+  // Concrete wall speckle across the whole face (behind the windows).
+  for (let i = 0; i < 2600; i++) {
+    const s = 120 + Math.floor(rand() * 70);
+    ctx.fillStyle = `rgba(${s},${s},${s - 4},0.06)`;
+    ctx.fillRect(rand() * size, rand() * size, 2, 2);
+  }
+
+  const cols = 8;
+  const rows = 11;
   const cellW = size / cols;
   const cellH = size / rows;
-  const rand = mulberry32(7);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const lit = rand() < 0.35;
@@ -1855,8 +1971,26 @@ function createWindowTexture(scene: Scene, name: string, base: string): DynamicT
       ctx.fillStyle = "rgba(20,22,20,0.55)";
       ctx.fillRect(wx - 1.5, wy - 1.5, ww + 3, wh + 3);
 
-      ctx.fillStyle = lit ? "#d8e4df" : "#4a5560";
+      // Slight per-pane tint variation so the glass isn't a uniform block.
+      if (lit) {
+        const warm = rand() < 0.5;
+        ctx.fillStyle = warm ? "#e6ddc4" : "#d8e4df";
+      } else {
+        const g = 60 + Math.floor(rand() * 28);
+        ctx.fillStyle = `rgb(${g - 8},${g},${g + 12})`;
+      }
       ctx.fillRect(wx, wy, ww, wh);
+
+      // Half-drawn blinds on some unlit panes.
+      if (!lit && rand() < 0.3) {
+        ctx.fillStyle = "rgba(180,180,168,0.5)";
+        ctx.fillRect(wx, wy, ww, wh * (0.25 + rand() * 0.4));
+      }
+      // Reflection sheen streak across the pane.
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      ctx.beginPath();
+      ctx.moveTo(wx, wy + wh * 0.7); ctx.lineTo(wx + ww * 0.5, wy); ctx.lineTo(wx + ww, wy); ctx.lineTo(wx, wy + wh);
+      ctx.closePath(); ctx.fill();
 
       // A thin mid-mullion on most panes, matching typical HDB/office glazing.
       if (rand() < 0.7) {
@@ -1871,6 +2005,18 @@ function createWindowTexture(scene: Scene, name: string, base: string): DynamicT
         const acW = ww * 0.55;
         const acH = cellH * 0.14;
         ctx.fillRect(wx + (ww - acW) / 2, wy + wh + 1, acW, acH);
+        // Grime streak running down from the AC unit.
+        ctx.fillStyle = "rgba(20,20,18,0.14)";
+        ctx.fillRect(wx + ww / 2 - 1, wy + wh + 1 + acH, 2, cellH * 0.6);
+      }
+
+      // Rain-streak grime running down from the sill on some panes.
+      if (rand() < 0.35) {
+        ctx.fillStyle = "rgba(24,24,20,0.1)";
+        const streaks = 1 + Math.floor(rand() * 3);
+        for (let s = 0; s < streaks; s++) {
+          ctx.fillRect(wx + rand() * ww, wy + wh, 1 + rand() * 1.4, cellH * (0.3 + rand() * 0.5));
+        }
       }
     }
   }
@@ -2812,6 +2958,90 @@ function buildUrbanClutter(scene: Scene, layout: BuildingFootprint[]): void {
       }
       idx++;
     }
+  }
+}
+
+/**
+ * Ground-level surface variation: flat, non-colliding decals (manhole/drain
+ * covers, asphalt repair patches, oil stains, tar-sealed cracks) and small
+ * scattered litter (cans, flattened cardboard, paper) spread across the open
+ * street space. All opaque and non-pickable so mergeStaticDecor folds each
+ * material into a single draw call — a lot of realism for almost no cost.
+ */
+function buildGroundDetail(scene: Scene, layout: BuildingFootprint[]): void {
+  const rand = mulberry32(9391);
+  const manholeMat = solidMat(scene, "gdManholeMat", new Color3(0.14, 0.14, 0.15));
+  const patchMat = solidMat(scene, "gdPatchMat", new Color3(0.11, 0.11, 0.12));
+  const stainMat = solidMat(scene, "gdStainMat", new Color3(0.09, 0.09, 0.1));
+  const crackMat = solidMat(scene, "gdCrackMat", new Color3(0.07, 0.07, 0.08));
+  const litterMats = [
+    solidMat(scene, "gdLitterA", new Color3(0.6, 0.55, 0.4)), // cardboard
+    solidMat(scene, "gdLitterB", new Color3(0.75, 0.76, 0.78)), // paper / can
+    solidMat(scene, "gdLitterC", new Color3(0.3, 0.42, 0.25)), // debris
+  ];
+
+  const openSpot = (minClear: number): { x: number; z: number } | null => {
+    for (let tries = 0; tries < 6; tries++) {
+      const x = (rand() - 0.5) * (MAP_SPAN - 20);
+      const z = (rand() - 0.5) * (MAP_SPAN - 20);
+      if (Math.abs(x) < 18 && Math.abs(z) < 18) continue; // keep the central plaza clear-ish
+      if (inGardenDistrict(x, z, 3)) continue;
+      if (overlapsAnyBuilding(x, z, minClear, layout)) continue;
+      return { x, z };
+    }
+    return null;
+  };
+
+  // Manhole / drain covers set flush into the road/pavement.
+  for (let i = 0; i < 40; i++) {
+    const s = openSpot(0.5);
+    if (!s) continue;
+    const cover = MeshBuilder.CreateCylinder(`gdManhole_${i}`, { diameter: 0.62 + rand() * 0.12, height: 0.04, tessellation: 14 }, scene);
+    cover.position.set(s.x, 0.025, s.z);
+    cover.material = manholeMat;
+    cover.isPickable = false;
+  }
+  // Asphalt repair patches — slightly darker rectangles.
+  for (let i = 0; i < 55; i++) {
+    const s = openSpot(0.4);
+    if (!s) continue;
+    const patch = MeshBuilder.CreateBox(`gdPatch_${i}`, { width: 1 + rand() * 2.4, height: 0.03, depth: 1 + rand() * 2.2 }, scene);
+    patch.position.set(s.x, 0.02, s.z);
+    patch.rotation.y = rand() * Math.PI;
+    patch.material = patchMat;
+    patch.isPickable = false;
+  }
+  // Oil / damp stains — flat irregular dark blotches.
+  for (let i = 0; i < 45; i++) {
+    const s = openSpot(0.3);
+    if (!s) continue;
+    const stain = MeshBuilder.CreateDisc(`gdStain_${i}`, { radius: 0.5 + rand() * 1.2, tessellation: 10 }, scene);
+    stain.rotation.x = Math.PI / 2;
+    stain.position.set(s.x, 0.018, s.z);
+    stain.scaling.x = 0.6 + rand() * 0.8;
+    stain.material = stainMat;
+    stain.isPickable = false;
+  }
+  // Tar-sealed cracks — long thin dark strips.
+  for (let i = 0; i < 40; i++) {
+    const s = openSpot(0.3);
+    if (!s) continue;
+    const crack = MeshBuilder.CreateBox(`gdCrack_${i}`, { width: 0.08, height: 0.03, depth: 1.5 + rand() * 3 }, scene);
+    crack.position.set(s.x, 0.022, s.z);
+    crack.rotation.y = rand() * Math.PI;
+    crack.material = crackMat;
+    crack.isPickable = false;
+  }
+  // Small scattered litter.
+  for (let i = 0; i < 90; i++) {
+    const s = openSpot(0.3);
+    if (!s) continue;
+    const mat = litterMats[Math.floor(rand() * litterMats.length)];
+    const bit = MeshBuilder.CreateBox(`gdLitter_${i}`, { width: 0.14 + rand() * 0.24, height: 0.03 + rand() * 0.05, depth: 0.14 + rand() * 0.24 }, scene);
+    bit.position.set(s.x, 0.04, s.z);
+    bit.rotation.y = rand() * Math.PI;
+    bit.material = mat;
+    bit.isPickable = false;
   }
 }
 
