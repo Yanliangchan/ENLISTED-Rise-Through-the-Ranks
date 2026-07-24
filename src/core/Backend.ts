@@ -127,9 +127,19 @@ export function validateUsername(name: string): string | null {
  */
 export class Backend {
   profile: Profile;
+  /**
+   * The last credits value this client knows the SERVER holds — either
+   * because we just wrote it (a purchase/reward save landed) or because we
+   * just read it (login, or a reconciliation poll). Comparing against this
+   * — not against the locally-held gameState.data.credits — is what lets
+   * reconcileCredits() tell "the server changed under us" (a Guardian edit)
+   * apart from "we're just mid-flight on our own pending save".
+   */
+  private lastKnownCredits: number;
 
   private constructor(private readonly token: string, profile: Profile) {
     this.profile = profile;
+    this.lastKnownCredits = profile.save?.credits ?? 0;
   }
 
   /** Session token, for authenticating side channels such as the multiplayer socket. */
@@ -189,8 +199,40 @@ export class Backend {
       this.saveTimer = null;
       const d = this.pendingSave;
       this.pendingSave = null;
-      if (d) void this.request("PUT", "/api/save", { save: d }).catch((e) => console.warn("[backend] save failed", e));
+      if (d) {
+        void this.request("PUT", "/api/save", { save: d })
+          .then(() => {
+            // The server now holds exactly this credits value — record it so
+            // reconcileCredits() doesn't mistake our own write for an
+            // external (Guardian) change on the next poll.
+            this.lastKnownCredits = d.credits;
+          })
+          .catch((e) => console.warn("[backend] save failed", e));
+      }
     }, 400);
+  }
+
+  /** True while a debounced save write is in flight (scheduled or awaiting response) — reconciliation should wait rather than race it. */
+  get hasPendingSave(): boolean {
+    return this.pendingSave !== null || this.saveTimer !== null;
+  }
+
+  /**
+   * Polls the server's authoritative credits value and reports it back ONLY
+   * if it's a genuine external change (a Guardian money edit) — i.e. it
+   * differs from the value we last knew the server to hold, and we don't
+   * have a save in flight that could make this look like a false positive.
+   * Returns null when there's nothing to reconcile (in sync, or a save is
+   * pending so we can't tell yet — the next poll will catch it once the
+   * pending save lands).
+   */
+  async reconcileCredits(): Promise<number | null> {
+    if (this.hasPendingSave) return null;
+    const { save } = await this.request<{ save: SaveData | null }>("GET", "/api/save");
+    const serverCredits = save?.credits ?? 0;
+    if (serverCredits === this.lastKnownCredits) return null;
+    this.lastKnownCredits = serverCredits;
+    return serverCredits;
   }
 
   private settingsTimer: ReturnType<typeof setTimeout> | null = null;

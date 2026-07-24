@@ -1,10 +1,11 @@
-import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, PointLight, Mesh } from "@babylonjs/core";
+import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, Color4, PointLight, Mesh, ParticleSystem, DynamicTexture } from "@babylonjs/core";
 import { THROWABLES, type Throwable } from "@/data/gamedata";
 import type { PlayerController } from "@/player/PlayerController";
 import type { EnemyManager } from "@/enemies/EnemySpawner";
 import type { AudioManager } from "@/core/AudioManager";
 import type { GameState } from "@/core/GameState";
 import type { InputManager } from "@/core/InputManager";
+import { admitLightToFrozenWorld } from "@/world/Level";
 
 const THROW_SPEED = 11;
 const THROW_ARC_UP = 3;
@@ -35,6 +36,7 @@ export class ThrowableController {
   private tripflares: Array<{ position: Vector3; radiusM: number; triggered: boolean }> = [];
   private smokeVolumes: Array<{ mesh: Mesh; expiresAt: number }> = [];
   private claymores: Array<{ mesh: Mesh; forward: Vector3; rangeM: number; damage: number }> = [];
+  private cachedFlareGlowTex: DynamicTexture | null = null;
 
   onFlashbangScreen?: (intensity: number) => void;
   onFlareTriggered?: (position: Vector3) => void;
@@ -261,14 +263,108 @@ export class ThrowableController {
     this.spawnFlashSprite(pos, Color3.White(), 1.2, 150);
   }
 
+  /**
+   * Illumination flare: a visible burning stick + glow halo + rising smoke so
+   * landing reads clearly even before the light itself is considered, and a
+   * real PointLight that actually lights the surrounding area.
+   *
+   * World geometry (buildings, roads, ground) uses frozen materials for
+   * performance — a material frozen before this light exists never picks it
+   * up (same class of bug the weapon flashlight had). admitLightToFrozenWorld
+   * re-preps every material once so nearby static surfaces genuinely light up
+   * instead of only affecting dynamic actors (player/enemies/BOTTY). This is a
+   * rare, bounded cost (paid once per flare thrown, not per frame).
+   */
   private detonateFlare(pos: Vector3, throwable: Throwable): void {
-    const light = new PointLight(`flare_${Date.now()}`, pos.add(new Vector3(0, 1, 0)), this.scene);
-    light.diffuse = new Color3(1, 0.95, 0.7);
-    light.intensity = 1.5;
-    light.range = throwable.radiusM * 2;
+    const anchor = pos.add(new Vector3(0, 1, 0));
+
+    // Visible burning stick — a small bright emissive cylinder standing at the
+    // landing point, so the flare is obviously "deployed" even at a glance.
+    const stick = MeshBuilder.CreateCylinder(`flareStick_${Date.now()}`, { diameter: 0.06, height: 0.5, tessellation: 8 }, this.scene);
+    stick.position = pos.add(new Vector3(0, 0.25, 0));
+    const stickMat = new StandardMaterial(`flareStickMat_${Date.now()}`, this.scene);
+    stickMat.emissiveColor = new Color3(1, 0.55, 0.15);
+    stickMat.diffuseColor = Color3.Black();
+    stickMat.disableLighting = true;
+    stick.material = stickMat;
+    stick.isPickable = false;
+
+    // Soft glow halo billboard for bloom pickup, brightest right at the flame.
+    const halo = MeshBuilder.CreatePlane(`flareHalo_${Date.now()}`, { size: 2.4 }, this.scene);
+    halo.position = anchor;
+    halo.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    halo.isPickable = false;
+    const haloMat = new StandardMaterial(`flareHaloMat_${Date.now()}`, this.scene);
+    haloMat.emissiveTexture = this.flareGlowTexture();
+    haloMat.opacityTexture = haloMat.emissiveTexture;
+    haloMat.diffuseColor = Color3.Black();
+    haloMat.disableLighting = true;
+    haloMat.emissiveColor = new Color3(1, 0.8, 0.45);
+    halo.material = haloMat;
+
+    // The actual illumination — real light, tuned to the throwable's radius.
+    const light = new PointLight(`flare_${Date.now()}`, anchor, this.scene);
+    light.diffuse = new Color3(1, 0.9, 0.65);
+    light.specular = new Color3(0.5, 0.45, 0.3);
+    light.intensity = 3.2;
+    light.range = throwable.radiusM * 2.2;
+    admitLightToFrozenWorld(this.scene);
+
+    // Gentle rising smoke so the flare reads as burning, not just glowing.
+    const smoke = new ParticleSystem(`flareSmoke_${Date.now()}`, 40, this.scene);
+    smoke.particleTexture = this.flareGlowTexture();
+    smoke.emitter = anchor;
+    smoke.minEmitBox = new Vector3(-0.05, 0, -0.05);
+    smoke.maxEmitBox = new Vector3(0.05, 0.1, 0.05);
+    smoke.direction1 = new Vector3(-0.3, 1.5, -0.3);
+    smoke.direction2 = new Vector3(0.3, 2.2, 0.3);
+    smoke.color1 = new Color4(0.5, 0.45, 0.35, 0.35);
+    smoke.color2 = new Color4(0.35, 0.32, 0.28, 0.2);
+    smoke.colorDead = new Color4(0.3, 0.3, 0.3, 0);
+    smoke.minSize = 0.3;
+    smoke.maxSize = 0.8;
+    smoke.minLifeTime = 1.2;
+    smoke.maxLifeTime = 2.2;
+    smoke.emitRate = 12;
+    smoke.blendMode = ParticleSystem.BLENDMODE_STANDARD;
+    smoke.start();
+
+    // Subtle flicker so the light doesn't read as a flat, static bulb.
+    let flickerT = 0;
+    const flickerObs = this.scene.onBeforeRenderObservable.add(() => {
+      flickerT += this.scene.getEngine().getDeltaTime() / 1000;
+      light.intensity = 3.2 + Math.sin(flickerT * 17) * 0.25 + Math.sin(flickerT * 41) * 0.12;
+    });
+
     this.onFlareTriggered?.(pos);
     this.enemyManager.alertAllToPosition(pos);
-    setTimeout(() => light.dispose(), throwable.effectDurationSec * 1000);
+
+    setTimeout(() => {
+      this.scene.onBeforeRenderObservable.remove(flickerObs);
+      light.dispose();
+      stick.dispose();
+      halo.dispose();
+      smoke.stop();
+      setTimeout(() => smoke.dispose(), 2500); // let in-flight smoke particles finish fading
+    }, throwable.effectDurationSec * 1000);
+  }
+
+  /** Small soft radial-gradient sprite shared by every flare's halo + smoke this session. */
+  private flareGlowTexture(): DynamicTexture {
+    if (this.cachedFlareGlowTex) return this.cachedFlareGlowTex;
+    const size = 64;
+    const tex = new DynamicTexture("flareGlowTex", { width: size, height: size }, this.scene, false);
+    const ctx = tex.getContext() as CanvasRenderingContext2D;
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, "rgba(255,255,255,1)");
+    g.addColorStop(0.4, "rgba(255,220,160,0.6)");
+    g.addColorStop(1, "rgba(255,200,120,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    tex.update();
+    tex.hasAlpha = true;
+    this.cachedFlareGlowTex = tex;
+    return tex;
   }
 
   private spawnFlashSprite(pos: Vector3, color: Color3, scale: number, ms: number): void {

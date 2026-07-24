@@ -23,6 +23,13 @@ export class WorldMaterial extends PBRMaterial {
     // shaded faces stay readable without washing out the sun/shade contrast.
     this.environmentIntensity = 0.55;
     this.specularIntensity = 0.6;
+    // Headroom above the default 4: the static rig alone (hemi + sun/moon +
+    // fill) is 3, the weapon flashlight is admitted as a 4th (see
+    // admitLightToFrozenWorld in Level.ts) — without this, a later dynamic
+    // light (e.g. an illumination flare) would have no free slot to bind into
+    // on frozen world geometry and would only ever light unfrozen dynamic
+    // actors, never the buildings/ground around it.
+    this.maxSimultaneousLights = 8;
   }
 
   get diffuseColor(): Color3 {

@@ -99,6 +99,18 @@ export class Armoury {
     this.root.style.display = "none";
   }
 
+  /**
+   * Re-renders the currently-open panel from the live GameState — used when
+   * credits change from OUTSIDE the normal buy/sell flow (a Guardian money
+   * edit reconciled in from the server) so the balance and every buy button's
+   * afford/can't-afford styling update immediately if the shop is open. Does
+   * NOT call gameState.save() — nothing local changed, there's nothing to push.
+   */
+  refreshDisplay(): void {
+    if (!this.visible) return;
+    this.renderContent();
+  }
+
   private setTab(tab: Tab): void {
     this.activeTab = tab;
     this.audio.uiClick();

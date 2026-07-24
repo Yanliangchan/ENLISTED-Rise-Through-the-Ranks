@@ -151,6 +151,9 @@ async function boot(): Promise<void> {
    *  (MP gives a fixed per-life kit count without clobbering the survival save). */
   let mpSavedMedkits = 0;
   const MP_MEDKITS_PER_LIFE = 3;
+  /** Survival throwable count saved on entering a multiplayer match, restored on exit —
+   *  same reasoning as mpSavedMedkits: MP gets its own full charge without clobbering the survival save. */
+  let mpSavedThrowableCount = 0;
 
   const player = new PlayerController(game.scene, input, SPAWN_POINT, audio);
   attachCinematicPipeline(game.scene, player.camera);
@@ -263,6 +266,24 @@ async function boot(): Promise<void> {
     waveManager.skipArmoury();
     input.lockPointer();
   };
+
+  // Credits reconciliation: purchases/rewards/Guardian edits must all agree on
+  // one server-side money value. Purchases already write through GameState →
+  // Backend.saveGameState (debounced PUT /api/save); a Guardian edit instead
+  // writes straight to the DB out-of-band, so a client sitting in an active
+  // session would never see it (and worse, its next autosave would silently
+  // overwrite the Guardian's edit with its own stale local balance). Polling
+  // here detects a genuine external change and folds it straight into the
+  // live GameState/HUD/Armoury — no reconnect or new match required.
+  if (backend) {
+    setInterval(() => {
+      void backend.reconcileCredits().then((serverCredits) => {
+        if (serverCredits === null) return;
+        gameState.data.credits = serverCredits;
+        armoury.refreshDisplay();
+      }).catch(() => {}); // transient network hiccup — next poll retries
+    }, 6000);
+  }
 
   const pauseMenu = new PauseMenu(uiRoot, settings, audio, player, gameState, backend?.profile.username, stats);
   const gameOverScreen = new GameOverScreen(uiRoot, gameState);
@@ -543,6 +564,14 @@ async function boot(): Promise<void> {
     hud.setVisible(true); // multiplayer wants the health/ammo HUD
     loadout.switchTo("primary");
     weaponController.resetAllAmmo();
+    // Throwables (frag/smoke/flashbang/flare/tripflare/claymore) need the same
+    // fresh-charge treatment as ammo: without this, a player who used up their
+    // throwable count in single-player would enter multiplayer with 0 and be
+    // unable to throw anything, flare included, until it was reset elsewhere
+    // (which it never was). Snapshot the survival count first so MP never
+    // clobbers the survival save, same as the medkit handling just below.
+    mpSavedThrowableCount = gameState.data.loadout.throwableCount;
+    gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
     player.inSafeZone = false;
     player.spawnProtected = false;
     (player as unknown as { collider: { rotation: { y: number } } }).collider.rotation.y = 0;
@@ -553,7 +582,11 @@ async function boot(): Promise<void> {
     gameState.data.medkitCount = MP_MEDKITS_PER_LIFE;
     netMatch = new NetMatch(game.scene, player, weaponController, net, info, hud, () => input.isPointerLocked, uiRoot);
     netMatch.onExit = () => exitNetMatch();
-    netMatch.onLocalRespawn = () => { gameState.data.medkitCount = MP_MEDKITS_PER_LIFE; };
+    netMatch.onLocalRespawn = () => {
+      gameState.data.medkitCount = MP_MEDKITS_PER_LIFE;
+      // Same per-life refill for throwables, so a used flare/grenade comes back after death.
+      gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
+    };
     // Persist results before returning to the lobby: XP/rank/badges server-side,
     // currency applied to the local economy save (auto-persists).
     netMatch.onSubmitResult = async ({ mode, won, result }) => {
@@ -585,6 +618,7 @@ async function boot(): Promise<void> {
     setSurvivalWorldEnabled(true);
     botty?.root.setEnabled(true); // restore BOTTY for the survival game
     gameState.data.medkitCount = mpSavedMedkits; // restore survival first-aid count
+    gameState.data.loadout.throwableCount = mpSavedThrowableCount; // restore survival throwable count
     gameState.save();
     game.renderingPaused = true;
     document.exitPointerLock();
@@ -832,6 +866,12 @@ async function boot(): Promise<void> {
         player.update(dt);
         loadout.update();
         weaponController.update(dt);
+        // Throwables (frag/smoke/flashbang/flare/tripflare/claymore) are part
+        // of "weapon-slot switching" too — the throwable slot (4) is selectable
+        // in this mode, but this update() call was missing, so G silently did
+        // nothing and every throwable (the illumination flare included) was
+        // dead in Iron Citadel preview AND multiplayer.
+        if (citadelActive) throwableController.update(dt);
         netMatch?.update(dt);
         if (netMatch) {
           medKit.update(dt); // Digit5 self-heal is available in multiplayer
