@@ -266,7 +266,7 @@ export class Backend {
   // --- Guardian (hidden dev/mod/tester tooling; gated by the persisted
   // `guardian` flag on this account — see server/routes/guardian.ts) ---
 
-  guardianLookup(username: string): Promise<PublicProfile & { guardian: boolean }> {
+  guardianLookup(username: string): Promise<PublicProfile & { guardian: boolean; credits: number }> {
     return this.request("GET", `/api/guardian/lookup/${encodeURIComponent(username)}`);
   }
 
@@ -278,6 +278,10 @@ export class Backend {
 
   guardianGrantBadge(username: string, code: string): Promise<{ ok: boolean; badge: BadgeInfo }> {
     return this.request("POST", "/api/guardian/badges/grant", { username, code });
+  }
+
+  guardianRevokeBadge(username: string, code: string): Promise<{ ok: boolean; badge: BadgeInfo }> {
+    return this.request("POST", "/api/guardian/badges/revoke", { username, code });
   }
 
   guardianAdjustXp(username: string, delta: number): Promise<{ ok: boolean; xp: number }> {

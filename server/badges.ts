@@ -141,3 +141,14 @@ export async function grantBadgeByCode(userId: number, code: string): Promise<Un
   await query("INSERT INTO user_badges (user_id, badge_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [userId, badge.id]);
   return { code: badge.code, name: badge.name, icon: badge.icon };
 }
+
+/** Removes an earned badge from a user (Guardian tooling). Returns the badge if it existed, else null. */
+export async function revokeBadgeByCode(userId: number, code: string): Promise<UnlockedBadge | null> {
+  const badge = await queryOne<{ id: number; code: string; name: string; icon: string }>(
+    "SELECT id, code, name, icon FROM badges WHERE code = $1",
+    [code]
+  );
+  if (!badge) return null;
+  await query("DELETE FROM user_badges WHERE user_id = $1 AND badge_id = $2", [userId, badge.id]);
+  return { code: badge.code, name: badge.name, icon: badge.icon };
+}

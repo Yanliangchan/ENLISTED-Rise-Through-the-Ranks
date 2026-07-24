@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuth, type AuthedRequest } from "../auth.js";
 import { query, queryOne } from "../db.js";
 import { loadProfile } from "../profile.js";
-import { listBadgeCatalogueFor, grantBadgeByCode } from "../badges.js";
+import { listBadgeCatalogueFor, grantBadgeByCode, revokeBadgeByCode } from "../badges.js";
 import { CAREER_PATHS, type CareerPath } from "../ranks.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { rateLimit } from "../rateLimit.js";
@@ -19,6 +19,12 @@ export const guardianRouter = Router();
  * that persisted flag, so a leaked GUARDIAN_CODE only grants/revokes access —
  * it can't itself moderate anyone.
  */
+/** Pull the spendable credits out of a save blob, defaulting to 0. */
+function creditsOf(save: unknown): number {
+  const c = (save as { credits?: unknown } | null)?.credits;
+  return typeof c === "number" && Number.isFinite(c) ? c : 0;
+}
+
 async function requireGuardian(req: AuthedRequest, res: Response, next: NextFunction): Promise<void> {
   const row = await queryOne<{ guardian: boolean }>("SELECT guardian FROM users WHERE id = $1", [req.user!.sub]);
   if (!row?.guardian) {
@@ -81,8 +87,10 @@ guardianRouter.get(
       return;
     }
     const profile = await loadProfile(user.id);
-    const { save: _save, settings: _settings, ...publicProfile } = profile!;
-    res.json({ ...publicProfile, guardian: user.guardian });
+    const { save, settings: _settings, ...publicProfile } = profile!;
+    // Surface just the spendable credits (from the save blob) without leaking
+    // the whole save — the panel needs it to show + pre-fill the money field.
+    res.json({ ...publicProfile, guardian: user.guardian, credits: creditsOf(save) });
   })
 );
 
@@ -113,6 +121,26 @@ guardianRouter.post(
       return;
     }
     const badge = await grantBadgeByCode(user.id, String(req.body?.code ?? ""));
+    if (!badge) {
+      res.status(404).json({ error: "Unknown badge code." });
+      return;
+    }
+    res.json({ ok: true, badge });
+  })
+);
+
+/** POST /api/guardian/badges/revoke { username, code } — remove an earned badge from an operator. */
+guardianRouter.post(
+  "/badges/revoke",
+  asyncHandler(async (req, res) => {
+    const user = await queryOne<{ id: number }>("SELECT id FROM users WHERE username_lower = $1", [
+      String(req.body?.username ?? "").trim().toLowerCase(),
+    ]);
+    if (!user) {
+      res.status(404).json({ error: "No such operator." });
+      return;
+    }
+    const badge = await revokeBadgeByCode(user.id, String(req.body?.code ?? ""));
     if (!badge) {
       res.status(404).json({ error: "Unknown badge code." });
       return;
