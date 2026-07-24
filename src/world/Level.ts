@@ -275,12 +275,6 @@ export function buildLevel(scene: Scene, night: boolean = Math.random() < 0.5): 
   pavementTex.uScale = 50;
   pavementTex.vScale = 50;
   groundMat.diffuseTexture = pavementTex;
-  // Micro surface relief so the ground catches the sun/moon instead of reading flat.
-  const groundNormal = createDetailNormalTexture(scene, "groundNormal", 91, 2.0);
-  groundNormal.uScale = 50;
-  groundNormal.vScale = 50;
-  groundMat.bumpTexture = groundNormal;
-  groundMat.bumpTexture.level = 0.7;
 
   const ground = MeshBuilder.CreateGround("ground", { width: MAP_SPAN + 20, height: MAP_SPAN + 20 }, scene);
   ground.material = groundMat;
@@ -1148,13 +1142,6 @@ function buildRoads(scene: Scene): void {
   for (const kind of Object.keys(roadMats) as RoadKind[]) {
     (roadMats[kind].diffuseTexture as Texture).vScale = 18;
   }
-  // Shared asphalt relief for all three road kinds (they share UV tiling).
-  const roadNormal = createDetailNormalTexture(scene, "roadNormal", 43, 1.4);
-  roadNormal.vScale = 18;
-  for (const kind of Object.keys(roadMats) as RoadKind[]) {
-    roadMats[kind].bumpTexture = roadNormal;
-    roadMats[kind].bumpTexture!.level = 0.5;
-  }
 
   const sidewalkTex = createSidewalkTexture(scene, "sidewalkTex");
   const sidewalkMat = new WorldMaterial("sidewalkMat", scene);
@@ -1163,11 +1150,6 @@ function buildRoads(scene: Scene): void {
   sidewalkMat.diffuseTexture = sidewalkTex;
   sidewalkTex.uScale = 40;
   sidewalkTex.vScale = 4;
-  const sidewalkNormal = createDetailNormalTexture(scene, "sidewalkNormal", 71, 1.6);
-  sidewalkNormal.uScale = 40;
-  sidewalkNormal.vScale = 4;
-  sidewalkMat.bumpTexture = sidewalkNormal;
-  sidewalkMat.bumpTexture.level = 0.6;
 
   const segments = sidewalkSegments();
   const sideW = 1.4;
@@ -1514,16 +1496,6 @@ function buildStreetGrid(scene: Scene, layout: BuildingFootprint[]): void {
   const hdbAccentMat = new WorldMaterial("hdbAccentMat", scene);
   hdbAccentMat.diffuseColor = HDB_ACCENT;
   hdbAccentMat.specularColor = Color3.Black();
-
-  // Shared concrete micro-relief for the matte (non-glass) facades so walls
-  // catch the sun/moon with real texture instead of reading as flat paint.
-  const facadeNormal = createDetailNormalTexture(scene, "facadeNormal", 131, 1.3);
-  facadeNormal.uScale = 4;
-  facadeNormal.vScale = 6;
-  for (const mat of [...shophouseMats, ...hdbMats, ...industrialMats, hdbAccentMat]) {
-    mat.bumpTexture = facadeNormal;
-    mat.bumpTexture.level = 0.35;
-  }
 
   layout.forEach(({ x, z, size, height, type }, i) => {
     const building = MeshBuilder.CreateBox(`building_${i}`, { width: size, height, depth: size }, scene);

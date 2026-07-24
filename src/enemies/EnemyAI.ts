@@ -328,15 +328,11 @@ export class EnemyInstance implements Damageable {
     helmet.material = assets.helmetMat;
     helmet.parent = vr;
 
-    // Class-identification accent: a coloured helmet band + chest patch,
-    // visible at medium range without recolouring the whole hostile silhouette.
+    // Class-identification accent: a coloured chest patch, visible at medium
+    // range without recolouring the whole hostile silhouette. (A helmet-band
+    // torus used to sit here too but was dropped for performance — a torus is
+    // the priciest primitive per soldier and the patch already reads the class.)
     const accentMat = getClassAccentMat(scene, type.id);
-    const helmetBand = MeshBuilder.CreateTorus(`${this.id}_helmetBand`, { diameter: 0.32, thickness: 0.03, tessellation: 12 }, scene);
-    helmetBand.position.y = 1.72;
-    helmetBand.rotation.x = Math.PI / 2;
-    helmetBand.material = accentMat;
-    helmetBand.parent = vr;
-    helmetBand.isPickable = false;
     const chestPatch = MeshBuilder.CreateBox(`${this.id}_chestPatch`, { width: 0.1, height: 0.1, depth: 0.02 }, scene);
     chestPatch.position.set(0.18, 1.2, 0.26);
     chestPatch.material = accentMat;

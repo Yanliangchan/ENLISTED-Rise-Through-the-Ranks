@@ -96,10 +96,10 @@ function attachAdaptiveQuality(
   ssao: SSAO2RenderingPipeline | null
 ): void {
   const engine = scene.getEngine();
-  const TARGET_FPS = 42;
+  const TARGET_FPS = 45;
   let tier = 0;
   let clockMs = 0;
-  let warmupMs = 6000; // ignore load/shader-compile stutter right after start
+  let warmupMs = 3500; // ignore load/shader-compile stutter right after start
 
   scene.onBeforeRenderObservable.add(() => {
     const dtMs = engine.getDeltaTime();
@@ -108,7 +108,9 @@ function attachAdaptiveQuality(
       return;
     }
     clockMs += dtMs;
-    if (clockMs < 4000) return;
+    // Re-evaluate every ~2s (was 4s) so a struggling machine reaches a
+    // sustainable tier in seconds instead of nearly a minute.
+    if (clockMs < 2000) return;
     clockMs = 0;
     if (engine.getFps() >= TARGET_FPS || tier >= 4) return;
 

@@ -1,4 +1,4 @@
-import { Scene, Vector3, Matrix, MeshBuilder, StandardMaterial, Color3, LinesMesh, Ray, SpotLight, PointLight, type AbstractMesh } from "@babylonjs/core";
+import { Scene, Vector3, Matrix, MeshBuilder, StandardMaterial, Color3, LinesMesh, Ray, SpotLight, type AbstractMesh } from "@babylonjs/core";
 import { isNightMode } from "@/world/Level";
 import type { Weapon } from "@/data/weapons";
 import { WEAPONS } from "@/data/weapons";
@@ -772,16 +772,11 @@ export class WeaponController {
     flash.isPickable = false;
     flash.material = this.fxMat("flash");
     setTimeout(() => flash.dispose(), 28);
-
-    // At night the muzzle flash should actually throw light, not just be a
-    // bright decal — a brief, cheap PointLight that self-disposes with the flash.
-    if (isNightMode()) {
-      const flashLight = new PointLight("muzzleFlashLight", flash.getAbsolutePosition(), this.scene);
-      flashLight.diffuse = new Color3(1, 0.78, 0.42);
-      flashLight.intensity = 2.2 * this.effective.muzzleFlashScale;
-      flashLight.range = 12;
-      setTimeout(() => flashLight.dispose(), 28);
-    }
+    // NOTE: no per-shot dynamic PointLight here. Creating/disposing a real light
+    // every shot forces Babylon to recompile the shaders of every material in
+    // range (the scene's light list changed), which caused a visible stutter on
+    // full-auto at night. The emissive flash disc reads as a flash on its own,
+    // and the cinematic pipeline's bloom gives it the glow/throw for free.
   }
 
   private drawTracer(from: Vector3, to: Vector3): void {

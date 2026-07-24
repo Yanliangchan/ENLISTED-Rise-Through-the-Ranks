@@ -17,6 +17,14 @@ import type { AudioManager } from "@/core/AudioManager";
 // OPFOR reinforcements always arrive as pairs, and never materialise on top of
 // the player, in their line of sight, or right behind them.
 const SPAWN_PAIR_SIZE = 2;
+// Cap on how many OPFOR are alive at once. A wave still fields its full count
+// (unchanged difficulty and total rewards) — the surplus is held back and
+// streamed in as reinforcements whenever a slot frees up. This bounds the
+// per-frame render/AI cost (each soldier is ~15 draw calls + an AI tick), which
+// is what made the late waves lag: at wave 20 the old "spawn all at once" put
+// 60+ soldiers on screen simultaneously. Early waves are under the cap, so they
+// play exactly as before.
+const MAX_LIVE_ENEMIES = 22;
 const MIN_SPAWN_RADIUS_M = 30; // never spawn closer than this to the player
 const REAR_CONE_COS = Math.cos((30 * Math.PI) / 180); // "directly behind" exclusion half-angle
 const FRONT_VIEW_COS = Math.cos((55 * Math.PI) / 180); // forward view half-angle for the "in sight" test
@@ -64,6 +72,10 @@ const INTEL_CONFIRM_RANGE = 60; // metres — within this the contact is "confir
 
 export class EnemyManager {
   private enemies: EnemyInstance[] = [];
+  /** Enemy type ids still waiting to be streamed in as reinforcements for the current wave. */
+  private pendingTypes: string[] = [];
+  private pendingWave = 1;
+  private pendingElite = false;
   private engagedIds = new Set<string>();
 
   constructor(
@@ -135,8 +147,9 @@ export class EnemyManager {
   }
 
   get totalForWaveRemaining(): number {
-    // The whole wave spawns at once, so remaining == still alive.
-    return this.aliveCount;
+    // Alive right now PLUS the reinforcements still queued to stream in — the
+    // wave only clears once both reach zero.
+    return this.aliveCount + this.pendingTypes.length;
   }
 
   waveEnemyCount(wave: number): number {
@@ -171,33 +184,53 @@ export class EnemyManager {
     this.enemies = this.enemies.filter((e) => !e.disposed);
     this.engagedIds.clear();
     const count = this.waveEnemyCount(wave);
-    const pairCount = Math.ceil(count / SPAWN_PAIR_SIZE);
     const elite = this.isEliteWave(wave);
-    // On an Elite Wave, guarantee one Officer somewhere in the wave (unless the
-    // wave is too small to spare a slot) — everything else uses the boosted
-    // heavy-fraction mix.
-    let officerPending = elite && ELITE_WAVE.guaranteesOfficer && count > 0;
+    this.pendingWave = wave;
+    this.pendingElite = elite;
 
-    let spawned = 0;
-    for (let p = 0; p < pairCount && spawned < count; p++) {
+    // Decide the whole wave's composition up front (same mix as before: one
+    // guaranteed Officer on Elite waves, the boosted heavy fraction, then the
+    // per-wave random pick), then queue it. The queue is drained up to
+    // MAX_LIVE_ENEMIES now and topped up as enemies die (see streamReinforcements).
+    this.pendingTypes = [];
+    let officerPending = elite && ELITE_WAVE.guaranteesOfficer && count > 0;
+    for (let i = 0; i < count; i++) {
+      if (officerPending) {
+        this.pendingTypes.push("opfor_officer");
+        officerPending = false;
+      } else if (elite && i < Math.ceil(count * ELITE_WAVE.heavyFraction)) {
+        this.pendingTypes.push("opfor_heavy");
+      } else {
+        this.pendingTypes.push(pickTypeForWave(wave));
+      }
+    }
+
+    // Fill up to the live cap immediately so the wave opens at full intensity;
+    // the remainder streams in over the wave as slots free up.
+    this.spawnFromQueue(player, MAX_LIVE_ENEMIES);
+  }
+
+  /**
+   * Spawns queued reinforcements (as validated pairs) until either the live cap
+   * is reached, the queue empties, or `maxThisCall` soldiers have spawned this
+   * call — the last bound spreads spawn/anchor-finding cost across frames so a
+   * big top-up never causes a single-frame hitch.
+   */
+  private spawnFromQueue(player: PlayerController, maxThisCall: number): void {
+    let spawnedThisCall = 0;
+    while (this.pendingTypes.length > 0 && this.aliveCount < MAX_LIVE_ENEMIES && spawnedThisCall < maxThisCall) {
       const anchor = this.findValidSpawnAnchor(player);
-      for (let m = 0; m < SPAWN_PAIR_SIZE && spawned < count; m++) {
-        // The two members of a pair stand a couple of metres apart, each
-        // re-snapped to walkable ground and clear of the camp.
+      for (
+        let m = 0;
+        m < SPAWN_PAIR_SIZE && this.pendingTypes.length > 0 && this.aliveCount < MAX_LIVE_ENEMIES && spawnedThisCall < maxThisCall;
+        m++
+      ) {
         const jitter = new Vector3((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4);
         let position = ensureClearOfCamp(anchor.add(jitter));
         position = ensureClearOfCamp(findNearestNavigable(this.scene, position));
-        let typeId: string;
-        if (officerPending) {
-          typeId = "opfor_officer";
-          officerPending = false;
-        } else if (elite && spawned < Math.ceil(count * ELITE_WAVE.heavyFraction)) {
-          typeId = "opfor_heavy";
-        } else {
-          typeId = pickTypeForWave(wave);
-        }
-        this.spawnEnemy(typeId, position, wave, elite);
-        spawned++;
+        const typeId = this.pendingTypes.shift()!;
+        this.spawnEnemy(typeId, position, this.pendingWave, this.pendingElite);
+        spawnedThisCall++;
       }
     }
   }
@@ -280,6 +313,11 @@ export class EnemyManager {
       enemy.update(dt, player, wave);
     }
     this.enemies = this.enemies.filter((e) => !e.disposed);
+    // Trickle reinforcements in as the living count drops below the cap — at
+    // most one pair per frame so the top-up cost is spread out.
+    if (this.pendingTypes.length > 0 && this.aliveCount < MAX_LIVE_ENEMIES) {
+      this.spawnFromQueue(player, SPAWN_PAIR_SIZE);
+    }
   }
 
   /** Refreshes each soldier's `officerBuffed` flag: true while standing within a living Officer's buff radius. */
@@ -435,5 +473,6 @@ export class EnemyManager {
   clearAll(): void {
     for (const enemy of this.enemies) enemy.dispose();
     this.enemies = [];
+    this.pendingTypes = [];
   }
 }
