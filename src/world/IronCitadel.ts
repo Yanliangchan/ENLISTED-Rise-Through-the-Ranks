@@ -1127,10 +1127,13 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   sofa(19, -31, Math.PI);
   cover(1.6, 0.5, 1.0, 19, -33.5, Y0, M.wood); // coffee table
   plant(25, -32);
-  // Lift lobby (east): decorative lift doors (aluminium) + call panel.
+  // Lift lobby (east): decorative lift doors (aluminium) + call panel + a
+  // waiting bench/planter so it doesn't read as bare floor.
   wall(10, 0.4, 40, -39.4, Y0, ROOM_H, M.alu);
   for (const lx of [36, 40, 44]) panel(1.8, 2.4, lx, -39.15, Y0 + 1.4, 0, M.alu);
   exitSign(44, -33, Math.PI);
+  cover(2.4, 0.45, 0.6, 40, -36, Y0, M.wood); // waiting bench
+  plant(35, -35.5);
   // Security screening checkpoint (the entry choke at z=-28): scanners + sandbags + 2 lanes.
   wall(3, WALL_T, -14, -28, Y0, ROOM_H, M.wallCool); // between lanes
   wall(3, WALL_T, 14, -28, Y0, ROOM_H, M.wallCool);
@@ -1176,6 +1179,10 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
     plant(cx - 7, cz + 3);
     whiteboard(cx, cz + 3.6, Math.PI);
     missionBoard(cx - 7.6, cz, Math.PI / 2);
+    // Extra per-room clutter so the 4 identical desk layouts read distinctly.
+    if (label === "ADMIN OFFICE") { waterCooler(cx + 6.8, cz + 3.4); inst(chairSrc, cx - 4, Y0 + 0.25, cz - 1, Math.PI); }
+    else if (label === "PLANNING OFFICE") { boxStack(cx - 6.8, cz + 3, 2); inst(monitorSrc, cx + 3, Y0 + 1.1, cz - 1.4, 0); }
+    else if (label === "FINANCE OFFICE") { cover(1.0, 1.1, 0.9, cx + 6.5, cz + 3, Y0, M.steel); inst(monitorSrc, cx - 4, Y0 + 1.1, cz + 1.4, Math.PI); } // safe
     ceiling(cx - 8, cz - 4, cx + 8, cz + 4);
     plaque(label, cx + 8.3, cz, -Math.PI / 2); // readable from the corridor (east)
     fp(label.toLowerCase().replace(/\s+/g, "-"), cx - 8, cz - 4, cx + 8, cz + 4);
@@ -1203,8 +1210,11 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
       desk(cx - 4, cz + 1, 0);
       desk(cx + 3, cz - 1, Math.PI);
       cabinet(cx + 6, cz + 2.5);
-      boxStack(cx - 6, cz - 2, 3);
       bin(cx - 6.5, cz + 3);
+      // Logistics reads as a stockroom-office; Intelligence swaps the crates
+      // for screens/boards so the two rooms don't feel identical.
+      if (label === "LOGISTICS OFFICE") boxStack(cx - 6, cz - 2, 3);
+      else { inst(monitorSrc, cx - 4, Y0 + 1.1, cz + 0.6, 0); inst(monitorSrc, cx + 3, Y0 + 1.1, cz - 1.6, Math.PI); missionBoard(cx + 6.6, cz - 1, -Math.PI / 2); }
     }
     ceiling(cx - 8, cz - 4, cx + 8, cz + 4, ROOM_H, glassy); // warm light in meeting/breakout
     plaque(label, cx - 8.3, cz, Math.PI / 2);
@@ -1489,9 +1499,14 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   counter(3.5, 0.9, 40, 14.2);
   coffeeMachine(41.2, 14.2, Y0 + 0.9);
   waterCooler(37, 16);
+  cabinet(43.3, 16);
   ceiling(36, 13, 44, 17);
   fp("pantry", 36, 13, 44, 17);
   roomShell(44, 13, 52, 17, M.tile, [{ side: "n", at: 48, width: 1.6 }]);
+  counter(4.0, 0.7, 47.6, 14.2); // sink counter
+  panel(3.4, 1.2, 47.6, 13.65, Y0 + 1.5, 0, glassMat); // mirror above the sinks
+  for (const sx of [45.2, 50.6]) cover(1.0, 2.0, 1.0, sx, 16.2, Y0, M.tile); // stall partitions
+  bin(51.4, 13.6);
   ceiling(44, 13, 52, 17);
   fp("washrooms", 44, 13, 52, 17);
   // Locker + fitness alcove in the corridor's south run (open, not a room).
