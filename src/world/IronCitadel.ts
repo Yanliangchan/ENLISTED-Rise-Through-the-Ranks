@@ -1377,6 +1377,40 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   fp("briefing-room", -24, 14, -10, 24);
 
   // =========================================================================
+  // NORTH PLAZA + FLANK CORRIDORS — the strip along the north wall (z 32-42)
+  // behind the Operations Centre, and the two north-south gaps either side of
+  // it (x~-18 west, x~18 east) between the Ops Centre and the west/east
+  // secure blocks. This used to be bare floor: red team spawns directly into
+  // it with no cover and full sightlines down both gaps, so it read as an
+  // exposed, campable spawn compared to blue's staged reception area.
+  // =========================================================================
+  // Defender (red) spawn staging, mirroring blue's cover at the south end.
+  cover(1.6, 1.0, 1.6, -4, 40, Y0, M.concrete);
+  cover(1.6, 1.0, 1.6, 4, 40, Y0, M.concrete);
+  // Plaza cover directly behind the Ops Centre's rear wall — breaks the long
+  // east-west sightline along the north wall and gives spawn 0/1 (x=-6, 6)
+  // something to move to immediately.
+  boxStack(-8, 35, 2);
+  boxStack(8, 35, 2);
+  pillar(-8, 39, Y0, WALL_H);
+  pillar(8, 39, Y0, WALL_H);
+  emergencyLight(0, 41.4, Math.PI);
+  // West gap (x~-18, between the west secure block at x=-24 and the Ops
+  // Centre at x=-12): pillar + crate chokepoint so the corridor isn't a
+  // straight unobstructed lane end to end.
+  pillar(-18, 26, Y0, WALL_H);
+  cover(1.4, 1.0, 1.4, -18, 34, Y0, M.concrete);
+  emergencyLight(-18, 40, 0);
+  // East gap (x~18, between the Ops Centre and the east secure block at
+  // x=23) — mirrors the west gap and also gives spawn 2 (x=18) nearby cover.
+  pillar(18, 26, Y0, WALL_H);
+  cover(1.4, 1.0, 1.4, 18, 34, Y0, M.concrete);
+  emergencyLight(18, 40, 0);
+  // Cover for spawn 3 (x=30), which otherwise sits in the open strip behind
+  // the Equipment Issue room with nothing between it and the plaza.
+  cover(1.6, 1.0, 1.6, 30, 40.5, Y0, M.concrete);
+
+  // =========================================================================
   // WEST TECHNICAL SPINE — cable/utility maintenance corridor (x[-56,-50]).
   // The old standalone utility rooms (Electrical / AC Plant / Fire Control /
   // Storage / Workshop) overlapped the west offices and are folded into this
@@ -1400,6 +1434,16 @@ export function buildIronCitadel(scene: Scene): IronCitadelHandles {
   for (const cz of [-18, 4, 26]) emergencyLight(-50.4, cz, Math.PI); // service-corridor emergency lighting
   plaque("PLANT & UTILITIES", -50.3, -20, Math.PI / 2);
   exitSign(-53, -27.4, 0);
+
+  // East technical spine (x~54): the staff-corridor footprint (below) stops
+  // at z=17, but the secure-block's east wall only runs to x=53, leaving an
+  // open strip along the perimeter glazing that continues north to the wall.
+  // Light it and prop it up so it plays as a legitimate third flank route
+  // instead of reading as bare unfinished floor behind the Armoury.
+  for (const cz of [20, 32]) boxStack(54, cz, 2);
+  pillar(54, 26, Y0, WALL_H);
+  cover(1.2, 1.0, 1.2, 54, 38, Y0, M.steel);
+  for (const cz of [21, 35]) emergencyLight(54.3, cz, -Math.PI / 2);
 
   // =========================================================================
   // EAST STAFF-FACILITIES WING — cafeteria / kitchen / pantry / washrooms in
