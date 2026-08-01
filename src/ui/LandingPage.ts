@@ -127,9 +127,12 @@ export class LandingPage {
     hero.className = "lp-hero";
     hero.setAttribute("aria-label", "Enlisted — mission start");
 
+    // Branding, not attribution: this is an independent, SAF-*inspired* game.
+    // The old "SINGAPORE ARMED FORCES PRESENT" kicker read as an official SAF
+    // production, which it is not — see the disclaimer strip below the slogan.
     const kicker = document.createElement("div");
     kicker.className = "lp-kicker";
-    kicker.textContent = "SINGAPORE ARMED FORCES PRESENT";
+    kicker.textContent = "AN SAF-INSPIRED TACTICAL SHOOTER";
 
     const title = document.createElement("h1");
     title.className = "lp-title lp-title-in";
@@ -146,8 +149,28 @@ export class LandingPage {
       slogan.appendChild(span);
     });
 
+    // Spec strip — a modern tactical-shooter marquee (theatre / mode / era)
+    // sitting between the slogan and the typed subline.
+    const specs = document.createElement("div");
+    specs.className = "lp-specs";
+    for (const [k, v] of [
+      ["THEATRE", "SINGAPORE"],
+      ["OPERATION", "SENTINEL SHIELD"],
+      ["CLASS", "INFANTRY FPS"],
+    ] as const) {
+      const chip = document.createElement("span");
+      chip.className = "lp-spec";
+      chip.innerHTML = `<b>${k}</b>${v}`;
+      specs.appendChild(chip);
+    }
+
     const subline = document.createElement("div");
     subline.className = "lp-subline";
+
+    const disclaimer = document.createElement("div");
+    disclaimer.className = "lp-disclaimer";
+    disclaimer.textContent =
+      "Independent fan project — not affiliated with, endorsed by, or produced by the Singapore Armed Forces or MINDEF.";
 
     const deployWrap = document.createElement("div");
     deployWrap.className = "lp-deploy-wrap";
@@ -182,7 +205,7 @@ export class LandingPage {
     briefingToggle.innerHTML = `OPERATIONAL BRIEF <span class="lp-briefing-chevron">▾</span>`;
     briefingToggle.setAttribute("aria-expanded", "false");
 
-    hero.append(kicker, title, slogan, subline, deployWrap, nav, briefingToggle);
+    hero.append(kicker, title, slogan, specs, subline, deployWrap, nav, briefingToggle, disclaimer);
 
     const briefingWrap = document.createElement("div");
     briefingWrap.className = "lp-briefing-wrap";
@@ -410,9 +433,11 @@ export class LandingPage {
       window.setTimeout(() => { el.style.opacity = "1"; }, delayMs);
     };
     stage(".lp-kicker", 350);
+    stage(".lp-specs", 1250);
     stage(".lp-deploy-wrap", 1500);
     stage(".lp-nav", 2000);
     stage(".lp-briefing-toggle", 2400);
+    stage(".lp-disclaimer", 2600);
   }
 
   private typeSubline(el: HTMLElement): void {

@@ -181,7 +181,30 @@ export function injectLandingStyles(): void {
 .lp-slogan span { opacity: 0; display: inline-block; animation: lp-letter-in 0.5s ease both; }
 @keyframes lp-letter-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
+/* Spec strip: three tactical readout chips under the slogan. */
+.lp-specs { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 10px; }
+.lp-spec {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  font-size: 11px; letter-spacing: 2.4px; color: #cfe4c2;
+  padding: 6px 12px;
+  border: 1px solid rgba(140, 210, 140, 0.28);
+  background: linear-gradient(180deg, rgba(18, 30, 18, 0.72), rgba(10, 18, 10, 0.72));
+  box-shadow: inset 0 0 14px rgba(20, 60, 25, 0.28);
+}
+.lp-spec b { font-weight: 600; font-size: 9px; letter-spacing: 2px; color: #7fa872; }
+
 .lp-subline { margin-top: 16px; font-size: 13px; letter-spacing: 3px; color: #7d9a72; min-height: 36px; line-height: 1.6; }
+
+/* Unofficial-project notice — quiet, but backed so it stays legible over
+   the animated skyline behind the hero. */
+.lp-disclaimer {
+  margin-top: 22px; max-width: 60ch;
+  font-size: 10px; letter-spacing: 1.3px; line-height: 1.7;
+  color: #8fae85; text-transform: uppercase;
+  padding: 8px 14px;
+  background: rgba(6, 12, 6, 0.72);
+  border: 1px solid rgba(140, 210, 140, 0.2);
+}
 .lp-cursor { display: inline-block; width: 7px; height: 12px; background: #aef0a0; margin-left: 3px; vertical-align: -1px; animation: lp-blink 1.05s steps(1) infinite; }
 @keyframes lp-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 
