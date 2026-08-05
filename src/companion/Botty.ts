@@ -129,6 +129,13 @@ export class BottyController {
     this.smokeCooldown = 0;
   }
 
+  /** Resets BOTTY's magazine ammo to full — called alongside resetSmoke() on spawn. */
+  resetAmmo(): void {
+    this.roundsInMag = this.effectiveMagSize();
+    this.isReloading = false;
+    this.reloadTimer = 0;
+  }
+
   constructor(
     private readonly scene: Scene,
     spawnPosition: Vector3,

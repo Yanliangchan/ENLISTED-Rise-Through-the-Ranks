@@ -296,6 +296,7 @@ async function boot(): Promise<void> {
     airstrike.reset();
     carpetBombing.reset();
     botty?.resetSmoke();
+    botty?.resetAmmo();
     gameState.data.medkitCount = gameState.startingMedkitCount();
     gameState.save();
   }
