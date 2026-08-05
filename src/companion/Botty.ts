@@ -21,7 +21,7 @@ import type { BottyUpgradeCategory } from "@/data/bottyUpgrades";
 export type BottyCommand = "default" | "followMe" | "goDark" | "coverMe" | "engage" | "retreat";
 
 export const BOTTY_MAX_HEALTH = 150;
-export const BOTTY_PRICE = 11000; // halved from 22000 to make a squadmate reachable earlier
+export const BOTTY_PRICE = 22000; // +10% economy rebalance, rounded to nearest $100
 
 const MAG_SIZE = 25;
 const RELOAD_SEC = 2.2;
