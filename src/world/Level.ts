@@ -242,30 +242,35 @@ export function buildLevel(scene: Scene, night: boolean = Math.random() < 0.5): 
 
   if (night) {
     hemi.intensity = 0.16; // darker than before — flashlight/muzzle flash now carry real weight
-    hemi.diffuse = new Color3(0.34, 0.42, 0.64); // cool moonlit sky from above
+    hemi.diffuse = new Color3(0.36, 0.4, 0.44); // moonlight, only mildly cool
     hemi.groundColor = new Color3(0.05, 0.05, 0.05);
     sun.intensity = 0.26; // moonlight key light
-    sun.diffuse = new Color3(0.52, 0.6, 0.82);
+    sun.diffuse = new Color3(0.56, 0.6, 0.66);
     sun.specular = new Color3(0.48, 0.55, 0.76);
     fill.intensity = 0.07;
-    fill.diffuse = new Color3(0.34, 0.44, 0.66);
+    fill.diffuse = new Color3(0.36, 0.4, 0.46);
     scene.fogStart = 34;
     scene.fogEnd = 140;
-    scene.fogColor = new Color3(0.03, 0.04, 0.08);
-    scene.clearColor = new Color4(0.015, 0.025, 0.05, 1);
+    scene.fogColor = new Color3(0.035, 0.042, 0.038);
+    scene.clearColor = new Color4(0.018, 0.024, 0.02, 1);
   } else {
     hemi.intensity = 0.85; // bright open-sky ambient
-    hemi.diffuse = new Color3(0.75, 0.82, 0.95); // clear-sky blue from above
-    hemi.groundColor = new Color3(0.22, 0.2, 0.17); // warm ground bounce
+    // Equatorial midday haze rather than a clear cold-blue sky: the ambient
+    // from above stays only slightly cool, and the ground bounce is a warm
+    // laterite/soil tone, which is what makes vegetation and No. 4 read as
+    // being lit by Singapore sun instead of studio light.
+    hemi.diffuse = new Color3(0.84, 0.85, 0.82);
+    hemi.groundColor = new Color3(0.3, 0.25, 0.19); // warm tropical soil bounce
     sun.intensity = 1.15; // real midday sun, the key light
     sun.diffuse = new Color3(1, 0.97, 0.88);
     sun.specular = new Color3(1, 0.95, 0.85);
     fill.intensity = 0.28;
-    fill.diffuse = new Color3(0.6, 0.68, 0.8);
+    fill.diffuse = new Color3(0.66, 0.68, 0.64);
     scene.fogStart = 90;
     scene.fogEnd = 320;
-    scene.fogColor = new Color3(0.72, 0.8, 0.88);
-    scene.clearColor = new Color4(0.42, 0.62, 0.85, 1);
+    // Humid white-green haze on the horizon; sky held off the saturated blue.
+    scene.fogColor = new Color3(0.78, 0.79, 0.73);
+    scene.clearColor = new Color4(0.55, 0.66, 0.74, 1);
   }
 
   const groundMat = new WorldMaterial("groundMat", scene);

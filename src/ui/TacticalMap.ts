@@ -6,6 +6,13 @@ import { injectTheme } from "@/ui/theme";
 import { SAF } from "@/ui/saf";
 
 const WORLD_SPAN = 200; // map covers roughly ±100m
+/**
+ * Metres per lettered/numbered map square. Matches StrikeTargeting's grid so a
+ * player can read a reference off this map and call a fire mission by it — the
+ * two boards speak the same language instead of each inventing a coordinate
+ * system.
+ */
+const GRID_SQUARE_M = 20;
 
 /**
  * Full-screen tactical map (toggled with M). Draws the street grid, the base,
@@ -87,16 +94,27 @@ export class TacticalMap {
     ctx.fillStyle = "#121a10";
     ctx.fillRect(0, 0, size, size);
 
-    // Grid.
+    // Lettered/numbered map squares, drawn like a printed chart.
     ctx.strokeStyle = "rgba(120,140,100,0.14)";
     ctx.lineWidth = 1;
-    for (let g = -100; g <= 100; g += 20) {
+    for (let g = -100; g <= 100; g += GRID_SQUARE_M) {
       ctx.beginPath(); ctx.moveTo(toX(g), 0); ctx.lineTo(toX(g), size); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, toY(g)); ctx.lineTo(size, toY(g)); ctx.stroke();
     }
+    const squarePx = GRID_SQUARE_M * scale;
+    const squares = Math.floor(WORLD_SPAN / GRID_SQUARE_M);
+    ctx.fillStyle = "rgba(150,168,130,0.4)";
+    ctx.font = "9px \"DejaVu Sans Mono\", Consolas, monospace";
+    for (let i = 0; i < squares; i++) {
+      ctx.textAlign = "center";
+      ctx.fillText(String.fromCharCode(65 + i), i * squarePx + squarePx / 2, 11);
+      ctx.textAlign = "left";
+      ctx.fillText(String(i + 1), 3, i * squarePx + squarePx / 2 + 3);
+    }
+    ctx.textAlign = "start";
 
     // Buildings.
-    ctx.fillStyle = "rgba(126,136,108,0.5)";
+    ctx.fillStyle = "rgba(126,136,108,0.62)";
     ctx.strokeStyle = "rgba(0,0,0,0.5)";
     for (const b of this.buildingLayout) {
       const w = b.size * scale;
