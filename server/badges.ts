@@ -23,6 +23,12 @@ export interface BadgeCheckInput {
     waveReached: number;
     shotsFired: number;
     shotsHit: number;
+    /** "wave_survival" for a normal/legacy run, or the specific mission mode actually completed. */
+    missionType?: "wave_survival" | "ranger_gauntlet" | "strongpoint_assault";
+    /** Strongpoints cleared this run (Strongpoint Assault only). */
+    strongpointsCleared?: number;
+    /** Wave reached under Ranger Gauntlet's real no-resupply rules — never spoofable from a normal run. */
+    noResupplyWaveReached?: number;
   };
 }
 
@@ -66,15 +72,23 @@ const BADGE_CHECKS: Record<string, (input: BadgeCheckInput) => boolean> = {
   paramedic: (i) => i.lifetime.bottyHeals >= 200,
   adss: (i) => i.lifetime.airstrikeCalls >= 200,
   aiie: (i) => i.lifetime.uavCalls >= 300,
+  // Ranger Gauntlet: 8 waves cleared under the mission's actual no-resupply
+  // rules (main.ts forces this via WaveManager.configureRun + a no-armour
+  // loadout) — noResupplyWaveReached only exists on a genuine Ranger run, so
+  // this can't be spoofed by a long normal wave-survival deployment.
+  ranger_tab: (i) => i.match.missionType === "ranger_gauntlet" && (i.match.noResupplyWaveReached ?? 0) >= 8,
+  // Guards: all 4 Firebase Kranji strongpoints cleared in one Strongpoint
+  // Assault mission.
+  guards_tab: (i) => i.match.missionType === "strongpoint_assault" && (i.match.strongpointsCleared ?? 0) >= 4,
   // double_kill / triple_kill / quad_kill / killstreak_* / untouchable /
   // last_man_standing / medic / resupplier / engineer / defender need
   // per-match data (kill-window timing, damage-taken, revive/resupply counts)
   // the client doesn't submit yet — left unwired here, unlockable only via
   // the Guardian manual-grant tooling until that instrumentation lands.
-  // guardian_badge / airborne_tab / ranger_tab / guards_tab /
-  // commando_recognition / master_marksman / event_veteran / alpha_tester /
-  // founder / event_winner are all manually granted (qualifications, events,
-  // Guardian service) rather than auto-detected from gameplay stats.
+  // guardian_badge / airborne_tab / commando_recognition / master_marksman /
+  // event_veteran / alpha_tester / founder / event_winner are all manually
+  // granted (qualifications, events, Guardian service) rather than
+  // auto-detected from gameplay stats.
 };
 
 export interface UnlockedBadge {

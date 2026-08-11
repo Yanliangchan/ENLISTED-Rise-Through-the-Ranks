@@ -71,6 +71,9 @@ export interface MatchResult {
   airstrikeCalls: number;
   uavCalls: number;
   reconTouches: number;
+  missionType?: "wave_survival" | "ranger_gauntlet" | "strongpoint_assault";
+  strongpointsCleared?: number;
+  noResupplyWaveReached?: number;
 }
 
 export interface MatchSubmitResponse {

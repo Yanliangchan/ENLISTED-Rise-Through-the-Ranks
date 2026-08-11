@@ -50,6 +50,10 @@ import { MedicalStation } from "@/world/MedicalStation";
 import { BottyController, BOTTY_MAX_HEALTH } from "@/companion/Botty";
 import { BottyMarker } from "@/ui/BottyMarker";
 import { CommandWheel } from "@/ui/CommandWheel";
+import { buildKranji, type KranjiHandles } from "@/world/Kranji";
+import { StrongpointMission } from "@/world/StrongpointMission";
+import { StrongpointHUD } from "@/ui/StrongpointHUD";
+import { KRANJI_PROFILE, SINGAPORE_PROFILE, setActiveMap } from "@/world/MapProfile";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -63,6 +67,8 @@ const STORY_BEATS: Array<[number, string]> = [
 ];
 
 const DEBUG = new URLSearchParams(location.search).has("debug");
+/** Flat credit award for clearing all 4 Firebase Kranji strongpoints — a fixed mission bonus, not a per-wave economy change. */
+const STRONGPOINT_CLEAR_BONUS = 5000;
 
 /**
  * Resolve the logged-in operator before building the game: auto-login via a
@@ -146,6 +152,21 @@ async function boot(): Promise<void> {
   // the wave-survival players never pay for its geometry.
   let citadelActive = false;
   let citadel: IronCitadelHandles | null = null;
+  // Firebase Kranji: shared night-dockyard geometry for both Operations modes
+  // below. Built once, lazily, on whichever of the two is entered first.
+  let kranji: KranjiHandles | null = null;
+  // Strongpoint Assault: a fixed 4-objective clear mission, decoupled from
+  // WaveManager entirely (see StrongpointMission.ts) — the "not more endless
+  // waves" mode.
+  let strongpointActive = false;
+  let strongpointMission: StrongpointMission | null = null;
+  // Ranger Gauntlet: the existing wave-survival loop, reused rather than
+  // forked (weaponController/enemyManager only ever hit-detect against the
+  // single global waveManager instance below), capped at 8 waves with
+  // resupply withheld — see WaveManager.configureRun.
+  let rangerActive = false;
+  /** gameState.data.wave belongs to the survival campaign — saved/restored around a Ranger deployment so it never bleeds into that progress. */
+  let rangerSavedWave = 1;
   // Private-room multiplayer: lobby menu (lazily built) + active in-match controller.
   let mpMenu: MultiplayerMenu | null = null;
   let netMatch: NetMatch | null = null;
@@ -212,7 +233,28 @@ async function boot(): Promise<void> {
     },
     onGameOver: (waveReached) => {
       audio.explosion();
-      const match = stats.endRun(waveReached);
+      const match = stats.endRun(
+        waveReached,
+        rangerActive ? { missionType: "ranger_gauntlet" } : undefined
+      );
+      if (backend) {
+        void backend
+          .submitMatch(match)
+          .then((resp) => {
+            stats.applyServerProfile(resp.profile.stats);
+            gameOverScreen.showMatchResult(resp.xpGained, resp.rankUp, resp.newBadges);
+          })
+          .catch(() => gameOverScreen.showSyncError());
+      }
+    },
+    onMissionComplete: (wave) => {
+      // Ranger Gauntlet's win condition — WaveManager already flipped to
+      // "gameover" (onPhaseChange above popped the standard death-style
+      // screen with a restart option), so this only needs to submit the
+      // distinctly-flagged match for the badge check and call out the win.
+      audio.waveClear();
+      hud.showCenterMessage(`RANGER GAUNTLET COMPLETE — WAVE ${wave} CLEARED, NO RESUPPLY`, 4000);
+      const match = stats.endRun(wave, { missionType: "ranger_gauntlet", noResupplyWaveReached: wave });
       if (backend) {
         void backend
           .submitMatch(match)
@@ -300,9 +342,12 @@ async function boot(): Promise<void> {
 
   const pauseMenu = new PauseMenu(uiRoot, settings, audio, player, gameState, backend?.profile.username, stats);
   const gameOverScreen = new GameOverScreen(uiRoot, gameState);
+  const strongpointHud = new StrongpointHUD(uiRoot);
+  strongpointHud.onReturnToBase = () => exitStrongpointAssaultToMenu();
 
-  /** Full resupply on every spawn/redeploy — mags, reserve ammo, and throwables all come back to full. */
+  /** Full resupply on every spawn/redeploy — mags, reserve ammo, and throwables all come back to full. Withheld entirely under the Ranger Gauntlet's "no resupply" rule. */
   function resupplyOnSpawn(): void {
+    if (waveManager.resupplyDisabled) return;
     weaponController.resetAllAmmo();
     gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
     // Charges live on the save now: every deployment restores the free
@@ -556,6 +601,126 @@ async function boot(): Promise<void> {
     showMainMenu();
   }
 
+  // ---- Firebase Kranji: Strongpoint Assault (fixed 4-objective clear) ----
+  function enterStrongpointAssault(): void {
+    if (!kranji) kranji = buildKranji(game.scene); // lazy first-time build, shared with Ranger Gauntlet below
+    kranji.root.setEnabled(true);
+    citadel?.root.setEnabled(false);
+    setSurvivalWorldEnabled(false);
+    setActiveMap(KRANJI_PROFILE);
+    landingPage.hide();
+    game.renderingPaused = false;
+    strongpointActive = true;
+    loadout.switchTo("primary");
+    applyGearToPlayer(gameState, player);
+    weaponController.resetAllAmmo();
+    player.respawn(kranji.spawn);
+    player.inSafeZone = false;
+    player.spawnProtected = false;
+    (player as unknown as { collider: { rotation: { y: number } } }).collider.rotation.y = 0;
+    player.camera.rotation.x = 0;
+    hud.setVisible(true);
+    hud.setWavePanelSuppressed(true); // no WaveManager phase of its own — the objective panel (top-left) owns mission status instead
+    waveManager.enemyManager.clearAll();
+    stats.beginRun();
+    strongpointMission = new StrongpointMission(waveManager.enemyManager, kranji.strongpointDefs, {
+      onStrongpointActivated: (sp) => {
+        audio.waveStart();
+        strongpointHud.updateObjectives(strongpointMission!.strongpoints);
+        hud.showCenterMessage(`CONTACT — ${sp.name.toUpperCase()}`, 2000);
+      },
+      onStrongpointCleared: (_sp, cleared, total) => {
+        audio.waveClear();
+        strongpointHud.updateObjectives(strongpointMission!.strongpoints);
+        hud.showCenterMessage(`STRONGPOINT CLEARED — ${cleared}/${total}`, 2500);
+      },
+      onMissionClear: () => {
+        audio.waveClear();
+        strongpointHud.showResult(true, "All four strongpoints neutralised.");
+        gameState.addCredits(STRONGPOINT_CLEAR_BONUS);
+        stats.recordCredits(STRONGPOINT_CLEAR_BONUS);
+        const match = stats.endRun(waveManager.wave, {
+          missionType: "strongpoint_assault",
+          strongpointsCleared: strongpointMission?.strongpoints.length ?? 4,
+        });
+        if (backend) {
+          void backend
+            .submitMatch(match)
+            .then((resp) => {
+              stats.applyServerProfile(resp.profile.stats);
+            })
+            .catch(() => {});
+        }
+      },
+      onMissionFail: (reason) => {
+        audio.explosion();
+        strongpointHud.showResult(false, reason === "timeout" ? "Time expired before all strongpoints fell." : "Operator down.");
+      },
+      onTimerTick: (secondsLeft) => strongpointHud.updateTimer(secondsLeft),
+    });
+    strongpointHud.updateObjectives(strongpointMission.strongpoints);
+    strongpointHud.show();
+    hud.showCenterMessage("STRONGPOINT ASSAULT — clear all four strongpoints before time runs out", 4000);
+    input.lockPointer();
+  }
+
+  function exitStrongpointAssaultToMenu(): void {
+    strongpointActive = false;
+    strongpointMission = null;
+    waveManager.enemyManager.clearAll();
+    kranji?.root.setEnabled(false);
+    setSurvivalWorldEnabled(true);
+    setActiveMap(SINGAPORE_PROFILE);
+    strongpointHud.hide();
+    hud.setVisible(true);
+    hud.setWavePanelSuppressed(false);
+    game.renderingPaused = true;
+    document.exitPointerLock();
+    player.respawn(SPAWN_POINT);
+    showMainMenu();
+  }
+
+  // ---- Firebase Kranji: Ranger Gauntlet (8-wave, no-resupply endurance) --
+  function enterRangerGauntlet(): void {
+    if (!kranji) kranji = buildKranji(game.scene); // lazy first-time build, shared with Strongpoint Assault above
+    kranji.root.setEnabled(true);
+    citadel?.root.setEnabled(false);
+    setSurvivalWorldEnabled(false);
+    setActiveMap(KRANJI_PROFILE);
+    landingPage.hide();
+    game.renderingPaused = false;
+    rangerActive = true;
+    rangerSavedWave = gameState.data.wave; // beginRunAt below overwrites gameState.data.wave — restore it on exit so the survival campaign's progress is untouched
+    loadout.switchTo("primary");
+    applyGearToPlayer(gameState, player);
+    // "No resupply and no armour equipped" — the badge's literal condition.
+    player.armour = 0;
+    player.maxArmour = 0;
+    waveManager.configureRun({ maxWave: 8, resupplyDisabled: true }, kranji.spawn);
+    waveManager.beginRunAt(1);
+    beginDeployment();
+    hud.setVisible(true);
+    hud.showCenterMessage("RANGER GAUNTLET — 8 waves, no resupply, no armour. Hold Firebase Kranji.", 4500);
+    input.lockPointer();
+  }
+
+  function exitRangerGauntletToMenu(): void {
+    rangerActive = false;
+    waveManager.enemyManager.clearAll();
+    waveManager.configureRun({}, SPAWN_POINT);
+    waveManager.beginArmoury();
+    gameState.data.wave = rangerSavedWave;
+    gameState.save();
+    kranji?.root.setEnabled(false);
+    setSurvivalWorldEnabled(true);
+    setActiveMap(SINGAPORE_PROFILE);
+    hud.setVisible(true);
+    game.renderingPaused = true;
+    document.exitPointerLock();
+    player.respawn(SPAWN_POINT);
+    showMainMenu();
+  }
+
   // ---- Private-room multiplayer (1v1 / 2v2) -----------------------------
   function openMultiplayer(): void {
     if (!mpMenu) {
@@ -688,6 +853,8 @@ async function boot(): Promise<void> {
     };
     landingPage.onTrainingRange = () => enterTrainingRange();
     landingPage.onMultiplayer = () => openMultiplayer();
+    landingPage.onStrongpointAssault = () => enterStrongpointAssault();
+    landingPage.onRangerGauntlet = () => enterRangerGauntlet();
     if (profilePage) landingPage.onProfile = () => profilePage!.show();
     if (leaderboardPage) landingPage.onLeaderboards = () => leaderboardPage!.show();
   }
@@ -697,12 +864,29 @@ async function boot(): Promise<void> {
   // ---- Pause-menu actions -------------------------------------------------
   /** Persist everything that survives a session: economy/loadout, the current wave, and settings. */
   function saveAll(): void {
-    gameState.data.wave = waveManager.wave; // capture the current wave, not just the last cleared one
+    // Ranger Gauntlet's wave count is mission-scoped, not the survival
+    // campaign's — never let it overwrite the real saved wave.
+    if (!rangerActive) gameState.data.wave = waveManager.wave; // capture the current wave, not just the last cleared one
     gameState.save();
     settings.save();
     backend?.flush();
   }
   function exitToMainMenu(): void {
+    // Route through the mode-specific exit so Kranji's map profile/geometry
+    // and the shared waveManager's Ranger config always get torn down —
+    // otherwise ESC → Exit to Menu from a Ranger/Strongpoint deployment would
+    // strand the player on Kranji's coordinates under Kranji's (wrong)
+    // MapProfile the next time they deploy.
+    if (strongpointActive) {
+      exitStrongpointAssaultToMenu();
+      pauseMenu.hide();
+      return;
+    }
+    if (rangerActive) {
+      exitRangerGauntletToMenu();
+      pauseMenu.hide();
+      return;
+    }
     waveManager.enemyManager.clearAll();
     waveManager.beginArmoury();
     hud.setVisible(true);
@@ -790,7 +974,8 @@ async function boot(): Promise<void> {
       tacticalMap.visible ||
       strikeTargeting.visible ||
       commandWheel.visible ||
-      rangeUI.resultsOpen
+      rangeUI.resultsOpen ||
+      strongpointHud.resultVisible
     );
   }
   window.addEventListener("mousedown", (e) => {
@@ -825,7 +1010,7 @@ async function boot(): Promise<void> {
       e.preventDefault();
       controlsOverlay.toggle();
     }
-    if (e.code === "KeyM" && !landingPage.visible && !rangeActive && !citadelActive && waveManager.phase !== "gameover") {
+    if (e.code === "KeyM" && !landingPage.visible && !rangeActive && !citadelActive && !strongpointActive && waveManager.phase !== "gameover") {
       tacticalMap.toggle();
       if (tacticalMap.visible) document.exitPointerLock();
       else input.lockPointer();
@@ -833,7 +1018,7 @@ async function boot(): Promise<void> {
     // B opens the armoury/loadout. In the survival game that's the intro/armoury
     // phase; in multiplayer it's a 15s window after each (re)spawn so you can
     // swap your weapon before committing to the fight.
-    const bAllowedSurvival = !citadelActive && (waveManager.phase === "countdown" || waveManager.phase === "armoury");
+    const bAllowedSurvival = !citadelActive && !strongpointActive && (waveManager.phase === "countdown" || waveManager.phase === "armoury");
     const bAllowedMp = !!netMatch && (netMatch.canChangeWeapon() || armoury.visible);
     if (e.code === "KeyB" && (bAllowedSurvival || bAllowedMp)) {
       if (armoury.visible) {
@@ -904,7 +1089,8 @@ async function boot(): Promise<void> {
       (mpMenu?.visible ?? false) ||
       tacticalMap.visible ||
       strikeTargeting.visible ||
-      commandWheel.visible;
+      commandWheel.visible ||
+      strongpointHud.resultVisible;
 
     if (!paused) {
       if (rangeActive || citadelActive) {
@@ -928,13 +1114,22 @@ async function boot(): Promise<void> {
       } else {
         player.update(dt);
         ambience.update(dt);
-        safeZone.update(dt);
+        safeZone.update(dt); // reads activeMap() live, so this already tracks Kranji's own base/radius once setActiveMap(KRANJI_PROFILE) is set
         loadout.update();
         weaponController.update(dt);
         throwableController.update(dt);
-        waveManager.update(dt);
-        supplyCrates.update(dt);
-        medicalStation.update(dt);
+        if (strongpointActive) {
+          strongpointMission?.update(dt, player);
+        } else {
+          waveManager.update(dt);
+        }
+        // Kranji has no supply-crate/medical-station props — ticking these
+        // against Singapore's (hidden) prop positions would only risk a
+        // confusing pickup prompt with nothing there to see.
+        if (!strongpointActive && !rangerActive) {
+          supplyCrates.update(dt);
+          medicalStation.update(dt);
+        }
         uav.update(dt);
         airstrike.update(dt);
         carpetBombing.update(dt);
@@ -945,9 +1140,9 @@ async function boot(): Promise<void> {
           botty.update(dt, player);
           updateBottyHeal();
         }
-        if (waveManager.phase === "combat") {
+        if (strongpointActive || waveManager.phase === "combat") {
           stats.addPlaytime(dt);
-          updateReconTouch(dt);
+          if (!strongpointActive) updateReconTouch(dt);
         }
       }
     }

@@ -23,7 +23,7 @@ import { WorldMaterial } from "@/world/WorldMaterial";
 import { loadGlbContainerOrNull } from "@/core/ModelLoader";
 
 /** Deterministic PRNG so the map layout is identical on every load. */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let state = seed;
   return () => {
     state |= 0;
@@ -2130,7 +2130,7 @@ function buildCover(scene: Scene, layout: BuildingFootprint[]): void {
   }
 }
 
-function solidMat(scene: Scene, name: string, color: Color3): WorldMaterial {
+export function solidMat(scene: Scene, name: string, color: Color3): WorldMaterial {
   const mat = new WorldMaterial(name, scene);
   mat.diffuseColor = color;
   mat.specularColor = Color3.Black();
@@ -2145,7 +2145,7 @@ function solidMat(scene: Scene, name: string, color: Color3): WorldMaterial {
  * and rear glass, Jersey-barrier sides, etc. Normals are hand-set per face;
  * paired materials disable backface culling so winding never bites.
  */
-function createWedge(name: string, w: number, h: number, d: number, scene: Scene): Mesh {
+export function createWedge(name: string, w: number, h: number, d: number, scene: Scene): Mesh {
   const x = w / 2;
   const z = d / 2;
   const positions = [
@@ -2264,7 +2264,7 @@ function placeCover(
  * unchanged). Rounded, jittered bags read as filled hessian sacks instead of
  * the old single rectangular block with a decorative top row.
  */
-function buildSandbagWall(scene: Scene, x: number, z: number, rotY: number, mat: WorldMaterial, index: number): void {
+export function buildSandbagWall(scene: Scene, x: number, z: number, rotY: number, mat: WorldMaterial, index: number): void {
   const wall = MeshBuilder.CreateBox(`sandbagWall_${index}`, { width: 3, height: 1.1, depth: 0.8 }, scene);
   wall.position.set(x, 0.55, z);
   wall.rotation.y = rotY;
@@ -2295,7 +2295,7 @@ function buildSandbagWall(scene: Scene, x: number, z: number, rotY: number, mat:
 }
 
 /** Concrete Jersey barrier / roadblock — a wedge-profile block, common roadside/checkpoint cover. Roadblocks add alternating stripe blocks for the hazard-paint look. */
-function buildConcreteBarrier(
+export function buildConcreteBarrier(
   scene: Scene,
   x: number,
   z: number,
@@ -2359,7 +2359,7 @@ function buildHedge(scene: Scene, x: number, z: number, rotY: number, mat: World
 }
 
 /** Shared builder for metal fences (taller, chest-high) and railings (shorter, knee-high) — a line of thin posts with a top rail. */
-function buildFenceLine(scene: Scene, x: number, z: number, rotY: number, height: number, mat: WorldMaterial, index: number, name: string): void {
+export function buildFenceLine(scene: Scene, x: number, z: number, rotY: number, height: number, mat: WorldMaterial, index: number, name: string): void {
   const rail = MeshBuilder.CreateBox(`${name}_${index}`, { width: 3, height: 0.06, depth: 0.06 }, scene);
   rail.position.set(x, height, z);
   rail.rotation.y = rotY;
@@ -2797,7 +2797,7 @@ function buildStreetFurniture(scene: Scene, layout: BuildingFootprint[]): void {
   }
 }
 
-function buildStreetlight(scene: Scene, x: number, z: number, poleMat: WorldMaterial, lampMat: WorldMaterial, index: number): void {
+export function buildStreetlight(scene: Scene, x: number, z: number, poleMat: WorldMaterial, lampMat: WorldMaterial, index: number): void {
   const pole = MeshBuilder.CreateCylinder(`lampPole_${index}`, { diameter: 0.18, height: 5.5 }, scene);
   pole.position.set(x, 2.75, z);
   pole.material = poleMat;

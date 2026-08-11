@@ -23,6 +23,9 @@ interface MatchPayload {
   airstrikeCalls: number;
   uavCalls: number;
   reconTouches: number;
+  missionType: "wave_survival" | "ranger_gauntlet" | "strongpoint_assault";
+  strongpointsCleared: number;
+  noResupplyWaveReached: number;
 }
 
 function toNonNegInt(v: unknown): number {
@@ -56,6 +59,12 @@ function sanitize(body: unknown): MatchPayload {
     airstrikeCalls: toNonNegInt(b.airstrikeCalls),
     uavCalls: toNonNegInt(b.uavCalls),
     reconTouches: toNonNegInt(b.reconTouches),
+    // Legacy submissions (and every non-mission run) omit these — default to
+    // the endless wave-survival loop rather than leaving them undefined, so
+    // the badge predicates never need to special-case a missing value.
+    missionType: b.missionType === "ranger_gauntlet" || b.missionType === "strongpoint_assault" ? b.missionType : "wave_survival",
+    strongpointsCleared: toNonNegInt(b.strongpointsCleared),
+    noResupplyWaveReached: toNonNegInt(b.noResupplyWaveReached),
   };
 }
 
@@ -204,7 +213,15 @@ matchesRouter.post("/matches", requireAuth, asyncHandler(async (req: AuthedReque
         uavCalls: stats.uav_calls,
         reconTouches: stats.recon_touches,
       },
-      match: { kills: m.kills, waveReached: m.waveReached, shotsFired: m.shotsFired, shotsHit: m.shotsHit },
+      match: {
+        kills: m.kills,
+        waveReached: m.waveReached,
+        shotsFired: m.shotsFired,
+        shotsHit: m.shotsHit,
+        missionType: m.missionType,
+        strongpointsCleared: m.strongpointsCleared,
+        noResupplyWaveReached: m.noResupplyWaveReached,
+      },
     });
 
     for (const { category, column } of LEADERBOARD_CATEGORIES) {

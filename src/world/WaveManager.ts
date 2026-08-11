@@ -19,6 +19,20 @@ export interface WaveManagerCallbacks {
   onPlayerDamaged?: (damage: number, sourcePosition: import("@babylonjs/core").Vector3) => void;
   /** Fires once per whole second of the pre-wave countdown (5,4,3,2,1) — drives the HUD tick + beep. */
   onCountdownTick?: (secondsLeft: number, wave: number) => void;
+  /** Fires once, instead of the normal onWaveClear→armoury continuation, when a capped run (see WaveManagerConfig.maxWave) clears its final wave. */
+  onMissionComplete?: (wave: number) => void;
+}
+
+/**
+ * Optional run ruleset, used by capped/restricted deployments (the Ranger
+ * Gauntlet) instead of the default endless wave-survival loop. Omitting this
+ * (or any field on it) preserves today's behaviour exactly.
+ */
+export interface WaveManagerConfig {
+  /** Stop after this wave clears — fires onMissionComplete instead of continuing to the next wave's armoury/countdown. */
+  maxWave?: number;
+  /** When true, the caller (main.ts's resupplyOnSpawn) should skip refilling ammo/armour between waves — read via `WaveManager.resupplyDisabled`. */
+  resupplyDisabled?: boolean;
 }
 
 /** Pre-wave countdown, in seconds. `Wave cleared → 5 second countdown → next wave`. */
@@ -58,8 +72,9 @@ export class WaveManager {
     private readonly player: PlayerController,
     private readonly gameState: GameState,
     private readonly audio: AudioManager,
-    private readonly spawnPosition: import("@babylonjs/core").Vector3,
-    private readonly callbacks: WaveManagerCallbacks = {}
+    private spawnPosition: import("@babylonjs/core").Vector3,
+    private readonly callbacks: WaveManagerCallbacks = {},
+    private config: WaveManagerConfig = {}
   ) {
     // Always boots at 1 — the actual starting wave for a deployment is set
     // explicitly via beginRunAt() (landing page DEPLOY), not silently resumed
@@ -75,6 +90,25 @@ export class WaveManager {
 
   get phase(): RunPhase {
     return this._phase;
+  }
+
+  /** True when this run's config asks callers to withhold resupply between waves (the Ranger Gauntlet's "no resupply" rule). */
+  get resupplyDisabled(): boolean {
+    return !!this.config.resupplyDisabled;
+  }
+
+  /**
+   * Swaps this shared instance's ruleset and deploy point for a different
+   * mission (the Ranger Gauntlet's capped, no-resupply run on Kranji) without
+   * constructing a second WaveManager — which would mean a second internal
+   * EnemyManager that the player's already-built WeaponController (bound to
+   * this instance's `enemyManager` at construction) could never actually hit.
+   * Pass `{}` and the endless survival spawn point to restore default
+   * behaviour when the mission ends.
+   */
+  configureRun(config: WaveManagerConfig, spawnPosition: import("@babylonjs/core").Vector3): void {
+    this.config = config;
+    this.spawnPosition = spawnPosition;
   }
 
   private setPhase(next: RunPhase): void {
@@ -196,6 +230,16 @@ export class WaveManager {
     );
     this.audio.waveClear();
     this.callbacks.onWaveClear?.(this.wave, bonus);
+
+    // Capped run (Ranger Gauntlet): stop here instead of continuing to the
+    // next wave's armoury/countdown — this IS the mission's win condition.
+    if (this.config.maxWave && this.wave === this.config.maxWave) {
+      const finalWave = this.wave;
+      this.setPhase("gameover");
+      this.callbacks.onMissionComplete?.(finalWave);
+      return;
+    }
+
     this.wave += 1;
     this.gameState.data.wave = this.wave;
     this.gameState.save();

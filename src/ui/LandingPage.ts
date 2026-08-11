@@ -50,6 +50,10 @@ export class LandingPage {
   /** Multiplayer entry — currently opens the Iron Citadel map for free exploration (match logic to come). */
   onMultiplayer?: () => void;
   onLeaderboards?: () => void;
+  /** Firebase Kranji — Strongpoint Assault: clear all 4 defended strongpoints. */
+  onStrongpointAssault?: () => void;
+  /** Firebase Kranji — Ranger Gauntlet: 8-wave endurance run, no resupply, no armour. */
+  onRangerGauntlet?: () => void;
 
   private targetMx = 0;
   private targetMy = 0;
@@ -256,6 +260,9 @@ export class LandingPage {
     const actions: Array<[string, () => void]> = [
       ["TRAINING RANGE", () => this.onTrainingRange?.()],
       ["MULTIPLAYER", () => this.onMultiplayer?.()],
+      // OPERATIONS — Firebase Kranji: the objective-based (not endless-wave) content pack.
+      ["FIREBASE KRANJI — STRONGPOINT ASSAULT", () => this.onStrongpointAssault?.()],
+      ["RANGER GAUNTLET", () => this.onRangerGauntlet?.()],
       ["PROFILE", () => this.onProfile?.()],
       ["LEADERBOARDS", () => this.onLeaderboards?.()],
       ["SETTINGS", () => this.showSettingsModal()],

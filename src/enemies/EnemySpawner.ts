@@ -333,9 +333,9 @@ export class EnemyManager {
     }
   }
 
-  private spawnEnemy(typeId: string, position: Vector3, wave: number, isElite = false): void {
+  private spawnEnemy(typeId: string, position: Vector3, wave: number, isElite = false): EnemyInstance | null {
     const type = ENEMIES[typeId];
-    if (!type) return;
+    if (!type) return null;
     const enemy = new EnemyInstance(
       this.scene,
       type,
@@ -353,6 +353,30 @@ export class EnemyManager {
     };
     enemy.onDamagePlayer = (dmg, sourcePos) => this.callbacks.onPlayerDamaged?.(dmg, sourcePos);
     this.enemies.push(enemy);
+    return enemy;
+  }
+
+  /**
+   * Spawns a fixed, non-escalating squad at a point — used by StrongpointMission
+   * instead of the wave-survival escalation path. Each enemy is validated with
+   * the same `ensureClearOfCamp`/`findNearestNavigable` jitter the wave spawner
+   * uses, then constructed via the ordinary per-wave `spawnEnemy` path so it
+   * gets the normal AI/kill-tracking/credit hooks — `difficultyWave` is just the
+   * constant "wave number" fed into the existing health/accuracy scaling
+   * formulas (`waveHealthMultiplier`/`difficultyMultForWave`), letting later
+   * strongpoints simply pass a higher constant for a tougher fixed squad
+   * without a second scaling system.
+   */
+  spawnGroupAt(center: Vector3, typeIds: string[], difficultyWave: number): EnemyInstance[] {
+    const spawned: EnemyInstance[] = [];
+    for (const typeId of typeIds) {
+      const jitter = new Vector3((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6);
+      let position = ensureClearOfCamp(center.add(jitter));
+      position = ensureClearOfCamp(findNearestNavigable(this.scene, position));
+      const enemy = this.spawnEnemy(typeId, position, difficultyWave, false);
+      if (enemy) spawned.push(enemy);
+    }
+    return spawned;
   }
 
   /** Try to claim an "actively firing" slot; returns false if the wave's concurrent-attacker cap is full. */

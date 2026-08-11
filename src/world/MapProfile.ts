@@ -47,6 +47,33 @@ export const SINGAPORE_PROFILE: MapProfile = {
   ],
 };
 
+/**
+ * Firebase Kranji — a port/industrial dockyard used by the Strongpoint
+ * Assault and Ranger Gauntlet operations (see StrongpointMission.ts,
+ * Kranji.ts). Shares Singapore's coordinate space (both sit near world
+ * origin, inside Nav.ts's fixed ±96 playable half-extent) rather than being
+ * offset far away like Iron Citadel — Kranji spawns real AI via
+ * EnemyManager.spawnGroupAt, which needs isNavigable()/findNearestNavigable()
+ * to actually work, and those are hardcoded to check distance from world
+ * origin. Only one of Singapore/Kranji/Iron Citadel is ever visually enabled
+ * at a time (main.ts toggles mesh roots), so sharing the coordinate range is
+ * safe — nothing renders or gets picked from the inactive map's geometry.
+ */
+export const KRANJI_PROFILE: MapProfile = {
+  id: "kranji",
+  baseCenter: new Vector3(0, 0, -60),
+  safeZoneRadius: 10,
+  aiExclusionRadius: 18,
+  minSpawnDistanceFromBase: 18 + 10,
+  spawnProtectionSec: 3,
+  enemySpawnPoints: [
+    new Vector3(-40, 0, -10),
+    new Vector3(40, 0, -10),
+    new Vector3(-40, 0, 35),
+    new Vector3(40, 0, 35),
+  ],
+};
+
 let active: MapProfile = SINGAPORE_PROFILE;
 
 /** Set once at boot, before the wave systems run, based on the player's chosen map. */

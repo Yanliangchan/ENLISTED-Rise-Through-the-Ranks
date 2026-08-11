@@ -388,6 +388,19 @@ export class HUD {
     this.root.style.display = visible ? "" : "none";
   }
 
+  /**
+   * Suppresses only the wave-panel's phase banner ("ARMOURY — DEPLOY WHEN
+   * READY", "WAVE N IN...") and the OPFOR-remaining line — used by
+   * Strongpoint Assault, which keeps the rest of this combat HUD (health,
+   * ammo, radar, funds) but has no WaveManager phase of its own to show;
+   * without this the banner would just display whatever phase the shared
+   * WaveManager was last left in.
+   */
+  private wavePanelSuppressed = false;
+  setWavePanelSuppressed(suppressed: boolean): void {
+    this.wavePanelSuppressed = suppressed;
+  }
+
   private static readonly COMMAND_LABELS: Record<string, string> = {
     default: "Standing by",
     followMe: "Follow Me",
@@ -529,10 +542,10 @@ export class HUD {
         this.creditsEl.style.color = gained ? "#f0dd9a" : SAF.amber;
         window.setTimeout(() => { this.creditsEl.style.color = SAF.amber; }, 400);
       }
-      this.waveEl.textContent = this.phaseLabel();
+      this.waveEl.textContent = this.wavePanelSuppressed ? "" : this.phaseLabel();
 
       const remaining = this.waveManager.enemyManager.totalForWaveRemaining;
-      if (this.waveManager.phase === "combat") {
+      if (!this.wavePanelSuppressed && this.waveManager.phase === "combat") {
         this.enemyCountEl.textContent = `OPFOR REMAINING  ${remaining}`;
         this.enemyCountEl.style.display = "block";
       } else {

@@ -38,6 +38,12 @@ export interface RunResult {
   uavCalls: number;
   /** Times the player got within arm's reach of an enemy that never noticed them — feeds the Recon badge. */
   reconTouches: number;
+  /** Which mission structure this run was — omitted (undefined) means the default endless wave-survival loop, kept fully backward compatible for legacy submissions. */
+  missionType?: "wave_survival" | "ranger_gauntlet" | "strongpoint_assault";
+  /** Strongpoints cleared this run (Strongpoint Assault) — feeds the Guards badge. */
+  strongpointsCleared?: number;
+  /** Wave reached under Ranger Gauntlet's actual no-resupply rules — distinct from waveReached so a normal run can never spoof it. Feeds the Ranger badge. */
+  noResupplyWaveReached?: number;
 }
 
 /**
@@ -139,7 +145,14 @@ export class PlayerStats {
   }
 
   /** Finalize the run into a payload for POST /api/matches. Does not reset — call `beginRun()` for the next deployment. */
-  endRun(waveReached: number): RunResult {
+  endRun(
+    waveReached: number,
+    mission?: {
+      missionType?: RunResult["missionType"];
+      strongpointsCleared?: number;
+      noResupplyWaveReached?: number;
+    }
+  ): RunResult {
     return {
       waveReached,
       kills: this.run.kills,
@@ -155,6 +168,9 @@ export class PlayerStats {
       airstrikeCalls: this.run.airstrikeCalls,
       uavCalls: this.run.uavCalls,
       reconTouches: this.run.reconTouches,
+      missionType: mission?.missionType,
+      strongpointsCleared: mission?.strongpointsCleared,
+      noResupplyWaveReached: mission?.noResupplyWaveReached,
     };
   }
 
