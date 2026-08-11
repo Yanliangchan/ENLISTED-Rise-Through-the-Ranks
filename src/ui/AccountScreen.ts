@@ -16,7 +16,7 @@ export class AccountScreen {
       position: fixed; inset: 0; z-index: 60; display: none;
       align-items: center; justify-content: center;
       background: radial-gradient(circle at 50% 30%, #12211a, #060a08 70%);
-      font-family: Consolas, "Courier New", monospace; color: #d7e8d0;
+      font-family: Consolas, "Courier New", monospace; color: #d5ddc8;
     `;
   }
 
@@ -34,7 +34,7 @@ export class AccountScreen {
       title.style.cssText = "font-size:34px; font-weight:800; letter-spacing:8px; text-align:center; color:#bfe0ab;";
       const sub = document.createElement("div");
       sub.textContent = "OPERATOR LOGIN";
-      sub.style.cssText = "font-size:13px; letter-spacing:4px; text-align:center; color:#7f9a72; margin:6px 0 24px;";
+      sub.style.cssText = "font-size:13px; letter-spacing:4px; text-align:center; color:#67725c; margin:6px 0 24px;";
       panel.appendChild(title);
       panel.appendChild(sub);
 
@@ -49,7 +49,7 @@ export class AccountScreen {
       input.placeholder = "Callsign (3–16 chars)";
       input.maxLength = 16;
       input.style.cssText = `
-        width:100%; box-sizing:border-box; background:#0a120a; color:#eaf4e4;
+        width:100%; box-sizing:border-box; background:#0e130c; color:#eaf4e4;
         border:1px solid #3c5834; padding:12px; font-family:inherit; font-size:16px;
         letter-spacing:1px; margin-bottom:6px;
       `;
@@ -61,7 +61,7 @@ export class AccountScreen {
 
       const submitBtn = document.createElement("button");
       submitBtn.textContent = "DEPLOY";
-      submitBtn.style.cssText = this.btn("#3c6b32", true);
+      submitBtn.style.cssText = this.btn("#4a6135", true);
       let submitting = false;
       const submit = async () => {
         if (submitting) return;

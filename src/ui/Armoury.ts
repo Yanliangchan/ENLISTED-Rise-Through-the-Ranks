@@ -19,6 +19,7 @@ import { applyGearToPlayer, maxThrowableCapacity } from "@/player/Gear";
 import { getUnlockedSlots, isAttachmentCompatible } from "@/weapons/attachmentSlots";
 import { BOTTY_PRICE } from "@/companion/Botty";
 import { injectTheme } from "@/ui/theme";
+import { SAF, safCamoDataUrl } from "@/ui/saf";
 
 type Tab = "loadout" | "weapons" | "attachments" | "gear" | "throwables" | "support";
 
@@ -67,14 +68,14 @@ export class Armoury {
     title.textContent = "FIELD ARMOURY CACHE";
     title.className = "mil-title";
     this.creditsLabel = document.createElement("div");
-    this.creditsLabel.style.cssText = "font-size:17px; color:#e0c15a;";
+    this.creditsLabel.style.cssText = `font-size:15px; color:${SAF.amber}; font-family:${SAF.fontMono}; letter-spacing:1.5px;`;
     header.appendChild(title);
     header.appendChild(this.creditsLabel);
 
     this.toastEl = document.createElement("div");
     this.toastEl.style.cssText =
-      "min-height:16px; font-size:12px; letter-spacing:1px; color:#a8e08a; opacity:0;" +
-      "transition:opacity 200ms ease; margin-bottom:8px;";
+      `min-height:16px; font-size:11px; letter-spacing:1.6px; color:${SAF.sage}; opacity:0;` +
+      "text-transform:uppercase; transition:opacity 160ms linear; margin-bottom:8px;";
 
     this.tabBar = document.createElement("div");
     this.tabBar.style.cssText = "display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;";
@@ -84,8 +85,8 @@ export class Armoury {
     const footer = document.createElement("div");
     footer.style.cssText = "margin-top:18px; display:flex; justify-content:flex-end;";
     const startBtn = document.createElement("button");
-    startBtn.textContent = "DEPLOY — Start Wave";
-    styleButton(startBtn, "#3c6b32");
+    startBtn.textContent = "DEPLOY";
+    styleButton(startBtn, "#4a6135");
     startBtn.onclick = () => {
       this.audio.uiClick();
       this.onStartWave?.();
@@ -148,7 +149,7 @@ export class Armoury {
     for (const [id, label] of tabs) {
       const btn = document.createElement("button");
       btn.textContent = label;
-      styleButton(btn, id === this.activeTab ? "#4a7a3c" : "#2a332480");
+      styleButton(btn, id === this.activeTab ? "#4a6135" : "#2a332480");
       btn.onclick = () => this.setTab(id);
       this.tabBar.appendChild(btn);
     }
@@ -177,7 +178,7 @@ export class Armoury {
   /** Short confirmation line under the header — purchases and kit changes both report here. */
   private toast(text: string, tone: "good" | "bad" = "good"): void {
     this.toastEl.textContent = text;
-    this.toastEl.style.color = tone === "good" ? "#a8e08a" : "#e08a6a";
+    this.toastEl.style.color = tone === "good" ? SAF.sage : "#c98a6a";
     this.toastEl.style.opacity = "1";
     if (this.toastTimer !== null) window.clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => {
@@ -186,7 +187,7 @@ export class Armoury {
   }
 
   private renderContent(): void {
-    this.creditsLabel.textContent = `Credits: ${this.gameState.data.credits.toLocaleString()}`;
+    this.creditsLabel.textContent = `FUNDS: $${this.gameState.data.credits.toLocaleString()}`;
     this.content.innerHTML = "";
     switch (this.activeTab) {
       case "loadout":
@@ -210,9 +211,74 @@ export class Armoury {
     }
   }
 
+  /**
+   * A stencilled kit manifest — what is actually going out on this deployment,
+   * read at a glance before the pickers below. This is the "laying out issued
+   * equipment before a mission" beat: slot label, item, and the pouches on the
+   * vest, presented as physical cards rather than a settings list.
+   */
+  private loadoutManifest(): HTMLDivElement {
+    const box = document.createElement("div");
+    box.style.cssText =
+      `grid-column: 1 / -1; border:1px solid ${SAF.line}; border-left:3px solid ${SAF.olive};` +
+      `background-image: linear-gradient(rgba(13,18,12,0.94), rgba(11,15,10,0.96)), url("${safCamoDataUrl()}");` +
+      `background-size: auto, 160px 160px; padding:14px 16px;`;
+
+    const primary = WEAPONS[this.gameState.data.loadout.primary]?.name ?? "—";
+    const secondary = WEAPONS[this.gameState.data.loadout.secondary]?.name ?? "—";
+    const specialId = this.gameState.data.loadout.special;
+    const special = specialId
+      ? WEAPONS[specialId]?.name ?? SPECIAL_ABILITY_LABELS[specialId as keyof typeof SPECIAL_ABILITY_LABELS] ?? specialId
+      : "NONE";
+    const throwable = THROWABLES[this.gameState.data.loadout.throwable]?.name ?? "—";
+
+    const line = (k: string, v: string) =>
+      `<div style="display:flex; justify-content:space-between; gap:14px; padding:5px 0; border-bottom:1px solid #1e2718;">` +
+      `<span style="font-size:10px; letter-spacing:2px; color:${SAF.textFaint};">${k}</span>` +
+      `<span style="font-family:${SAF.fontMono}; font-size:12px; color:${SAF.text};">${v.toUpperCase()}</span></div>`;
+
+    // Worn pouches drawn as physical pouch cards on the vest.
+    const worn = this.gameState.data.equippedGear
+      .map((id) => GEAR[id])
+      .filter((g): g is GearItem => !!g && !!g.slotCost);
+    const capacity = this.gameState.pouchSlotCapacity();
+    const used = this.gameState.pouchSlotsUsed();
+    const pouchCards = worn
+      .map(
+        (g) =>
+          `<div style="border:1px solid ${SAF.lineHi}; background:#1a2216; padding:8px 10px; min-width:92px;">` +
+          `<div style="font-size:9px; letter-spacing:1.6px; color:${SAF.sage};">${g.name.split(" ")[0].toUpperCase()}</div>` +
+          `<div style="font-size:9px; letter-spacing:1.4px; color:${SAF.textFaint}; margin-top:2px;">POUCH</div></div>`
+      )
+      .join("");
+    const emptyCards = Array.from({ length: Math.max(0, capacity - used) })
+      .map(
+        () =>
+          `<div style="border:1px dashed #2c3724; padding:8px 10px; min-width:92px;">` +
+          `<div style="font-size:9px; letter-spacing:1.6px; color:${SAF.textFaint};">EMPTY</div>` +
+          `<div style="font-size:9px; letter-spacing:1.4px; color:#3d4733; margin-top:2px;">SLOT</div></div>`
+      )
+      .join("");
+
+    box.innerHTML =
+      `<div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px;">` +
+      `<span style="font-size:11px; font-weight:700; letter-spacing:3px; color:${SAF.text};">KIT MANIFEST</span>` +
+      `<span style="font-size:10px; letter-spacing:2px; color:${SAF.amber}; font-family:${SAF.fontMono};">FUNDS: $${this.gameState.data.credits.toLocaleString()}</span></div>` +
+      `<div style="display:grid; grid-template-columns:1fr 1fr; gap:0 22px;">` +
+      `<div>${line("PRIMARY", primary)}${line("SECONDARY", secondary)}</div>` +
+      `<div>${line("SPECIAL", special)}${line("THROWABLE", throwable)}</div></div>` +
+      `<div style="margin-top:12px;">` +
+      `<div style="font-size:10px; letter-spacing:2px; color:${SAF.textFaint}; margin-bottom:6px;">` +
+      `LOAD BEARING VEST — ${used} / ${capacity} SLOTS</div>` +
+      `<div style="display:flex; gap:8px; flex-wrap:wrap;">${pouchCards}${emptyCards || (capacity === 0 ? `<div style="font-size:10px; color:${SAF.textFaint}; letter-spacing:1.5px;">NO VEST ISSUED</div>` : "")}</div>` +
+      `</div>`;
+    return box;
+  }
+
   private renderLoadout(): void {
     const wrap = document.createElement("div");
     wrap.style.cssText = "display:grid; grid-template-columns: 1fr 1fr; gap:16px;";
+    wrap.appendChild(this.loadoutManifest());
 
     const primaries = Object.values(WEAPONS).filter((w) => w.slot === "primary" && this.gameState.ownsWeapon(w.id));
     const secondaries = Object.values(WEAPONS).filter((w) => w.slot === "secondary" && this.gameState.ownsWeapon(w.id));
@@ -248,7 +314,7 @@ export class Armoury {
       unlockBox.style.cssText = "padding:10px; grid-column: 1 / -1;";
       const unlockTitle = document.createElement("div");
       unlockTitle.textContent = "Unlock Support Abilities";
-      unlockTitle.style.cssText = "font-weight:bold; margin-bottom:6px; color:#9fc78a; width:100%;";
+      unlockTitle.style.cssText = `font-weight:700; margin-bottom:6px; color:${SAF.textDim}; width:100%; font-size:10px; letter-spacing:2.5px; text-transform:uppercase;`;
       unlockBox.appendChild(unlockTitle);
       for (const id of lockedAbilities) {
         unlockBox.appendChild(
@@ -283,19 +349,19 @@ export class Armoury {
     box.style.cssText = "padding:10px; display:flex; flex-wrap:wrap; gap:6px; align-content:flex-start;";
     const title = document.createElement("div");
     title.textContent = label;
-    title.style.cssText = "font-weight:bold; margin-bottom:4px; color:#9fc78a; width:100%;";
+    title.style.cssText = `font-weight:700; margin-bottom:6px; color:${SAF.textDim}; width:100%; font-size:10px; letter-spacing:2.5px; text-transform:uppercase;`;
     box.appendChild(title);
     if (allowNone) {
       const noneBtn = document.createElement("button");
       noneBtn.textContent = "(none)";
-      styleButton(noneBtn, current === "" ? "#4a7a3c" : "#2a332480");
+      styleButton(noneBtn, current === "" ? "#4a6135" : "#2a332480");
       noneBtn.onclick = () => onSelect("");
       box.appendChild(noneBtn);
     }
     for (const [id, name] of options) {
       const btn = document.createElement("button");
       btn.textContent = name;
-      styleButton(btn, id === current ? "#4a7a3c" : "#2a332480");
+      styleButton(btn, id === current ? "#4a6135" : "#2a332480");
       btn.onclick = () => onSelect(id);
       box.appendChild(btn);
     }
@@ -343,7 +409,7 @@ export class Armoury {
   /** Collapsible, icon-labeled section wrapper shared by the Buy Menu and Inventory pickers. */
   private categorySection(key: string, icon: string, name: string, body: HTMLElement): HTMLDivElement {
     const wrap = document.createElement("div");
-    wrap.style.cssText = "border:1px solid #3a4234; border-radius:6px; overflow:hidden;";
+    wrap.style.cssText = `border:1px solid ${SAF.line}; border-radius:0; overflow:hidden;`;
 
     const collapsed = this.collapsedCategories.has(key);
     const header = document.createElement("div");
@@ -351,7 +417,7 @@ export class Armoury {
       "display:flex; align-items:center; gap:8px; padding:8px 10px; background:#232b1e; cursor:pointer; user-select:none;";
     const arrow = document.createElement("span");
     arrow.textContent = collapsed ? "▶" : "▼";
-    arrow.style.cssText = "font-size:11px; color:#9fc78a; width:12px;";
+    arrow.style.cssText = "font-size:11px; color:#9aa882; width:12px;";
     const iconSpan = document.createElement("span");
     iconSpan.textContent = icon;
     const nameSpan = document.createElement("span");
@@ -395,7 +461,7 @@ export class Armoury {
     box.style.cssText = "padding:10px;";
     const title = document.createElement("div");
     title.textContent = label;
-    title.style.cssText = "font-weight:bold; margin-bottom:6px; color:#9fc78a;";
+    title.style.cssText = "font-weight:bold; margin-bottom:6px; color:#9aa882;";
     box.appendChild(title);
 
     let any = false;
@@ -408,7 +474,7 @@ export class Armoury {
       for (const w of owned) {
         const btn = document.createElement("button");
         btn.textContent = w.name;
-        styleButton(btn, w.id === current ? "#4a7a3c" : "#2a332480");
+        styleButton(btn, w.id === current ? "#4a6135" : "#2a332480");
         btn.onclick = () => onSelect(w.id);
         row.appendChild(btn);
       }
@@ -440,7 +506,7 @@ export class Armoury {
       if (!w) continue;
       const btn = document.createElement("button");
       btn.textContent = `${target === "primary" ? "Primary" : "Secondary"} — ${w.name}`;
-      styleButton(btn, target === this.attachmentTarget ? "#4a7a3c" : "#2a332480");
+      styleButton(btn, target === this.attachmentTarget ? "#4a6135" : "#2a332480");
       btn.onclick = () => {
         this.attachmentTarget = target;
         this.audio.uiClick();
@@ -453,7 +519,7 @@ export class Armoury {
     if (weapon) {
       const heading = document.createElement("div");
       heading.textContent = `Attachments for ${weapon.name}`;
-      heading.style.cssText = "font-weight:bold; margin-bottom:10px; color:#9fc78a;";
+      heading.style.cssText = `font-weight:700; margin-bottom:10px; color:${SAF.textDim}; font-size:10px; letter-spacing:2.5px; text-transform:uppercase;`;
       wrap.appendChild(heading);
 
       const unlockedSlots = getUnlockedSlots(weapon, this.gameState.getFittedAttachments(weapon.id));
@@ -480,7 +546,7 @@ export class Armoury {
         if (!owned) {
           const buyBtn = document.createElement("button");
           buyBtn.textContent = attachment.price > 0 ? `Buy — ${attachment.price}c` : "Free";
-          styleButton(buyBtn, "#3c6b32");
+          styleButton(buyBtn, "#4a6135");
           buyBtn.disabled = locked;
           buyBtn.onclick = () => {
             if (this.gameState.buyAttachment(attachment.id)) {
@@ -492,7 +558,7 @@ export class Armoury {
         } else {
           const fitBtn = document.createElement("button");
           fitBtn.textContent = fitted ? "Fitted" : "Fit";
-          styleButton(fitBtn, fitted ? "#4a7a3c" : "#2a332480");
+          styleButton(fitBtn, fitted ? "#4a6135" : "#2a332480");
           fitBtn.disabled = locked;
           fitBtn.onclick = () => {
             if (fitted) {
@@ -535,8 +601,8 @@ export class Armoury {
       : "—";
     header.innerHTML =
       `<div style="display:flex; justify-content:space-between; align-items:center;">` +
-      `<span style="font-weight:bold; color:#9fc78a; letter-spacing:1px;">VEST CAPACITY</span>` +
-      `<span style="letter-spacing:4px; color:${used > capacity ? "#e08a6a" : "#e0c15a"}; font-size:16px;">${pips}` +
+      `<span style="font-weight:bold; color:#9aa882; letter-spacing:1px;">VEST CAPACITY</span>` +
+      `<span style="letter-spacing:4px; color:${used > capacity ? "#e08a6a" : "#c9a227"}; font-size:16px;">${pips}` +
       `<span style="font-size:12px; letter-spacing:1px; color:#9fae9c; margin-left:10px;">${used} / ${capacity} SLOTS</span></span></div>` +
       `<div style="font-size:11px; color:#8fa886; margin-top:6px;">` +
       (capacity > 0
@@ -562,7 +628,7 @@ export class Armoury {
     card.className = "mil-inset";
     card.style.cssText =
       "padding:12px 14px; display:flex; gap:14px; align-items:flex-start;" +
-      `border-left:3px solid ${equipped ? "#4a7a3c" : owned ? "#3c4a34" : "#2a3324"};`;
+      `border-left:3px solid ${equipped ? "#4a6135" : owned ? "#2f3a28" : "#2a3324"};`;
 
     const info = document.createElement("div");
     info.style.cssText = "flex:1; min-width:0;";
@@ -571,16 +637,16 @@ export class Armoury {
     titleRow.style.cssText = "display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:4px;";
     const name = document.createElement("span");
     name.textContent = item.name;
-    name.style.cssText = `font-weight:bold; color:${equipped ? "#cfe6b8" : "#b8ccb0"};`;
+    name.style.cssText = `font-weight:bold; color:${equipped ? "#cfe6b8" : "#8f9a80"};`;
     titleRow.appendChild(name);
 
     const status = document.createElement("span");
     if (equipped) {
       status.textContent = item.alwaysEquipped ? "STANDARD ISSUE" : "EQUIPPED";
-      status.style.cssText = "font-size:10px; letter-spacing:2px; color:#a8e08a; border:1px solid #4a7a3c; padding:2px 7px;";
+      status.style.cssText = "font-size:10px; letter-spacing:2px; color:#a8e08a; border:1px solid #4a6135; padding:2px 7px;";
     } else if (owned) {
       status.textContent = "IN LOCKER";
-      status.style.cssText = "font-size:10px; letter-spacing:2px; color:#9fae9c; border:1px solid #3c4a34; padding:2px 7px;";
+      status.style.cssText = "font-size:10px; letter-spacing:2px; color:#9fae9c; border:1px solid #2f3a28; padding:2px 7px;";
     } else {
       status.textContent = "LOCKED";
       status.style.cssText = "font-size:10px; letter-spacing:2px; color:#7f8a78; border:1px solid #2a3324; padding:2px 7px;";
@@ -590,19 +656,19 @@ export class Armoury {
     if (item.slotCost) {
       const slots = document.createElement("span");
       slots.textContent = `${item.slotCost} SLOT${item.slotCost > 1 ? "S" : ""}`;
-      slots.style.cssText = "font-size:10px; letter-spacing:1.5px; color:#e0c15a;";
+      slots.style.cssText = "font-size:10px; letter-spacing:1.5px; color:#c9a227;";
       titleRow.appendChild(slots);
     }
     info.appendChild(titleRow);
 
     const effect = document.createElement("div");
     effect.textContent = item.effect ?? "—";
-    effect.style.cssText = `font-size:12.5px; color:${equipped ? "#a8e08a" : "#c9d8bf"}; margin-bottom:4px;`;
+    effect.style.cssText = `font-size:12.5px; color:${equipped ? "#a8e08a" : "#b3bda3"}; margin-bottom:4px;`;
     info.appendChild(effect);
 
     const notes = document.createElement("div");
     notes.textContent = item.realNotes;
-    notes.style.cssText = "font-size:11px; color:#8a9a84; line-height:1.45;";
+    notes.style.cssText = "font-size:11px; color:#8f9a80; line-height:1.45;";
     info.appendChild(notes);
 
     if (needsLbv && !owned) {
@@ -618,7 +684,7 @@ export class Armoury {
     if (!owned) {
       const buy = document.createElement("button");
       buy.textContent = `${item.price}c`;
-      styleButton(buy, needsLbv || !affordable ? "#5a3232" : "#3c6b32");
+      styleButton(buy, needsLbv || !affordable ? "#5a3232" : "#4a6135");
       buy.disabled = needsLbv;
       buy.onclick = () => {
         if (needsLbv) return;
@@ -640,7 +706,7 @@ export class Armoury {
       const fixed = document.createElement("button");
       fixed.textContent = "WORN";
       fixed.disabled = true;
-      styleButton(fixed, "#4a7a3c");
+      styleButton(fixed, "#4a6135");
       actions.appendChild(fixed);
     } else if (equipped) {
       const off = document.createElement("button");
@@ -657,7 +723,7 @@ export class Armoury {
       const blocked = this.gameState.gearEquipBlockedReason(item.id);
       const on = document.createElement("button");
       on.textContent = "EQUIP";
-      styleButton(on, blocked ? "#5a3232" : "#3c6b32");
+      styleButton(on, blocked ? "#5a3232" : "#4a6135");
       on.onclick = () => {
         if (!this.gameState.equipGear(item.id)) {
           this.toast(`Cannot equip ${item.name} — ${blocked ?? "unavailable"}.`, "bad");
@@ -708,12 +774,12 @@ export class Armoury {
     if (owned.length > 0) {
       const chargeHeading = document.createElement("div");
       chargeHeading.textContent = "Call-In Charges";
-      chargeHeading.style.cssText = "font-weight:bold; margin-bottom:4px; color:#9fc78a;";
+      chargeHeading.style.cssText = `font-weight:700; margin-bottom:4px; color:${SAF.textDim}; font-size:10px; letter-spacing:2.5px; text-transform:uppercase;`;
       wrap.appendChild(chargeHeading);
       const note = document.createElement("div");
       note.textContent =
         "Charges are spent when a strike is called. Buy replacements here — each deployment also restores the free allowance.";
-      note.style.cssText = "font-size:11px; color:#8a9a84; margin-bottom:10px;";
+      note.style.cssText = "font-size:11px; color:#8f9a80; margin-bottom:10px;";
       wrap.appendChild(note);
 
       for (const id of owned) {
@@ -730,13 +796,13 @@ export class Armoury {
         label.style.cssText = "flex:1; min-width:0; font-size:13px;";
         label.innerHTML =
           `<span>${SPECIAL_ABILITY_LABELS[id]}</span>` +
-          `<span style="color:#e0a15a; font-weight:bold; margin-left:10px;">× ${held}</span>` +
-          `<span style="color:#8a9a84; font-size:11px; margin-left:6px;">/ ${max} max</span>`;
+          `<span style="color:#c9a227; font-weight:bold; margin-left:10px;">× ${held}</span>` +
+          `<span style="color:#8f9a80; font-size:11px; margin-left:6px;">/ ${max} max</span>`;
         row.appendChild(label);
 
         const btn = document.createElement("button");
         btn.textContent = atCap ? "AT CAPACITY" : `+1 CHARGE — ${price}c`;
-        styleButton(btn, atCap ? "#2a332480" : affordable ? "#3c6b32" : "#5a3232");
+        styleButton(btn, atCap ? "#2a332480" : affordable ? "#4a6135" : "#5a3232");
         btn.disabled = atCap;
         btn.onclick = () => {
           if (!this.gameState.buyStrikeCharge(id)) {
@@ -762,7 +828,7 @@ export class Armoury {
 
     const heading = document.createElement("div");
     heading.textContent = "AI Squadmate";
-    heading.style.cssText = "font-weight:bold; margin-bottom:10px; color:#9fc78a;";
+    heading.style.cssText = `font-weight:700; margin-bottom:10px; color:${SAF.textDim}; font-size:10px; letter-spacing:2.5px; text-transform:uppercase;`;
     wrap.appendChild(heading);
 
     const hasBotty = this.gameState.data.hasBotty;
@@ -787,12 +853,12 @@ export class Armoury {
     if (hasBotty) {
       const note = document.createElement("div");
       note.textContent = "BOTTY is deployed with you. Use First Aid Kits to heal him if he goes down.";
-      note.style.cssText = "color:#9fc78a; font-size:12px; margin-top:8px;";
+      note.style.cssText = "color:#9aa882; font-size:12px; margin-top:8px;";
       wrap.appendChild(note);
 
       const upgradeHeading = document.createElement("div");
       upgradeHeading.textContent = "BOTTY Upgrade Tree";
-      upgradeHeading.style.cssText = "font-weight:bold; margin:18px 0 10px; color:#9fc78a;";
+      upgradeHeading.style.cssText = `font-weight:700; margin:18px 0 10px; color:${SAF.textDim}; font-size:10px; letter-spacing:2.5px; text-transform:uppercase;`;
       wrap.appendChild(upgradeHeading);
 
       const grid = document.createElement("div");
@@ -816,25 +882,25 @@ export class Armoury {
     card.style.cssText = "padding:10px;";
 
     const title = document.createElement("div");
-    title.style.cssText = "display:flex; justify-content:space-between; align-items:center; font-weight:bold; color:#9fc78a; margin-bottom:4px;";
+    title.style.cssText = "display:flex; justify-content:space-between; align-items:center; font-weight:bold; color:#9aa882; margin-bottom:4px;";
     const pips = "●".repeat(level) + "○".repeat(3 - level);
-    title.innerHTML = `<span>${def.name}</span><span style="letter-spacing:2px; color:${level >= 3 ? "#e0c15a" : "#9fc78a"};">${pips}</span>`;
+    title.innerHTML = `<span>${def.name}</span><span style="letter-spacing:2px; color:${level >= 3 ? "#c9a227" : "#9aa882"};">${pips}</span>`;
     card.appendChild(title);
 
     const desc = document.createElement("div");
     desc.textContent = level >= 3 ? "Maxed — " + def.summary : def.summary;
-    desc.style.cssText = "font-size:12px; color:#c9d8bf; margin-bottom:8px;";
+    desc.style.cssText = "font-size:12px; color:#b3bda3; margin-bottom:8px;";
     card.appendChild(desc);
 
     if (price !== null) {
       const nextDesc = document.createElement("div");
       nextDesc.textContent = `Level ${level + 1}: ${def.levelDescriptions[level]}`;
-      nextDesc.style.cssText = "font-size:11px; color:#7f9a72; margin-bottom:8px;";
+      nextDesc.style.cssText = "font-size:11px; color:#67725c; margin-bottom:8px;";
       card.appendChild(nextDesc);
 
       const btn = document.createElement("button");
       btn.textContent = `Upgrade — ${price}c`;
-      styleButton(btn, this.gameState.data.credits >= price ? "#3c6b32" : "#5a3232");
+      styleButton(btn, this.gameState.data.credits >= price ? "#4a6135" : "#5a3232");
       btn.onclick = () => {
         if (this.gameState.buyBottyUpgrade(category)) {
           this.audio.purchase();
@@ -846,7 +912,7 @@ export class Armoury {
       const maxed = document.createElement("button");
       maxed.textContent = "MAX LEVEL";
       maxed.disabled = true;
-      styleButton(maxed, "#4a7a3c");
+      styleButton(maxed, "#4a6135");
       card.appendChild(maxed);
     }
     return card;
@@ -864,11 +930,11 @@ export class Armoury {
     const btn = document.createElement("button");
     if (owned) {
       btn.textContent = "Owned";
-      styleButton(btn, "#4a7a3c");
+      styleButton(btn, "#4a6135");
       btn.disabled = true;
     } else {
       btn.textContent = `${price}c`;
-      styleButton(btn, this.gameState.data.credits >= price ? "#3c6b32" : "#5a3232");
+      styleButton(btn, this.gameState.data.credits >= price ? "#4a6135" : "#5a3232");
       btn.onclick = onBuy;
     }
     row.appendChild(btn);
@@ -882,7 +948,7 @@ export class Armoury {
  */
 function styleButton(btn: HTMLButtonElement, bg: string): void {
   btn.className = "mil-btn";
-  if (bg === "#3c6b32") btn.classList.add("mil-btn-primary");
-  else if (bg === "#4a7a3c") btn.classList.add("mil-btn-active");
+  if (bg === "#4a6135") btn.classList.add("mil-btn-primary");
+  else if (bg === "#4a6135") btn.classList.add("mil-btn-active");
   else if (bg === "#5a3232") btn.classList.add("mil-btn-danger");
 }

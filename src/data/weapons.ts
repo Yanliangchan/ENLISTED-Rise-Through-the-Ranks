@@ -459,13 +459,15 @@ export interface WeaponCategory {
 }
 
 export const WEAPON_CATEGORIES: WeaponCategory[] = [
-  { name: "Assault Rifles", icon: "🔫", weaponIds: ["sar21", "br18"] },
-  { name: "Sniper Rifles", icon: "🎯", weaponIds: ["m110", "trg22"] },
-  { name: "Machine Guns", icon: "💥", weaponIds: ["fnmag", "colt_iar", "ultimax100"] },
-  { name: "Submachine Guns", icon: "🔧", weaponIds: ["mp5k", "p90"] },
-  { name: "Personal Defence Weapons", icon: "🛡", weaponIds: [] }, // ST Kinetics CPW — not yet in the roster
-  { name: "Pistols", icon: "🔫", weaponIds: ["p30"] }, // FN Five-seven — not yet in the roster
-  { name: "Special / Anti-Armour", icon: "🚀", weaponIds: ["matador"] },
+  // Icons are short NATO-style type codes rather than emoji — equipment
+  // labelling, not a chat interface.
+  { name: "Assault Rifles", icon: "AR", weaponIds: ["sar21", "br18"] },
+  { name: "Sniper Rifles", icon: "SR", weaponIds: ["m110", "trg22"] },
+  { name: "Machine Guns", icon: "MG", weaponIds: ["fnmag", "colt_iar", "ultimax100"] },
+  { name: "Submachine Guns", icon: "SMG", weaponIds: ["mp5k", "p90"] },
+  { name: "Personal Defence Weapons", icon: "PDW", weaponIds: [] }, // ST Kinetics CPW — not yet in the roster
+  { name: "Pistols", icon: "PL", weaponIds: ["p30"] }, // FN Five-seven — not yet in the roster
+  { name: "Special / Anti-Armour", icon: "AT", weaponIds: ["matador"] },
 ];
 
 /** Weapons the player owns at the start of a fresh save. */

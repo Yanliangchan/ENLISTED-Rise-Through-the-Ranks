@@ -33,7 +33,7 @@ export class MultiplayerMenu {
     this.root = document.createElement("div");
     this.root.className = "mp-root";
     this.root.style.cssText =
-      "position:fixed; inset:0; z-index:60; display:none; background:rgba(8,11,9,0.92); color:#cfe6c0;" +
+      "position:fixed; inset:0; z-index:60; display:none; background:rgba(8,11,9,0.92); color:#d5ddc8;" +
       "font-family:Consolas,'Courier New',monospace; align-items:center; justify-content:center;";
     parent.appendChild(this.root);
     this.injectStyles();
@@ -44,10 +44,10 @@ export class MultiplayerMenu {
     const s = document.createElement("style");
     s.id = "mp-styles";
     s.textContent = `
-      .mp-panel{background:rgba(18,24,18,0.96);border:1px solid #3c4a34;min-width:420px;max-width:900px;padding:26px 30px;box-shadow:0 12px 60px rgba(0,0,0,.6)}
+      .mp-panel{background:rgba(18,24,18,0.96);border:1px solid #2f3a28;min-width:420px;max-width:900px;padding:26px 30px;box-shadow:0 12px 60px rgba(0,0,0,.6)}
       .mp-title{font-size:20px;letter-spacing:3px;color:#e8f2d8;margin:0 0 4px}
       .mp-sub{font-size:12px;color:#8fa47e;letter-spacing:1px;margin:0 0 20px}
-      .mp-btn{display:block;width:100%;background:rgba(30,40,28,0.9);color:#cfe6c0;border:1px solid #4a5c3c;padding:13px;margin:8px 0;font-family:inherit;font-size:14px;letter-spacing:2px;cursor:pointer;transition:background .12s}
+      .mp-btn{display:block;width:100%;background:rgba(30,40,28,0.9);color:#d5ddc8;border:1px solid #4a5c3c;padding:13px;margin:8px 0;font-family:inherit;font-size:14px;letter-spacing:2px;cursor:pointer;transition:background .12s}
       .mp-btn:hover{background:rgba(52,70,44,0.95)}
       .mp-btn.primary{background:#3f6b2f;border-color:#5c9a45;color:#eaffdc}
       .mp-btn.primary:hover{background:#4d8039}
@@ -56,11 +56,11 @@ export class MultiplayerMenu {
       .mp-btn.sm{display:inline-block;width:auto;padding:6px 12px;font-size:11px;margin:0 4px 0 0}
       .mp-row{display:flex;justify-content:space-between;align-items:center;margin:9px 0;font-size:13px}
       .mp-input{background:#0e140d;border:1px solid #4a5c3c;color:#eaffdc;font-family:inherit;font-size:22px;letter-spacing:8px;text-align:center;padding:12px;width:100%;text-transform:uppercase}
-      .mp-select{background:#0e140d;border:1px solid #4a5c3c;color:#cfe6c0;font-family:inherit;padding:6px 8px}
+      .mp-select{background:#0e140d;border:1px solid #4a5c3c;color:#d5ddc8;font-family:inherit;padding:6px 8px}
       .mp-err{color:#e0857a;font-size:12px;min-height:16px;margin:8px 0}
       .mp-code{font-size:30px;letter-spacing:10px;color:#eaffdc;background:#0e140d;border:1px dashed #5c9a45;padding:10px 18px;text-align:center;cursor:copy}
       .mp-teams{display:flex;gap:16px;margin:14px 0}
-      .mp-team{flex:1;border:1px solid #3c4a34;padding:12px;min-height:180px}
+      .mp-team{flex:1;border:1px solid #2f3a28;padding:12px;min-height:180px}
       .mp-team.blue{border-top:3px solid #4d8fd6}
       .mp-team.red{border-top:3px solid #d65b4d}
       .mp-team h4{margin:0 0 10px;letter-spacing:2px;font-size:13px}

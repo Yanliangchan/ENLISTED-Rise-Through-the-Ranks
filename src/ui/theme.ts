@@ -1,26 +1,29 @@
+import { SAF, safCamoDataUrl, safFabricDataUrl, safWearDataUrl } from "@/ui/saf";
+
 /**
- * Shared military UI theme — one injected stylesheet that every menu/overlay
- * draws from, so colours, typography, spacing, hover states and transitions
- * stay consistent across the whole interface instead of each screen carrying
- * its own slightly-different inline styles.
+ * Shared SAF field-equipment UI theme — one injected stylesheet every
+ * menu/overlay draws from.
  *
- * Palette (matches the in-world SAF green/olive look):
- *   bg      #0c120b   panel   #10160f   inset  #0a120a
- *   line    #3c4a34   accent  #9fc78a   green  #4a7a3c
- *   text    #d7e8d0   dim     #8fa585   gold   #e0c15a   red #c0392b
+ * The design brief is a military equipment and training interface, not a
+ * spaceship computer: flat panels, thin borders, muted olive/forest greens,
+ * condensed uppercase labelling, and a subtle camouflage texture behind the
+ * major surfaces. There is deliberately no glow, no glassmorphism, no heavy
+ * rounding and no cyan — signal colour is limited to amber and red, and only
+ * where the player genuinely needs to be alerted.
  */
 
 export const THEME = {
-  font: `Consolas, "Courier New", monospace`,
-  text: "#d7e8d0",
-  dim: "#8fa585",
-  accent: "#9fc78a",
-  green: "#4a7a3c",
-  gold: "#e0c15a",
-  red: "#c0392b",
-  line: "#3c4a34",
-  panel: "#10160f",
-  inset: "#0a120a",
+  font: SAF.fontUi,
+  mono: SAF.fontMono,
+  text: SAF.text,
+  dim: SAF.textDim,
+  accent: SAF.sage,
+  green: SAF.green,
+  gold: SAF.amber,
+  red: SAF.red,
+  line: SAF.line,
+  panel: SAF.panel,
+  inset: SAF.inset,
 } as const;
 
 let injected = false;
@@ -29,84 +32,125 @@ let injected = false;
 export function injectTheme(): void {
   if (injected || document.getElementById("mil-theme")) return;
   injected = true;
+  const camo = safCamoDataUrl();
+  const fabric = safFabricDataUrl();
+  const wear = safWearDataUrl();
   const style = document.createElement("style");
   style.id = "mil-theme";
   style.textContent = `
     .mil-overlay {
       position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-      background: rgba(5, 10, 5, 0.78);
-      font-family: ${THEME.font}; color: ${THEME.text};
-      animation: milFade 0.14s ease-out;
+      background: rgba(7, 10, 6, 0.86);
+      font-family: ${SAF.fontUi}; color: ${SAF.text};
+      animation: milFade 0.12s linear;
     }
     @keyframes milFade { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes milRise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
+    /*
+     * Panels are painted metal / stencilled board: flat fill, hard edges, a
+     * washed-out camo backing and a fabric tooth over the top. The top edge
+     * carries a single olive rule the way issued equipment carries a printed
+     * band — the only ornament on the panel.
+     */
     .mil-panel {
-      background: linear-gradient(160deg, #121a11, ${THEME.panel});
-      border: 1px solid ${THEME.line};
-      border-top: 2px solid ${THEME.green};
-      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.65);
-      border-radius: 3px;
-      padding: 20px 24px;
-      animation: milRise 0.16s ease-out;
+      position: relative;
+      background-color: ${SAF.panel};
+      background-image:
+        linear-gradient(rgba(17, 23, 16, 0.93), rgba(13, 18, 12, 0.95)),
+        url("${camo}");
+      background-size: auto, 200px 200px;
+      background-repeat: no-repeat, repeat;
+      border: 1px solid ${SAF.line};
+      border-top: 3px solid ${SAF.olive};
+      box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
+      border-radius: 0;
+      padding: 18px 22px;
       box-sizing: border-box;
     }
+    /* Fabric weave + dust, so the surface never reads as flat vector UI. */
+    .mil-panel::after {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background-image: url("${fabric}"), url("${wear}");
+      background-size: 64px 64px, 256px 256px;
+      opacity: 0.16;
+    }
+    .mil-panel > * { position: relative; z-index: 1; }
 
     .mil-title {
-      font-size: clamp(16px, 2.2vw, 21px); font-weight: bold; letter-spacing: 3px;
-      color: #eef5e8; text-transform: uppercase;
+      font-size: clamp(15px, 2vw, 19px); font-weight: 700; letter-spacing: 3px;
+      color: ${SAF.text}; text-transform: uppercase;
     }
-    .mil-title::before { content: "// "; color: ${THEME.green}; }
+    /* Stencil-style rule instead of the old "// " sci-fi prefix. */
+    .mil-title::after {
+      content: ""; display: block; width: 42px; height: 2px;
+      background: ${SAF.olive}; margin-top: 6px;
+    }
     .mil-kicker {
-      font-size: 11px; letter-spacing: 2px; color: ${THEME.accent}; text-transform: uppercase;
+      font-size: 10px; letter-spacing: 2.5px; color: ${SAF.textDim}; text-transform: uppercase;
       margin-bottom: 6px;
     }
+    /* Small uppercase field label — the workhorse for equipment captions. */
+    .mil-label {
+      font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: ${SAF.textFaint};
+    }
+    .mil-value { font-family: ${SAF.fontMono}; color: ${SAF.text}; }
 
+    /*
+     * Buttons: stamped plates. Square corners, a hard olive left edge that
+     * fills in on hover, no glow and no lift animation.
+     */
     .mil-btn {
-      background: rgba(42, 51, 36, 0.5); color: #eaf0e6;
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      border-left: 3px solid transparent;
-      padding: 7px 14px; font-family: inherit; font-size: 13px; cursor: pointer;
-      border-radius: 2px; letter-spacing: 0.4px;
-      transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+      background: ${SAF.panelHi}; color: ${SAF.text};
+      border: 1px solid ${SAF.line};
+      border-left: 3px solid ${SAF.line};
+      padding: 7px 14px; font-family: inherit; font-size: 12px; cursor: pointer;
+      border-radius: 0; letter-spacing: 1.4px; text-transform: uppercase;
+      transition: background 0.1s linear, border-color 0.1s linear, color 0.1s linear;
     }
-    .mil-btn:hover:not(:disabled) {
-      background: rgba(74, 122, 60, 0.45); border-left-color: ${THEME.accent};
-    }
-    .mil-btn:active:not(:disabled) { transform: translateY(1px); }
-    .mil-btn:disabled { opacity: 0.45; cursor: default; }
+    .mil-btn:hover:not(:disabled) { background: #24301e; border-left-color: ${SAF.olive}; }
+    .mil-btn:active:not(:disabled) { background: #1a2415; }
+    .mil-btn:disabled { opacity: 0.4; cursor: default; }
 
-    .mil-btn-primary { background: #3c6b32; border-left-color: ${THEME.accent}; }
-    .mil-btn-primary:hover:not(:disabled) { background: ${THEME.green}; }
-    .mil-btn-danger { background: #5a2c26; }
-    .mil-btn-danger:hover:not(:disabled) { background: #6b3232; border-left-color: #e08a6a; }
-    .mil-btn-active { background: ${THEME.green}; border-left-color: ${THEME.accent}; }
+    .mil-btn-primary { background: ${SAF.green}; border-color: #5c7543; border-left-color: ${SAF.sage}; color: #eef2e4; }
+    .mil-btn-primary:hover:not(:disabled) { background: #56703d; border-left-color: ${SAF.sage}; }
+    .mil-btn-danger { background: #4a231b; border-left-color: #7a3a2c; }
+    .mil-btn-danger:hover:not(:disabled) { background: #5a2c22; border-left-color: ${SAF.red}; }
+    .mil-btn-active { background: ${SAF.olive}; border-left-color: ${SAF.sage}; color: #f0f4e6; }
 
+    /* Manifest row — a line item on a kit list. */
     .mil-row {
       display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-      border: 1px solid #23291f; border-radius: 2px;
-      background: rgba(10, 18, 10, 0.35);
-      transition: background 0.12s ease, border-color 0.12s ease;
+      border: 1px solid #232c1d; border-radius: 0;
+      background: rgba(12, 17, 11, 0.6);
+      transition: background 0.1s linear, border-color 0.1s linear;
     }
-    .mil-row:hover { background: rgba(30, 42, 26, 0.5); border-color: ${THEME.line}; }
+    .mil-row:hover { background: rgba(28, 37, 25, 0.7); border-color: ${SAF.line}; }
 
     .mil-inset {
-      background: ${THEME.inset}; border: 1px solid #2c3a26; border-radius: 2px;
+      background: ${SAF.inset}; border: 1px solid #26301f; border-radius: 0;
       padding: 12px 14px;
     }
 
-    .mil-hr { border: none; border-top: 1px solid #23291f; margin: 14px 0; }
+    .mil-hr { border: none; border-top: 1px solid #232c1d; margin: 14px 0; }
+
+    /* Stencilled tag — issue markings, status chips. Use sparingly. */
+    .mil-tag {
+      display: inline-block; font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+      padding: 2px 7px; border: 1px solid ${SAF.line}; color: ${SAF.textDim};
+    }
+    .mil-tag-on { color: ${SAF.sage}; border-color: ${SAF.olive}; }
+    .mil-tag-warn { color: ${SAF.amber}; border-color: #6d5a1b; }
+    .mil-tag-off { color: ${SAF.textFaint}; }
 
     input[type="range"].mil-slider {
-      -webkit-appearance: none; appearance: none; width: 100%; height: 4px;
-      background: #23291f; border-radius: 2px; outline: none;
+      -webkit-appearance: none; appearance: none; width: 100%; height: 3px;
+      background: #2a3323; border-radius: 0; outline: none;
     }
     input[type="range"].mil-slider::-webkit-slider-thumb {
-      -webkit-appearance: none; appearance: none; width: 14px; height: 14px;
-      background: ${THEME.accent}; border-radius: 2px; cursor: pointer;
-      transition: background 0.12s ease;
+      -webkit-appearance: none; appearance: none; width: 12px; height: 16px;
+      background: ${SAF.olive}; border: 1px solid ${SAF.lineHi}; border-radius: 0; cursor: pointer;
     }
-    input[type="range"].mil-slider::-webkit-slider-thumb:hover { background: #c6e6b0; }
+    input[type="range"].mil-slider::-webkit-slider-thumb:hover { background: ${SAF.sage}; }
   `;
   document.head.appendChild(style);
 }

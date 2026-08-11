@@ -23,10 +23,13 @@ export function attachCinematicPipeline(scene: Scene, camera: Camera): DefaultRe
 
   pipeline.fxaaEnabled = true;
 
+  // Bloom is pulled right back and its threshold raised: it exists to let a
+  // muzzle flash read as hot, not to give the whole frame a neon halo. Heavy
+  // bloom is one of the strongest "futuristic shooter" tells.
   pipeline.bloomEnabled = true;
-  pipeline.bloomThreshold = 0.82;
-  pipeline.bloomWeight = 0.2;
-  pipeline.bloomKernel = 48;
+  pipeline.bloomThreshold = 0.93;
+  pipeline.bloomWeight = 0.09;
+  pipeline.bloomKernel = 32;
   pipeline.bloomScale = 0.5;
 
   pipeline.imageProcessingEnabled = true;
@@ -35,29 +38,38 @@ export function attachCinematicPipeline(scene: Scene, camera: Camera): DefaultRe
   ip.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
   // The world renders PBR with sky IBL + a real sun now, so exposure sits
   // closer to neutral than the old flat-lit Standard-material tuning did.
-  ip.exposure = 1.15;
-  ip.contrast = 1.08;
+  ip.exposure = 1.12;
+  ip.contrast = 1.06;
   ip.vignetteEnabled = true;
-  ip.vignetteWeight = 1.3;
+  ip.vignetteWeight = 1.15;
   ip.vignetteColor = new Color4(0, 0, 0, 0);
 
-  // Colour grading: gently teal-shifted shadows + warm highlights — the classic
-  // military-FPS grade — with a touch of global saturation so the orange
-  // enemies/props pop against the muted city.
+  /*
+   * Grade: humid Singapore field light, not the teal-and-orange blockbuster
+   * look. The old curve pushed shadows to 210° (blue) and lifted saturation,
+   * which is exactly what gives a scene that cold sci-fi cast. Shadows now sit
+   * warm-olive and highlights carry a little sun, so greens read as vegetation
+   * and uniform rather than as screen glow. Saturation is slightly under
+   * neutral to keep the palette muted and earthy.
+   */
   const curves = new ColorCurves();
-  curves.globalSaturation = 12;
-  curves.shadowsHue = 210;
-  curves.shadowsDensity = 14;
-  curves.highlightsHue = 40;
-  curves.highlightsDensity = 12;
+  curves.globalSaturation = -6;
+  curves.shadowsHue = 90; // olive-green shadows
+  curves.shadowsDensity = 10;
+  curves.midtonesHue = 70;
+  curves.midtonesDensity = 5;
+  curves.highlightsHue = 44; // warm tropical sun
+  curves.highlightsDensity = 14;
   ip.colorCurvesEnabled = true;
   ip.colorCurves = curves;
 
   pipeline.sharpenEnabled = true;
-  pipeline.sharpen.edgeAmount = 0.16;
+  pipeline.sharpen.edgeAmount = 0.14;
 
+  // A little more grain than before — dust and humidity in the air, and it
+  // helps the flat procedural surfaces read as photographed rather than drawn.
   pipeline.grainEnabled = true;
-  pipeline.grain.intensity = 5;
+  pipeline.grain.intensity = 7;
   pipeline.grain.animated = true;
 
   // SSAO: soft contact shading in corners/under props — the single biggest

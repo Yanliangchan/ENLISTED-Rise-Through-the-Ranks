@@ -82,10 +82,13 @@ export class SkylineBackground {
     // --- Sky: near-black night gradient with a faint green NVG cast + stars.
     this.skyLayer = this.makeLayer(w, h, (ctx) => {
       const grad = ctx.createLinearGradient(0, 0, 0, h);
-      grad.addColorStop(0, "#02040a");
-      grad.addColorStop(0.55, "#050b0d");
-      grad.addColorStop(0.85, "#0a1410");
-      grad.addColorStop(1, "#0c1712");
+      // Humid tropical night: olive-black overhead warming into haze at the
+      // horizon. The old top stop was blue-black, which pushed the whole page
+      // cold and sci-fi.
+      grad.addColorStop(0, "#060805");
+      grad.addColorStop(0.55, "#0a0e08");
+      grad.addColorStop(0.85, "#12160d");
+      grad.addColorStop(1, "#181c11");
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
       this.twinkles = [];
@@ -95,7 +98,7 @@ export class SkylineBackground {
         const x = rand() * w;
         const y = rand() * h * 0.55;
         const a = 0.15 + rand() * 0.5;
-        ctx.fillStyle = `rgba(200, 225, 205, ${a})`;
+        ctx.fillStyle = `rgba(202, 208, 182, ${a})`;
         ctx.fillRect(x, y, 1, 1);
         if (i % 14 === 0) this.twinkles.push({ x, y, phase: rand() * Math.PI * 2 });
       }
@@ -103,8 +106,8 @@ export class SkylineBackground {
       const moonX = w * 0.78;
       const moonY = h * 0.14;
       const glow = ctx.createRadialGradient(moonX, moonY, 2, moonX, moonY, h * 0.16);
-      glow.addColorStop(0, "rgba(190, 215, 190, 0.16)");
-      glow.addColorStop(1, "rgba(190, 215, 190, 0)");
+      glow.addColorStop(0, "rgba(198, 200, 168, 0.13)");
+      glow.addColorStop(1, "rgba(198, 200, 168, 0)");
       ctx.fillStyle = glow;
       ctx.fillRect(moonX - h * 0.2, moonY - h * 0.2, h * 0.4, h * 0.4);
     });
@@ -112,13 +115,13 @@ export class SkylineBackground {
     // --- Far skyline: short dark silhouettes, sparse dim windows.
     const farBase = h * 0.86;
     this.farLayer = this.makeLayer(w, h, (ctx) => {
-      ctx.fillStyle = "#04080a";
+      ctx.fillStyle = "#070a06";
       let x = -20;
       while (x < w + 40) {
         const bw = 24 + rand() * 60;
         const bh = h * (0.06 + rand() * 0.14);
         ctx.fillRect(x, farBase - bh, bw, bh);
-        ctx.fillStyle = "rgba(150, 165, 120, 0.16)";
+        ctx.fillStyle = "rgba(150, 158, 118, 0.14)";
         const cols = Math.floor(bw / 8);
         const rows = Math.floor(bh / 9);
         for (let c = 0; c < cols; c++) {
@@ -126,7 +129,7 @@ export class SkylineBackground {
             if (rand() < 0.14) ctx.fillRect(x + 3 + c * 8, farBase - bh + 4 + r * 9, 1.6, 2.2);
           }
         }
-        ctx.fillStyle = "#04080a";
+        ctx.fillStyle = "#070a06";
         x += bw + 2 + rand() * 10;
       }
       ctx.fillRect(0, farBase, w, h - farBase);
@@ -147,7 +150,7 @@ export class SkylineBackground {
         const bw = 34 + randMid() * 74;
         const bh = h * (0.16 + randMid() * 0.3);
         const b: Building = { x, w: bw, h: bh, windows: [] };
-        ctx.fillStyle = randMid() < 0.5 ? "#060b09" : "#081009";
+        ctx.fillStyle = randMid() < 0.5 ? "#090c07" : "#0b0f08";
         ctx.fillRect(x, midBase - bh, bw, bh);
         // Rooftop detail: lift motor room / antenna.
         ctx.fillRect(x + bw * 0.3, midBase - bh - 6, bw * 0.25, 6);
@@ -164,7 +167,7 @@ export class SkylineBackground {
               const wy = midBase - bh + 5 + r * 10;
               b.windows.push({ x: wx, y: wy });
               const warm = randMid() < 0.7;
-              ctx.fillStyle = warm ? "rgba(205, 185, 120, 0.5)" : "rgba(150, 200, 170, 0.42)";
+              ctx.fillStyle = warm ? "rgba(206, 178, 110, 0.5)" : "rgba(176, 186, 150, 0.36)";
               ctx.fillRect(wx, wy, WIN_W, WIN_H);
               if (randMid() < 0.09) {
                 this.flickerWindows.push({ x: wx, y: wy, phase: randMid() * Math.PI * 2, speed: 2 + randMid() * 7 });
@@ -184,7 +187,7 @@ export class SkylineBackground {
       for (let t = 0; t < 3; t++) {
         const tx = landmarkX + t * (lw * 0.38);
         ctx.fillRect(tx, midBase - lh, towerW, lh);
-        ctx.fillStyle = "rgba(160, 200, 175, 0.35)";
+        ctx.fillStyle = "rgba(170, 180, 145, 0.3)";
         for (let r = 0; r < Math.floor(lh / 9); r++) {
           if (randMid() < 0.5) ctx.fillRect(tx + towerW * 0.2, midBase - lh + 4 + r * 9, towerW * 0.6, 1.6);
         }
@@ -199,7 +202,7 @@ export class SkylineBackground {
       ctx.lineTo(landmarkX - lw * 0.06, midBase - lh - 14);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = "rgba(190, 220, 190, 0.4)";
+      ctx.fillStyle = "rgba(186, 194, 160, 0.35)";
       ctx.fillRect(landmarkX - lw * 0.1, midBase - lh - 8, lw * 1.1, 1.2);
       this.warningLights.push(
         { x: landmarkX + lw * 0.12, y: midBase - lh - 15, phase: 0.4 },
@@ -214,7 +217,7 @@ export class SkylineBackground {
         const ry = midBase + randMid() * (h - midBase);
         const rl = 6 + randMid() * 26;
         const warm = randMid() < 0.6;
-        ctx.fillStyle = warm ? "rgba(200, 180, 115, 0.07)" : "rgba(140, 195, 165, 0.06)";
+        ctx.fillStyle = warm ? "rgba(200, 178, 112, 0.07)" : "rgba(168, 178, 140, 0.05)";
         ctx.fillRect(rx, ry, rl, 1.2);
       }
     });
@@ -226,8 +229,8 @@ export class SkylineBackground {
         const cy = 40 + rand() * 44;
         const cr = 26 + rand() * 34;
         const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, cr);
-        g.addColorStop(0, "rgba(120, 140, 125, 0.16)");
-        g.addColorStop(1, "rgba(120, 140, 125, 0)");
+        g.addColorStop(0, "rgba(128, 134, 108, 0.15)");
+        g.addColorStop(1, "rgba(128, 134, 108, 0)");
         ctx.fillStyle = g;
         ctx.fillRect(cx - cr, cy - cr, cr * 2, cr * 2);
       }
@@ -246,10 +249,9 @@ export class SkylineBackground {
       { y: h * 0.85, phase: 2.4, speed: -3.4, alpha: 0.5 },
       { y: h * 0.92, phase: 4.1, speed: 4.2, alpha: 0.6 },
     ];
-    this.searchlights = [
-      { x: w * 0.2, phase: 0.6, speed: 0.11, spread: 0.05 },
-      { x: w * 0.83, phase: 3.4, speed: 0.08, spread: 0.04 },
-    ];
+    // One slow, dim beam instead of two sweeping ones — enough to suggest an
+    // exercise going on over the horizon without the searchlight-show look.
+    this.searchlights = [{ x: w * 0.78, phase: 3.4, speed: 0.05, spread: 0.035 }];
   }
 
   private makeLayer(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void): HTMLCanvasElement {
@@ -275,7 +277,7 @@ export class SkylineBackground {
     // Twinkling stars over the static field.
     for (const s of this.twinkles) {
       const a = 0.25 + 0.4 * (0.5 + 0.5 * Math.sin(t * 1.7 + s.phase));
-      ctx.fillStyle = `rgba(210, 235, 215, ${a})`;
+      ctx.fillStyle = `rgba(206, 212, 186, ${a})`;
       ctx.fillRect(s.x + mx * -5, s.y + my * -3, 1.4, 1.4);
     }
 
@@ -291,8 +293,8 @@ export class SkylineBackground {
       const tipX = ox + Math.cos(angle) * len;
       const tipY = oy + Math.sin(angle) * len;
       const grad = ctx.createLinearGradient(ox, oy, tipX, tipY);
-      grad.addColorStop(0, "rgba(180, 220, 190, 0.13)");
-      grad.addColorStop(1, "rgba(180, 220, 190, 0)");
+      grad.addColorStop(0, "rgba(196, 190, 150, 0.055)");
+      grad.addColorStop(1, "rgba(196, 190, 150, 0)");
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.moveTo(ox, oy);

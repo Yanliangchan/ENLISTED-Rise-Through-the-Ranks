@@ -5,6 +5,7 @@ import type { GameState } from "@/core/GameState";
 import type { WaveManager } from "@/world/WaveManager";
 import { ATTACHMENTS } from "@/data/attachments";
 import { isAbilitySpecial, SPECIAL_ABILITY_LABELS, M203_BALLISTICS } from "@/data/gamedata";
+import { SAF } from "@/ui/saf";
 import type { BuildingFootprint } from "@/world/Level";
 
 /** Camera vertical FOV (radians) at hip — must match BASE_FOV in WeaponController; the M203 is fired unscoped. */
@@ -125,7 +126,7 @@ export class HUD {
     this.root = document.createElement("div");
     this.root.style.cssText = `
       position: fixed; inset: 0; pointer-events: none;
-      color: #d7e8d0; font-family: Consolas, "Courier New", monospace;
+      color: ${SAF.text}; font-family: ${SAF.fontUi};
       user-select: none;
     `;
 
@@ -171,15 +172,16 @@ export class HUD {
 
     // Edge insets scale with the viewport but never crowd the very corner —
     // a simple safe-zone margin that holds up from tiny windows to 4K.
+    // Flat stencilled plate — no blur, no rounding, no glow. Issued equipment
+    // readout rather than a glass cockpit panel.
     const bottomLeft = el("div", `
       position:absolute; bottom:clamp(12px,2.4vh,30px); left:clamp(12px,2vw,30px);
-      width:min(230px, 32vw); padding:12px 14px;
-      background: linear-gradient(135deg, rgba(10,16,10,0.72), rgba(8,12,8,0.55));
-      border: 1px solid rgba(159,199,138,0.28); border-left: 3px solid #4a7a3c;
-      border-radius: 3px; backdrop-filter: blur(2px);
+      width:min(220px, 32vw); padding:10px 12px;
+      background: rgba(11, 16, 10, 0.74);
+      border: 1px solid rgba(90, 108, 72, 0.5); border-left: 3px solid ${SAF.olive};
     `);
-    this.healthBar = makeBar("#c0392b");
-    this.armourBar = makeBar("#5b8dd6");
+    this.healthBar = makeBar(SAF.red);
+    this.armourBar = makeBar("#6f7f52");
     const hpLabeled = labeled("HP", this.healthBar);
     const armLabeled = labeled("ARM", this.armourBar);
     bottomLeft.appendChild(hpLabeled.wrap);
@@ -187,27 +189,26 @@ export class HUD {
     this.armourValueEl = document.createElement("span");
     armLabeled.labelEl.appendChild(this.armourValueEl);
 
-    this.bottyBar = makeBar("#3aa0c8");
+    this.bottyBar = makeBar(SAF.olive);
     const bottyLabeled = labeled("BOTTY", this.bottyBar);
     this.bottyWrap = bottyLabeled.wrap;
     this.bottyWrap.style.display = "none";
-    this.bottyCommandEl = el("div", "font-size:11px; color:#8fc7e0; margin-top:-4px; margin-bottom:6px; text-shadow:1px 1px 2px rgba(0,0,0,0.9);");
+    this.bottyCommandEl = el("div", `font-size:10px; color:${SAF.sage}; margin-top:-4px; margin-bottom:6px; letter-spacing:1.4px; text-transform:uppercase; text-shadow:1px 1px 2px rgba(0,0,0,0.9);`);
     this.bottyWrap.appendChild(this.bottyCommandEl);
     bottomLeft.appendChild(this.bottyWrap);
 
     const bottomRight = el("div", `
       position:absolute; bottom:clamp(12px,2.4vh,30px); right:clamp(12px,2vw,30px);
-      text-align:right; font-size:15px;
+      text-align:right; font-size:14px;
       text-shadow: 1px 1px 2px rgba(0,0,0,0.9); line-height:1.45; min-width:min(200px, 34vw);
-      padding:12px 14px;
-      background: linear-gradient(225deg, rgba(10,16,10,0.72), rgba(8,12,8,0.55));
-      border: 1px solid rgba(159,199,138,0.28); border-right: 3px solid #4a7a3c;
-      border-radius: 3px; backdrop-filter: blur(2px);
+      padding:10px 12px;
+      background: rgba(11, 16, 10, 0.74);
+      border: 1px solid rgba(90, 108, 72, 0.5); border-right: 3px solid ${SAF.olive};
     `);
-    this.ammoEl = el("div", "font-size:28px; font-weight:bold; letter-spacing:1px; color:#eef5e8;");
-    this.weaponNameEl = el("div", "font-size:13px; color:#9fc78a; text-transform:uppercase; letter-spacing:0.5px; margin-top:2px;");
-    this.throwableEl = el("div", "font-size:13px; color:#c9d8bf; margin-top:6px;");
-    this.specialEl = el("div", "font-size:13px; color:#e0a15a; margin-top:2px;");
+    this.ammoEl = el("div", `font-size:27px; font-weight:700; letter-spacing:1px; color:#eef2e4; font-family:${SAF.fontMono};`);
+    this.weaponNameEl = el("div", `font-size:11px; color:${SAF.sage}; text-transform:uppercase; letter-spacing:1.6px; margin-top:2px;`);
+    this.throwableEl = el("div", `font-size:11px; color:${SAF.textDim}; margin-top:6px; letter-spacing:1.4px; text-transform:uppercase;`);
+    this.specialEl = el("div", `font-size:11px; color:${SAF.amber}; margin-top:2px; letter-spacing:1.4px; text-transform:uppercase;`);
     bottomRight.appendChild(this.ammoEl);
     bottomRight.appendChild(this.weaponNameEl);
     bottomRight.appendChild(this.throwableEl);
@@ -217,17 +218,17 @@ export class HUD {
     // own cluster (the minimap now lives top-right).
     const topCentre = el("div", `
       position:absolute; top:clamp(10px,1.8vh,24px); left:50%; transform:translateX(-50%);
-      text-align:center; font-size:13px; max-width:min(340px, 46vw);
+      text-align:center; font-size:12px; max-width:min(340px, 46vw);
       text-shadow: 1px 1px 2px rgba(0,0,0,0.9); line-height:1.5;
-      padding:8px 16px;
-      background: linear-gradient(135deg, rgba(10,16,10,0.6), rgba(8,12,8,0.4));
-      border: 1px solid rgba(159,199,138,0.22); border-radius: 3px;
+      padding:7px 18px;
+      background: rgba(11, 16, 10, 0.7);
+      border: 1px solid rgba(90, 108, 72, 0.45); border-top: 2px solid ${SAF.olive};
     `);
-    this.waveEl = el("div", "font-size:15px; font-weight:bold; letter-spacing:1px; color:#eef5e8; text-transform:uppercase;");
-    this.enemyCountEl = el("div", "font-size:13px; letter-spacing:1px; color:#ff8f7a; margin-top:1px;");
-    this.creditsEl = el("div", "color:#e0c15a; margin-top:2px; transition: color 140ms ease, text-shadow 140ms ease;");
-    this.uavEl = el("div", "color:#7fd0ff; font-size:13px; margin-top:4px;");
-    this.medkitEl = el("div", "color:#8fd68f; font-size:13px;");
+    this.waveEl = el("div", `font-size:14px; font-weight:700; letter-spacing:2.4px; color:#eef2e4; text-transform:uppercase;`);
+    this.enemyCountEl = el("div", `font-size:11px; letter-spacing:1.8px; color:${SAF.red}; margin-top:2px; text-transform:uppercase;`);
+    this.creditsEl = el("div", `color:${SAF.amber}; margin-top:3px; font-size:12px; letter-spacing:1.6px; font-family:${SAF.fontMono}; transition: color 140ms linear;`);
+    this.uavEl = el("div", `color:${SAF.sage}; font-size:11px; margin-top:4px; letter-spacing:1.4px; text-transform:uppercase;`);
+    this.medkitEl = el("div", `color:${SAF.textDim}; font-size:11px; letter-spacing:1.4px; text-transform:uppercase;`);
     topCentre.appendChild(this.waveEl);
     topCentre.appendChild(this.enemyCountEl);
     topCentre.appendChild(this.creditsEl);
@@ -242,7 +243,7 @@ export class HUD {
       position:absolute; top:26%; left:50%; transform:translateX(-50%);
       text-align:center; pointer-events:none; opacity:0;
       transition: opacity 160ms ease;
-      text-shadow: 0 0 18px rgba(0,0,0,0.95), 2px 2px 3px rgba(0,0,0,0.95);
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.95);
     `);
 
     // Notifications / kill feed: UPPER LEFT.
@@ -288,7 +289,7 @@ export class HUD {
 
     this.interactPromptEl = el("div", `
       position: absolute; top: 62%; left: 50%; transform: translate(-50%, 0);
-      font-size: 15px; color: #e0c15a; text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
+      font-size: 15px; color: #c9a227; text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
       opacity: 0;
     `);
 
@@ -305,7 +306,7 @@ export class HUD {
     this.radarCanvas.style.cssText = `
       position:absolute; top:clamp(10px,1.8vh,24px); right:clamp(12px,2vw,30px);
       background: rgba(10,20,10,0.55); border: 2px solid rgba(159,199,138,0.4);
-      border-radius: 50%; box-shadow: 0 0 12px rgba(0,0,0,0.5);
+      border-radius: 50%; box-shadow: none;
     `;
     this.radarCtx = this.radarCanvas.getContext("2d")!;
 
@@ -364,20 +365,20 @@ export class HUD {
   /** Reflect UAV recon state: live countdown while overhead, otherwise charge/cooldown readiness. */
   updateUAV(active: boolean, secondsRemaining: number, charges: number, cooldownRemaining: number): void {
     if (active) {
-      this.uavEl.textContent = `HERMES 900 UAV ACTIVE — ${Math.ceil(secondsRemaining)}s (press M)`;
-      this.uavEl.style.color = "#7fd0ff";
+      this.uavEl.textContent = `UAV OVERHEAD — ${Math.ceil(secondsRemaining)}s · M FOR MAP`;
+      this.uavEl.style.color = SAF.amber;
     } else if (cooldownRemaining > 0) {
-      this.uavEl.textContent = `Hermes 900 UAV recharging — ${Math.ceil(cooldownRemaining)}s`;
-      this.uavEl.style.color = "#8a9a84";
+      this.uavEl.textContent = `UAV × ${charges} — RECHARGING ${Math.ceil(cooldownRemaining)}s`;
+      this.uavEl.style.color = SAF.textFaint;
     } else {
-      this.uavEl.textContent = `Hermes 900 UAV ready ×${charges} [Z]`;
-      this.uavEl.style.color = charges > 0 ? "#7fd0ff" : "#8a9a84";
+      this.uavEl.textContent = `UAV × ${charges}  [Z]`;
+      this.uavEl.style.color = charges > 0 ? SAF.sage : SAF.textFaint;
     }
   }
 
   /** Generic support-ability readout (top-centre) — used for the air strike and to
    *  clear the line when the equipped special isn't a call-in ability. */
-  setSupportLine(text: string | null, color = "#e0a15a"): void {
+  setSupportLine(text: string | null, color: string = SAF.amber): void {
     this.uavEl.textContent = text ?? "";
     this.uavEl.style.color = color;
   }
@@ -404,7 +405,7 @@ export class HUD {
     }
     this.bottyWrap.style.display = "block";
     this.bottyBar.style.width = `${Math.max(0, (status.health / status.maxHealth) * 100)}%`;
-    this.bottyBar.style.background = status.isDown ? "#5a5a5a" : "#3aa0c8";
+    this.bottyBar.style.background = status.isDown ? "#4a4a42" : SAF.olive;
     this.bottyCommandEl.textContent = status.isDown
       ? "DOWN — needs a First Aid Kit"
       : HUD.COMMAND_LABELS[status.command] ?? status.command;
@@ -413,7 +414,7 @@ export class HUD {
   /** Reflect carried first aid kit count. */
   updateMedkit(count: number): void {
     this.medkitEl.textContent = `First Aid ×${count} [5]`;
-    this.medkitEl.style.color = count > 0 ? "#8fd68f" : "#8a9a84";
+    this.medkitEl.style.color = count > 0 ? "#8fd68f" : "#8f9a80";
   }
 
   notifyHit(headshot = false): void {
@@ -523,13 +524,10 @@ export class HUD {
         // not just silently reflected.
         const gained = credits > this.lastCreditsShown && this.lastCreditsShown >= 0;
         this.lastCreditsShown = credits;
-        this.creditsEl.textContent = `CREDITS  ${credits.toLocaleString()}`;
-        this.creditsEl.style.color = gained ? "#fff0a8" : "#e0c15a";
-        this.creditsEl.style.textShadow = gained ? "0 0 12px rgba(224,193,90,0.9)" : "1px 1px 2px rgba(0,0,0,0.9)";
-        window.setTimeout(() => {
-          this.creditsEl.style.color = "#e0c15a";
-          this.creditsEl.style.textShadow = "1px 1px 2px rgba(0,0,0,0.9)";
-        }, 400);
+        this.creditsEl.textContent = `FUNDS  $${credits.toLocaleString()}`;
+        // A brief brightening on change — signal, not a neon pulse.
+        this.creditsEl.style.color = gained ? "#f0dd9a" : SAF.amber;
+        window.setTimeout(() => { this.creditsEl.style.color = SAF.amber; }, 400);
       }
       this.waveEl.textContent = this.phaseLabel();
 
@@ -561,15 +559,15 @@ export class HUD {
 
     if (this.player.inSafeZone) {
       this.safeZoneEl.textContent = "SAFE ZONE";
-      this.safeZoneEl.style.color = "#baf0ba";
-      this.safeZoneEl.style.background = "rgba(20,60,25,0.75)";
-      this.safeZoneEl.style.border = "1px solid rgba(140,220,140,0.6)";
+      this.safeZoneEl.style.color = SAF.sage;
+      this.safeZoneEl.style.background = "rgba(24, 36, 20, 0.85)";
+      this.safeZoneEl.style.border = `1px solid ${SAF.olive}`;
       this.safeZoneEl.style.opacity = "1";
     } else if (this.player.spawnProtected) {
       this.safeZoneEl.textContent = "SPAWN PROTECTED";
-      this.safeZoneEl.style.color = "#f0dc9a";
-      this.safeZoneEl.style.background = "rgba(60,48,15,0.75)";
-      this.safeZoneEl.style.border = "1px solid rgba(220,190,110,0.6)";
+      this.safeZoneEl.style.color = SAF.amber;
+      this.safeZoneEl.style.background = "rgba(42, 34, 12, 0.85)";
+      this.safeZoneEl.style.border = "1px solid #6d5a1b";
       this.safeZoneEl.style.opacity = "1";
     } else {
       this.safeZoneEl.style.opacity = "0";
@@ -719,7 +717,7 @@ export class HUD {
       const cy = -rz;
       ctx.save();
       ctx.translate(rx, cy);
-      ctx.fillStyle = c.type === "ammo" ? "#39c7d8" : "#5be07a";
+      ctx.fillStyle = c.type === "ammo" ? SAF.tan : "#7fae63";
       ctx.strokeStyle = "rgba(0,0,0,0.7)";
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -775,7 +773,7 @@ export class HUD {
       if (Math.abs(rx) <= size / 2 && Math.abs(rz) <= size / 2) {
         ctx.save();
         ctx.translate(rx, -rz);
-        ctx.fillStyle = this.bottyPos.isDown ? "#8a8a8a" : "#3aa0c8";
+        ctx.fillStyle = this.bottyPos.isDown ? "#7a7a70" : SAF.sage;
         ctx.strokeStyle = "rgba(0,0,0,0.7)";
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -848,9 +846,9 @@ function labeled(label: string, bar: HTMLDivElement): { wrap: HTMLDivElement; la
   wrap.style.cssText = "margin-bottom:8px;";
   const labelEl = document.createElement("div");
   labelEl.textContent = label;
-  labelEl.style.cssText = "font-size:10px; font-weight:bold; letter-spacing:1.5px; color:#9fc78a; margin-bottom:3px; text-shadow:1px 1px 2px rgba(0,0,0,0.9); display:flex; justify-content:space-between;";
+  labelEl.style.cssText = `font-size:9px; font-weight:700; letter-spacing:2px; color:${SAF.textDim}; margin-bottom:3px; text-shadow:1px 1px 2px rgba(0,0,0,0.9); display:flex; justify-content:space-between;`;
   const track = document.createElement("div");
-  track.style.cssText = "width:100%; height:8px; background:rgba(0,0,0,0.55); border:1px solid rgba(255,255,255,0.18); border-radius:1px; overflow:hidden;";
+  track.style.cssText = "width:100%; height:7px; background:rgba(0,0,0,0.6); border:1px solid rgba(120,138,100,0.35); border-radius:0; overflow:hidden;";
   track.appendChild(bar);
   wrap.appendChild(labelEl);
   wrap.appendChild(track);

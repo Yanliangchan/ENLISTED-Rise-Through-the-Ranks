@@ -22,7 +22,7 @@ export class GameOverScreen {
     injectTheme();
     this.root = document.createElement("div");
     this.root.className = "mil-overlay";
-    this.root.style.cssText += "background: rgba(12,4,4,0.88); z-index: 40; text-align: center;";
+    this.root.style.cssText += "background: rgba(10,7,5,0.9); z-index: 40; text-align: center;";
     container.appendChild(this.root);
   }
 
@@ -32,25 +32,25 @@ export class GameOverScreen {
     const title = document.createElement("div");
     title.textContent = "MISSION FAILED";
     title.style.cssText =
-      "font-size:40px; font-weight:bold; letter-spacing:6px; color:#c0392b; margin-bottom:6px;" +
-      "text-shadow: 0 0 24px rgba(192,57,43,0.45);";
+      "font-size:38px; font-weight:700; letter-spacing:8px; color:#a83828; margin-bottom:6px;" +
+      "text-shadow: 2px 2px 3px rgba(0,0,0,0.95);";
 
     const sub = document.createElement("div");
     sub.textContent = `Sector overrun on Wave ${waveReached}. Credits banked: ${this.gameState.data.credits}.`;
-    sub.style.cssText = "font-size:15px; color:#d7c9c4; margin-bottom:14px;";
+    sub.style.cssText = "font-size:14px; color:#bfb6ac; margin-bottom:14px;";
 
     // Populated asynchronously once the match result reaches the server —
     // starts as a quiet "saving" line so a slow/offline connection is visible
     // rather than looking like nothing happened.
     this.progressEl = document.createElement("div");
     this.progressEl.textContent = "Saving deployment record…";
-    this.progressEl.style.cssText = "font-size:13px; color:#9fae9c; min-height:18px; margin-bottom:22px;";
+    this.progressEl.style.cssText = "font-size:12px; color:#8f9a80; min-height:18px; margin-bottom:22px;";
 
     const prompt = document.createElement("div");
     prompt.textContent = "START AGAIN";
     prompt.style.cssText =
-      "font-size:13px; letter-spacing:4px; color:#9fc78a; margin-bottom:12px;" +
-      "border-top:1px solid rgba(159,199,138,0.25); padding-top:16px;";
+      "font-size:13px; letter-spacing:4px; color:#9aa882; margin-bottom:12px;" +
+      "border-top:1px solid rgba(90,108,72,0.5); padding-top:16px; text-transform:uppercase;";
 
     const grid = document.createElement("div");
     grid.style.cssText = "display:flex; flex-wrap:wrap; gap:10px; justify-content:center;";
@@ -91,13 +91,13 @@ export class GameOverScreen {
     if (rankUp) parts.push(`Promoted: ${rankUp.from} → ${rankUp.to}`);
     for (const b of newBadges) parts.push(`New badge: ${b.icon} ${b.name}`);
     this.progressEl.textContent = parts.join("  ·  ");
-    this.progressEl.style.color = rankUp || newBadges.length ? "#e0d15a" : "#9fae9c";
+    this.progressEl.style.color = rankUp || newBadges.length ? "#c9a227" : "#8f9a80";
   }
 
   showSyncError(): void {
     if (!this.progressEl) return;
     this.progressEl.textContent = "Could not save this deployment — check your connection.";
-    this.progressEl.style.color = "#e08a6a";
+    this.progressEl.style.color = "#c98a6a";
   }
 
   hide(): void {

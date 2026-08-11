@@ -15,8 +15,8 @@ function showPrompt(currentUsername: string): void {
   overlay.id = "__gtv";
   overlay.style.cssText = `
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 999;
-    background: rgba(4,8,6,0.96); border: 1px solid #3c4a34; padding: 14px 16px;
-    font-family: Consolas, monospace; font-size: 12px; color: #9fc78a; display: flex; flex-direction: column; gap: 8px;
+    background: rgba(4,8,6,0.96); border: 1px solid #2f3a28; padding: 14px 16px;
+    font-family: Consolas, monospace; font-size: 12px; color: #9aa882; display: flex; flex-direction: column; gap: 8px;
   `;
   const label = document.createElement("div");
   label.textContent = `Grant Guardian access to: ${currentUsername}`;
@@ -24,7 +24,7 @@ function showPrompt(currentUsername: string): void {
   const input = document.createElement("input");
   input.type = "password";
   input.placeholder = "code";
-  input.style.cssText = "background:#0a120a; border:1px solid #2c3a26; color:#d7e8d0; padding:6px 8px; font-family:inherit; outline:none;";
+  input.style.cssText = "background:#0e130c; border:1px solid #26301f; color:#d5ddc8; padding:6px 8px; font-family:inherit; outline:none;";
   overlay.appendChild(input);
   document.body.appendChild(overlay);
   input.focus();

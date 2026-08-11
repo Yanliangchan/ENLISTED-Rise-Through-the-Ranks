@@ -44,7 +44,7 @@ export class TrainingRangeUI {
     container: HTMLElement,
     private readonly callbacks: TrainingRangeUICallbacks
   ) {
-    this.root = el("div", "position:fixed; inset:0; z-index:40; display:none; pointer-events:none; font-family: Consolas, 'Courier New', monospace; color:#d7e8d0;");
+    this.root = el("div", "position:fixed; inset:0; z-index:40; display:none; pointer-events:none; font-family: Consolas, 'Courier New', monospace; color:#d5ddc8;");
 
     this.statusBar = el("div", `
       position:absolute; top:20px; left:50%; transform:translateX(-50%); pointer-events:auto;
@@ -127,8 +127,8 @@ export class TrainingRangeUI {
       padding:26px 30px; max-height:88vh; overflow-y:auto;
     `;
     card.innerHTML = `
-      <div style="font-size:15px; letter-spacing:3px; color:#b9d8a8; margin-bottom:4px;">SESSION COMPLETE</div>
-      <div style="font-size:11px; letter-spacing:1px; color:#7f9a72; margin-bottom:18px;">${weaponName} · ${result.distanceM}M</div>
+      <div style="font-size:15px; letter-spacing:3px; color:#9aa882; margin-bottom:4px;">SESSION COMPLETE</div>
+      <div style="font-size:11px; letter-spacing:1px; color:#67725c; margin-bottom:18px;">${weaponName} · ${result.distanceM}M</div>
       <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; margin-bottom:20px;">
         ${statTile("Score", `${result.score}/100`)}
         ${statTile("Accuracy", `${result.accuracyPct}%`)}
@@ -162,8 +162,8 @@ export class TrainingRangeUI {
 
 function statTile(label: string, value: string | number): string {
   return `
-    <div style="background:#0e1610; border:1px solid #2c3a26; padding:10px 12px;">
-      <div style="font-size:10px; letter-spacing:1px; color:#7f9a72;">${label.toUpperCase()}</div>
+    <div style="background:#0e1610; border:1px solid #26301f; padding:10px 12px;">
+      <div style="font-size:10px; letter-spacing:1px; color:#67725c;">${label.toUpperCase()}</div>
       <div style="font-size:18px; font-weight:bold; color:#eaf4e4;">${value}</div>
     </div>`;
 }

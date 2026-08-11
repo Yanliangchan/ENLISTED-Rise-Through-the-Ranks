@@ -20,8 +20,8 @@ export const RARITY_TIERS = ["legendary", "epic", "rare", "uncommon", "common"];
 
 export function statTile(label: string, value: string | number): string {
   return `
-    <div style="background:#0e1610; border:1px solid #2c3a26; padding:10px 12px;">
-      <div style="font-size:10px; letter-spacing:1px; color:#7f9a72;">${label.toUpperCase()}</div>
+    <div style="background:#0e1610; border:1px solid #26301f; padding:10px 12px;">
+      <div style="font-size:10px; letter-spacing:1px; color:#67725c;">${label.toUpperCase()}</div>
       <div style="font-size:20px; font-weight:bold; color:#eaf4e4;">${value}</div>
     </div>`;
 }

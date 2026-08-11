@@ -153,9 +153,15 @@ export class BottyController {
     this.visualRoot = new TransformNode("botty_visual", scene);
     this.visualRoot.parent = this.root;
 
-    // Friendly SAF-blue uniform so BOTTY reads as an ally at a glance against hostile orange.
-    this.bodyMat = litMat(scene, "botty_bodyMat", new Color3(0.16, 0.32, 0.55), 0.32);
-    const visorMat = litMat(scene, "botty_visorMat", new Color3(0.15, 0.75, 0.85), 0.5);
+    // BOTTY wears No. 4, not a blue sci-fi bodysuit: muted olive-green uniform
+    // like the rest of the section. Friend/foe readability against hostile
+    // orange is carried by high-visibility IDENTIFIERS instead — a blue
+    // armband, helmet band and chest patch — which is how real exercise
+    // troops are distinguished, and keeps the uniform itself in the SAF palette.
+    this.bodyMat = litMat(scene, "botty_bodyMat", new Color3(0.24, 0.29, 0.18), 0.3);
+    const gearMat = litMat(scene, "botty_gearMat", new Color3(0.14, 0.16, 0.11), 0.22);
+    const idMat = litMat(scene, "botty_idMat", new Color3(0.18, 0.42, 0.72), 0.55);
+    const visorMat = litMat(scene, "botty_visorMat", new Color3(0.12, 0.14, 0.1), 0.15);
 
     const body = MeshBuilder.CreateBox("botty_body", { width: 0.56, height: 1.0, depth: 0.36 }, scene);
     body.position.y = 0.98;
@@ -169,11 +175,33 @@ export class BottyController {
     head.parent = this.visualRoot;
     head.metadata = { damageable: this.asDamageable(), hitZone: "head", isHeadshotMesh: true } satisfies HitMeshMetadata;
 
-    const visor = MeshBuilder.CreateBox("botty_visor", { width: 0.2, height: 0.08, depth: 0.03 }, scene);
-    visor.position.set(0, 1.68, 0.14);
-    visor.material = visorMat;
-    visor.parent = this.visualRoot;
-    visor.isPickable = false;
+    // Helmet shell + high-vis exercise band around it.
+    const helmet = MeshBuilder.CreateSphere("botty_helmet", { diameter: 0.33, slice: 0.6 }, scene);
+    helmet.position.y = 1.78;
+    helmet.material = visorMat;
+    helmet.parent = this.visualRoot;
+    helmet.isPickable = false;
+
+    const helmetBand = MeshBuilder.CreateTorus("botty_helmetBand", { diameter: 0.32, thickness: 0.035, tessellation: 12 }, scene);
+    helmetBand.position.y = 1.72;
+    helmetBand.rotation.x = Math.PI / 2;
+    helmetBand.material = idMat;
+    helmetBand.parent = this.visualRoot;
+    helmetBand.isPickable = false;
+
+    // Plate carrier over the uniform.
+    const vest = MeshBuilder.CreateBox("botty_vest", { width: 0.54, height: 0.58, depth: 0.18 }, scene);
+    vest.position.set(0, 1.08, 0.02);
+    vest.material = gearMat;
+    vest.parent = this.visualRoot;
+    vest.isPickable = false;
+
+    // Chest identifier patch — the clearest friend marker at combat distance.
+    const patch = MeshBuilder.CreateBox("botty_patch", { width: 0.2, height: 0.12, depth: 0.03 }, scene);
+    patch.position.set(0, 1.2, 0.2);
+    patch.material = idMat;
+    patch.parent = this.visualRoot;
+    patch.isPickable = false;
 
     const shoulders = MeshBuilder.CreateBox("botty_shoulders", { width: 0.66, height: 0.16, depth: 0.38 }, scene);
     shoulders.position.y = 1.42;
@@ -188,10 +216,16 @@ export class BottyController {
       arm.parent = this.visualRoot;
       arm.isPickable = false;
     }
+    // Exercise armband on the right arm.
+    const armband = MeshBuilder.CreateCylinder("botty_armband", { diameter: 0.19, height: 0.1, tessellation: 10 }, scene);
+    armband.position.set(0.36, 1.28, 0.02);
+    armband.material = idMat;
+    armband.parent = this.visualRoot;
+    armband.isPickable = false;
     for (const x of [-0.15, 0.15]) {
       const leg = MeshBuilder.CreateBox(`botty_leg_${x}`, { width: 0.18, height: 0.85, depth: 0.2 }, scene);
       leg.position.set(x, 0.42, 0);
-      leg.material = litMat(scene, `botty_legMat_${x}`, new Color3(0.12, 0.14, 0.18), 0.2);
+      leg.material = litMat(scene, `botty_legMat_${x}`, new Color3(0.19, 0.23, 0.15), 0.24);
       leg.parent = this.visualRoot;
       leg.isPickable = false;
     }

@@ -46,16 +46,16 @@ export class CommandWheel {
     hub.style.cssText = `
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
       width: 84px; height: 84px; border-radius: 50%;
-      background: rgba(10,16,10,0.9); border: 1px solid #3c4a34;
+      background: rgba(10,16,10,0.9); border: 1px solid #2f3a28;
       display: flex; align-items: center; justify-content: center; text-align: center;
-      color: #9fc78a; font-size: 11px; padding: 6px; box-sizing: border-box;
+      color: #9aa882; font-size: 11px; padding: 6px; box-sizing: border-box;
     `;
     hub.textContent = "BOTTY";
 
     const desc = document.createElement("div");
     desc.style.cssText = `
       position: absolute; top: 100%; left: 50%; transform: translate(-50%, 14px);
-      width: 260px; text-align: center; color: #d7e8d0; font-size: 13px;
+      width: 260px; text-align: center; color: #d5ddc8; font-size: 13px;
       text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
     `;
 
@@ -74,22 +74,22 @@ export class CommandWheel {
       wedge.style.cssText = `
         position: absolute; top: 50%; left: 50%;
         transform: translate(calc(-50% + ${x}px), calc(-50% + ${y}px));
-        width: 96px; height: 52px; border-radius: 4px;
-        background: rgba(20,28,18,0.92); border: 1px solid #3c4a34; color: #d7e8d0;
+        width: 96px; height: 52px; border-radius: 0;
+        background: rgba(20,28,18,0.92); border: 1px solid #2f3a28; color: #d5ddc8;
         font-family: inherit; font-size: 12px; font-weight: bold; cursor: pointer;
         display: flex; align-items: center; justify-content: center; text-align: center;
         padding: 4px; letter-spacing: 0.4px;
         transition: background 0.1s ease, border-color 0.1s ease, transform 0.1s ease;
       `;
       wedge.onmouseenter = () => {
-        wedge.style.background = "#4a7a3c";
-        wedge.style.borderColor = "#9fc78a";
+        wedge.style.background = "#4a6135";
+        wedge.style.borderColor = "#9aa882";
         wedge.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) scale(1.06)`;
         desc.textContent = entry.description;
       };
       wedge.onmouseleave = () => {
         wedge.style.background = "rgba(20,28,18,0.92)";
-        wedge.style.borderColor = "#3c4a34";
+        wedge.style.borderColor = "#2f3a28";
         wedge.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
       };
       wedge.onclick = () => {

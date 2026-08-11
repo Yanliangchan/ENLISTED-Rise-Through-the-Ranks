@@ -39,7 +39,7 @@ export class ControlsOverlay {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
       display: none; z-index: 15; pointer-events: none;
       background: rgba(12, 18, 11, 0.9); min-width: 320px; max-height: 88vh; overflow-y: auto;
-      font-family: Consolas, "Courier New", monospace; color: #d7e8d0;
+      font-family: Consolas, "Courier New", monospace; color: #d5ddc8;
     `;
 
     const title = document.createElement("div");
@@ -53,7 +53,7 @@ export class ControlsOverlay {
     for (const [key, desc] of BINDINGS) {
       const keyEl = document.createElement("div");
       keyEl.textContent = key;
-      keyEl.style.cssText = "color:#e0c15a; white-space:nowrap;";
+      keyEl.style.cssText = "color:#c9a227; white-space:nowrap;";
       const descEl = document.createElement("div");
       descEl.textContent = desc;
       grid.appendChild(keyEl);
@@ -63,7 +63,7 @@ export class ControlsOverlay {
 
     const hint = document.createElement("div");
     hint.textContent = "Tab to hide";
-    hint.style.cssText = "margin-top:10px; font-size:11px; color:#8a9a84; text-align:right;";
+    hint.style.cssText = "margin-top:10px; font-size:11px; color:#8f9a80; text-align:right;";
     this.root.appendChild(hint);
 
     container.appendChild(this.root);

@@ -20,7 +20,7 @@ export class WaveSelect {
       position: fixed; inset: 0; z-index: 60; display: none;
       align-items: center; justify-content: center;
       background: rgba(4,8,6,0.92);
-      font-family: Consolas, "Courier New", monospace; color: #d7e8d0;
+      font-family: Consolas, "Courier New", monospace; color: #d5ddc8;
     `;
     container.appendChild(this.root);
   }
@@ -32,18 +32,18 @@ export class WaveSelect {
 
     const panel = document.createElement("div");
     panel.style.cssText = `
-      background:#0e1610; border:1px solid #2c3a26; padding:26px 30px;
+      background:#0e1610; border:1px solid #26301f; padding:26px 30px;
       max-width:440px; text-align:center;
     `;
 
     const title = document.createElement("div");
     title.textContent = "SELECT STARTING WAVE";
-    title.style.cssText = "font-size:16px; letter-spacing:2px; color:#9fc78a; margin-bottom:6px;";
+    title.style.cssText = "font-size:16px; letter-spacing:2px; color:#9aa882; margin-bottom:6px;";
     panel.appendChild(title);
 
     const sub = document.createElement("div");
     sub.textContent = "Start fresh, or jump straight into a checkpoint you've already cleared.";
-    sub.style.cssText = "font-size:11px; color:#7f9a72; margin-bottom:18px;";
+    sub.style.cssText = "font-size:11px; color:#67725c; margin-bottom:18px;";
     panel.appendChild(sub);
 
     const grid = document.createElement("div");
@@ -52,7 +52,7 @@ export class WaveSelect {
       const btn = document.createElement("button");
       btn.textContent = label;
       btn.style.cssText = `
-        background:${primary ? "#3c6b32" : "#1c2c18"}; color:#eaffe0; border:1px solid ${primary ? "#5c9a45" : "#3c4a34"};
+        background:${primary ? "#4a6135" : "#1c2c18"}; color:#eef2e4; border:1px solid ${primary ? "#5c9a45" : "#2f3a28"};
         padding:10px 16px; font-family:inherit; font-size:13px; cursor:pointer; letter-spacing:1px;
       `;
       btn.onclick = () => {
@@ -67,7 +67,7 @@ export class WaveSelect {
 
     const cancel = document.createElement("button");
     cancel.textContent = "CANCEL";
-    cancel.style.cssText = "background:none; color:#7f9a72; border:1px solid #2c3a26; padding:6px 14px; font-family:inherit; font-size:11px; cursor:pointer; letter-spacing:1px;";
+    cancel.style.cssText = "background:none; color:#67725c; border:1px solid #26301f; padding:6px 14px; font-family:inherit; font-size:11px; cursor:pointer; letter-spacing:1px;";
     cancel.onclick = () => {
       // The landing page has already torn itself down by the time this modal
       // opens, so cancelling has to hand control back explicitly — otherwise

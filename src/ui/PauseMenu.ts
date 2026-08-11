@@ -110,7 +110,7 @@ export class PauseMenu {
 
     // Save/confirmation feedback line.
     this.feedbackEl = document.createElement("div");
-    this.feedbackEl.style.cssText = "min-height:16px; margin-top:10px; font-size:12px; color:#9fc78a; text-align:center;";
+    this.feedbackEl.style.cssText = "min-height:16px; margin-top:10px; font-size:12px; color:#9aa882; text-align:center;";
     panel.appendChild(this.feedbackEl);
 
     this.root.appendChild(panel);
@@ -148,7 +148,7 @@ export class PauseMenu {
     wrap.style.cssText = "margin-bottom:16px;";
     const labelEl = document.createElement("div");
     labelEl.textContent = label;
-    labelEl.style.cssText = "font-size:13px; margin-bottom:6px; color:#9fc78a;";
+    labelEl.style.cssText = "font-size:13px; margin-bottom:6px; color:#9aa882;";
     const input = document.createElement("input");
     input.type = "range";
     input.min = String(min);
@@ -166,7 +166,7 @@ export class PauseMenu {
     if (!this.stats || !this.statsBody) return;
     const s = this.stats.data;
     const row = (k: string, v: string) =>
-      `<div style="display:flex; justify-content:space-between;"><span style="color:#8fa585;">${k}</span><span>${v}</span></div>`;
+      `<div style="display:flex; justify-content:space-between;"><span style="color:#8f9a80;">${k}</span><span>${v}</span></div>`;
     const mins = Math.floor(s.playtimeSec / 60);
     this.statsBody.innerHTML =
       row("Deployments", String(s.gamesPlayed)) +

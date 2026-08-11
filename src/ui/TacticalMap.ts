@@ -3,6 +3,7 @@ import type { BuildingFootprint } from "@/world/Level";
 import { CAMP_POSITION } from "@/world/Level";
 import type { EnemyIntel } from "@/enemies/EnemySpawner";
 import { injectTheme } from "@/ui/theme";
+import { SAF } from "@/ui/saf";
 
 const WORLD_SPAN = 200; // map covers roughly ±100m
 
@@ -35,18 +36,18 @@ export class TacticalMap {
     title.className = "mil-title";
 
     this.canvas = document.createElement("canvas");
-    this.canvas.style.cssText = "border:1px solid #3c4a34; border-top:2px solid #4a7a3c; border-radius:3px; background:#0c130c; box-shadow: 0 8px 40px rgba(0,0,0,0.65); max-width:92vw; max-height:78vh;";
+    this.canvas.style.cssText = `border:1px solid ${SAF.line}; border-top:2px solid ${SAF.olive}; border-radius:0; background:${SAF.inset}; max-width:92vw; max-height:78vh;`;
     this.ctx = this.canvas.getContext("2d")!;
     // Call-in targeting lives in StrikeTargeting now — this map is view-only.
 
     const legend = document.createElement("div");
-    legend.style.cssText = "font-size:13px; display:flex; gap:22px; color:#b8ccb0;";
+    legend.style.cssText = `font-size:10px; letter-spacing:1.5px; display:flex; gap:20px; color:${SAF.textDim};`;
     legend.innerHTML = `
-      <span style="color:#8fe08f;">▲ You</span>
-      <span style="color:#ff5540;">● Confirmed contact</span>
-      <span style="color:#e0a53a;">◇ Suspected (last known)</span>
-      <span style="color:#9fc78a;">▣ Base</span>
-      <span style="color:#8a8f82;">Press M to close</span>
+      <span style="color:${SAF.sage};">▲ OWN POSITION</span>
+      <span style="color:#8f4a34;">■ CONFIRMED CONTACT</span>
+      <span style="color:#8a7a4a;">◇ SUSPECTED</span>
+      <span style="color:${SAF.sage};">▣ BASE</span>
+      <span style="color:${SAF.textFaint};">M TO CLOSE</span>
     `;
 
     panel.appendChild(title);
@@ -83,11 +84,11 @@ export class TacticalMap {
     const toY = (wz: number) => size / 2 - wz * scale;
 
     ctx.clearRect(0, 0, size, size);
-    ctx.fillStyle = "#0c130c";
+    ctx.fillStyle = "#121a10";
     ctx.fillRect(0, 0, size, size);
 
     // Grid.
-    ctx.strokeStyle = "rgba(120,150,110,0.12)";
+    ctx.strokeStyle = "rgba(120,140,100,0.14)";
     ctx.lineWidth = 1;
     for (let g = -100; g <= 100; g += 20) {
       ctx.beginPath(); ctx.moveTo(toX(g), 0); ctx.lineTo(toX(g), size); ctx.stroke();
@@ -95,7 +96,7 @@ export class TacticalMap {
     }
 
     // Buildings.
-    ctx.fillStyle = "rgba(150,160,140,0.4)";
+    ctx.fillStyle = "rgba(126,136,108,0.5)";
     ctx.strokeStyle = "rgba(0,0,0,0.5)";
     for (const b of this.buildingLayout) {
       const w = b.size * scale;
@@ -105,8 +106,8 @@ export class TacticalMap {
 
     // Base marker.
     const baseR = 12 * scale;
-    ctx.fillStyle = "rgba(80,150,90,0.25)";
-    ctx.strokeStyle = "#9fc78a";
+    ctx.fillStyle = "rgba(74,97,53,0.22)";
+    ctx.strokeStyle = SAF.sage;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.rect(toX(CAMP_POSITION.x) - baseR, toY(CAMP_POSITION.z) - baseR, baseR * 2, baseR * 2);
@@ -117,7 +118,7 @@ export class TacticalMap {
     for (const c of intel) {
       if (c.status !== "suspected") continue;
       const x = toX(c.x), y = toY(c.z), r = 6;
-      ctx.strokeStyle = "#e0a53a";
+      ctx.strokeStyle = "#8a7a4a";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y);
@@ -127,10 +128,9 @@ export class TacticalMap {
     // Confirmed contacts.
     for (const c of intel) {
       if (c.status !== "confirmed") continue;
-      ctx.fillStyle = "#ff5540";
-      ctx.beginPath();
-      ctx.arc(toX(c.x), toY(c.z), 5, 0, Math.PI * 2);
-      ctx.fill();
+      // Standard filled-square hostile symbol, matching the targeting board.
+      ctx.fillStyle = "#8f4a34";
+      ctx.fillRect(toX(c.x) - 4, toY(c.z) - 4, 8, 8);
     }
 
     // Player triangle (rotated to facing).
@@ -138,7 +138,7 @@ export class TacticalMap {
     ctx.save();
     ctx.translate(px, py);
     ctx.rotate(player.yaw);
-    ctx.fillStyle = "#8fe08f";
+    ctx.fillStyle = SAF.sage;
     ctx.beginPath();
     ctx.moveTo(0, -9);
     ctx.lineTo(-6, 7);

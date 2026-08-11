@@ -21,15 +21,15 @@ export class BottyMarker {
     `;
     this.nameplate.innerHTML = `
       <div style="
-        background: rgba(10,20,30,0.75); border: 1px solid #3aa0c8; border-radius: 3px;
-        color: #9fe0f5; font-family: Consolas, monospace; font-size: 11px; font-weight: bold;
+        background: rgba(10,16,10,0.8); border: 1px solid #2e6ab8; border-radius: 0;
+        color: #cfe0f2; font-family: "Roboto Condensed", "Arial Narrow", Arial, sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
         letter-spacing: 1px; padding: 2px 8px; white-space: nowrap;
-        text-shadow: 0 0 4px rgba(58,160,200,0.8);
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
       ">BOTTY</div>
       <div style="
         margin: 3px auto 0; width: 0; height: 0;
         border-left: 5px solid transparent; border-right: 5px solid transparent;
-        border-bottom: 7px solid #3aa0c8;
+        border-bottom: 7px solid #2e6ab8;
       "></div>
     `;
 
@@ -38,7 +38,7 @@ export class BottyMarker {
       position: fixed; display: none; pointer-events: none; z-index: 8;
       width: 0; height: 0; transform-origin: center;
       border-left: 9px solid transparent; border-right: 9px solid transparent;
-      border-bottom: 16px solid #3aa0c8; filter: drop-shadow(0 0 3px rgba(58,160,200,0.7));
+      border-bottom: 16px solid #2e6ab8;
     `;
 
     container.appendChild(this.nameplate);
@@ -74,7 +74,7 @@ export class BottyMarker {
     if (isDown) {
       // Downed BOTTY always shows the arrow (needs a revive) regardless of distance.
       this.nameplate.style.display = "none";
-      this.showEdgeArrow(screenPos.x, screenPos.y, inFront, w, h, "#e05a5a");
+      this.showEdgeArrow(screenPos.x, screenPos.y, inFront, w, h, "#a83828");
       return;
     }
 
@@ -85,7 +85,7 @@ export class BottyMarker {
       this.edgeArrow.style.display = "none";
     } else {
       this.nameplate.style.display = "none";
-      this.showEdgeArrow(screenPos.x, screenPos.y, inFront, w, h, "#3aa0c8");
+      this.showEdgeArrow(screenPos.x, screenPos.y, inFront, w, h, "#2e6ab8");
     }
   }
 

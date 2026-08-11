@@ -78,7 +78,7 @@ export class ProfilePage {
     this.root.style.cssText = `
       position: fixed; inset: 0; z-index: 55; display: none;
       background: rgba(4,8,6,0.94); overflow-y: auto;
-      font-family: Consolas, "Courier New", monospace; color: #d7e8d0;
+      font-family: Consolas, "Courier New", monospace; color: #d5ddc8;
     `;
 
     const wrap = document.createElement("div");
@@ -88,7 +88,7 @@ export class ProfilePage {
     closeBtn.textContent = "✕ CLOSE";
     closeBtn.style.cssText = `
       position: fixed; top: 20px; right: 28px; z-index: 56;
-      background: rgba(20,30,20,0.9); color: #d7e8d0; border: 1px solid #3c4a34;
+      background: rgba(20,30,20,0.9); color: #d5ddc8; border: 1px solid #2f3a28;
       padding: 8px 14px; font-family: inherit; font-size: 13px; cursor: pointer; letter-spacing: 1px;
     `;
     closeBtn.onclick = () => this.hide();
@@ -142,9 +142,9 @@ export class ProfilePage {
             <div style="font-size:26px; font-weight:800; letter-spacing:2px; color:#eaf4e4;">${escapeHtml(p.username)}</div>
             ${p.guardian ? `<button id="open-guardian" style="background:#3a1e1e; color:#e0a8a8; border:1px solid #6b3c3c; padding:4px 10px; font-family:inherit; font-size:11px; letter-spacing:1px; cursor:pointer;">GUARDIAN</button>` : ""}
           </div>
-          <div style="font-size:13px; color:#9fc78a; letter-spacing:1px; margin-top:2px;">${escapeHtml(p.rank.name)} — ${escapeHtml(p.careerTrack)}</div>
-          <div style="margin-top:10px; background:#0a120a; border:1px solid #2c3a26; height:16px; position:relative;">
-            <div style="height:100%; width:${rankPct}%; background:#3c6b32;"></div>
+          <div style="font-size:13px; color:#9aa882; letter-spacing:1px; margin-top:2px;">${escapeHtml(p.rank.name)} — ${escapeHtml(p.careerTrack)}</div>
+          <div style="margin-top:10px; background:#0e130c; border:1px solid #26301f; height:16px; position:relative;">
+            <div style="height:100%; width:${rankPct}%; background:#4a6135;"></div>
             <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:10px; color:#eaf4e4;">
               ${p.rank.xpForNextRank ? `${p.rank.xpIntoRank} / ${p.rank.xpForNextRank} XP to next rank` : `${p.rank.xp} XP — top rank`}
             </div>
@@ -188,7 +188,7 @@ export class ProfilePage {
       ${renderEarnedBadges(p.badges)}
 
       <button id="open-guide" style="
-        width:100%; text-align:left; background:none; border:1px solid #2c3a26; color:#7f9a72;
+        width:100%; text-align:left; background:none; border:1px solid #26301f; color:#67725c;
         font-family:inherit; font-size:11px; letter-spacing:2px; padding:10px 12px; margin-bottom:26px; cursor:pointer;
       ">VIEW LEADERBOARD &amp; BADGE GUIDE →</button>
     `;
@@ -231,7 +231,7 @@ export function renderEarnedPremiumBadges(badges: DisplayBadge[]): string {
             <span style="font-size:22px;">${b.icon}</span>
             <div>
               <div style="font-weight:bold; font-size:13px; color:${col};">${escapeHtml(b.name)}</div>
-              <div style="font-size:9px; letter-spacing:1px; color:#6a8562; text-transform:uppercase;">${escapeHtml(b.rarity)}</div>
+              <div style="font-size:9px; letter-spacing:1px; color:#67725c; text-transform:uppercase;">${escapeHtml(b.rarity)}</div>
             </div>
           </div>
           <div style="font-size:10px; color:#7fae68; margin-top:8px;"><span style="color:#5a7a52;">HOW TO EARN:</span> ${escapeHtml(howToEarn)}</div>
@@ -239,14 +239,14 @@ export function renderEarnedPremiumBadges(badges: DisplayBadge[]): string {
     })
     .join("");
   return `
-    <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:10px;">PREMIUM BADGES (${list.length})</div>
+    <div style="font-size:13px; letter-spacing:2px; color:#9aa882; margin-bottom:10px;">PREMIUM BADGES (${list.length})</div>
     <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:26px;">${cards}</div>`;
 }
 
 /** Render only the badges the operator has actually earned, grouped by rarity tier. */
 export function renderEarnedBadges(badges: DisplayBadge[]): string {
   const earnedBadges = badges.filter((b) => b.unlocked);
-  const heading = `<div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:10px;">BADGES EARNED (${earnedBadges.length})</div>`;
+  const heading = `<div style="font-size:13px; letter-spacing:2px; color:#9aa882; margin-bottom:10px;">BADGES EARNED (${earnedBadges.length})</div>`;
   if (!earnedBadges.length) {
     return `${heading}<div style="color:#6f8566; font-size:13px; margin-bottom:26px;">No badges earned yet — see the Leaderboard &amp; Badge Guide for how to earn one.</div>`;
   }
@@ -273,7 +273,7 @@ function earnedBadgeChip(b: DisplayBadge): string {
       <span style="font-size:20px;">${b.icon}</span>
       <div style="line-height:1.25;">
         <div style="font-weight:bold; font-size:12px; color:${col};">${escapeHtml(b.name)}</div>
-        <div style="font-size:9px; letter-spacing:1px; color:#7f9a72; text-transform:uppercase;">${escapeHtml(b.rarity)}</div>
+        <div style="font-size:9px; letter-spacing:1px; color:#67725c; text-transform:uppercase;">${escapeHtml(b.rarity)}</div>
       </div>
     </div>`;
 }

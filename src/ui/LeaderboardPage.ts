@@ -55,7 +55,7 @@ export class LeaderboardPage {
     this.viewerRoot.style.cssText = `
       position: fixed; inset: 0; z-index: 58; display: none;
       background: rgba(4,8,6,0.96); overflow-y: auto;
-      font-family: Consolas, "Courier New", monospace; color: #d7e8d0;
+      font-family: Consolas, "Courier New", monospace; color: #d5ddc8;
     `;
     const viewerWrap = document.createElement("div");
     viewerWrap.style.cssText = "max-width: 640px; margin: 40px auto 60px; padding: 0 20px;";
@@ -63,7 +63,7 @@ export class LeaderboardPage {
     viewerClose.textContent = "✕ CLOSE";
     viewerClose.style.cssText = `
       position: fixed; top: 20px; right: 28px; z-index: 59;
-      background: rgba(20,30,20,0.9); color: #d7e8d0; border: 1px solid #3c4a34;
+      background: rgba(20,30,20,0.9); color: #d5ddc8; border: 1px solid #2f3a28;
       padding: 8px 14px; font-family: inherit; font-size: 13px; cursor: pointer; letter-spacing: 1px;
     `;
     viewerClose.onclick = () => (this.viewerRoot.style.display = "none");
@@ -77,7 +77,7 @@ export class LeaderboardPage {
     this.root.style.cssText = `
       position: fixed; inset: 0; z-index: 55; display: none;
       background: rgba(4,8,6,0.94); overflow-y: auto;
-      font-family: Consolas, "Courier New", monospace; color: #d7e8d0;
+      font-family: Consolas, "Courier New", monospace; color: #d5ddc8;
     `;
     const wrap = document.createElement("div");
     wrap.style.cssText = "max-width: 780px; margin: 40px auto 60px; padding: 0 20px;";
@@ -85,7 +85,7 @@ export class LeaderboardPage {
     closeBtn.textContent = "✕ CLOSE";
     closeBtn.style.cssText = `
       position: fixed; top: 20px; right: 28px; z-index: 56;
-      background: rgba(20,30,20,0.9); color: #d7e8d0; border: 1px solid #3c4a34;
+      background: rgba(20,30,20,0.9); color: #d5ddc8; border: 1px solid #2f3a28;
       padding: 8px 14px; font-family: inherit; font-size: 13px; cursor: pointer; letter-spacing: 1px;
     `;
     closeBtn.onclick = () => this.hide();
@@ -112,33 +112,33 @@ export class LeaderboardPage {
 
     this.body.innerHTML = `
       <div style="font-size:24px; font-weight:800; letter-spacing:2px; color:#eaf4e4; margin:30px 0 4px;">LEADERBOARD &amp; BADGE GUIDE</div>
-      <div style="font-size:12px; color:#7f9a72; margin-bottom:24px;">See where you rank, the full SAF career ladder, and exactly how to earn every badge in the game.</div>
+      <div style="font-size:12px; color:#67725c; margin-bottom:24px;">See where you rank, the full SAF career ladder, and exactly how to earn every badge in the game.</div>
 
-      <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;">LEADERBOARD</div>
+      <div style="font-size:13px; letter-spacing:2px; color:#9aa882; margin-bottom:8px;">LEADERBOARD</div>
       <div id="lb-tabs" style="display:flex; gap:6px; margin-bottom:10px;">
         ${LEADERBOARD_CATEGORIES.map(
           (c, i) =>
             `<button data-cat="${c.key}" style="
-              background:${i === 0 ? "#2c4a26" : "#141d12"}; color:#d7e8d0; border:1px solid #2c3a26;
+              background:${i === 0 ? "#2c4a26" : "#141d12"}; color:#d5ddc8; border:1px solid #26301f;
               padding:6px 12px; font-family:inherit; font-size:12px; cursor:pointer; letter-spacing:1px;
             ">${c.label}</button>`
         ).join("")}
       </div>
       <div id="lb-body" style="font-size:13px; margin-bottom:30px;">Loading…</div>
 
-      <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin:14px 0 4px;">SAF CAREER LADDER</div>
+      <div style="font-size:13px; letter-spacing:2px; color:#9aa882; margin:14px 0 4px;">SAF CAREER LADDER</div>
       <div style="font-size:10px; color:#5a7a52; margin-bottom:10px;">
         Every operator starts Enlistee. At Corporal you pick a track (Specialist, Officer or Military Expert) — that choice is permanent. Your current track is highlighted.
       </div>
       ${this.buildCareerLadder(resolveDisplayTrack(p.careerPath, p.rank.name))}
 
-      <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin:22px 0 4px;">PREMIUM BADGES — HOW TO EARN THEM</div>
+      <div style="font-size:13px; letter-spacing:2px; color:#9aa882; margin:22px 0 4px;">PREMIUM BADGES — HOW TO EARN THEM</div>
       <div style="font-size:10px; color:#5a7a52; margin-bottom:10px;">
         SAF-referenced qualifications and genuinely-earnable skill badges. Earned ones are highlighted; the rest show exactly what it takes.
       </div>
       ${renderFullPremiumBadges(p.badges)}
 
-      <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin:22px 0 10px;">FULL BADGE CATALOGUE</div>
+      <div style="font-size:13px; letter-spacing:2px; color:#9aa882; margin:22px 0 10px;">FULL BADGE CATALOGUE</div>
       ${renderFullBadgeCatalogue(p.badges)}
     `;
 
@@ -179,7 +179,7 @@ export class LeaderboardPage {
   /** Opens the read-only viewer overlay for another operator, clicked in from a leaderboard row. Only shows badges they've actually earned. */
   private showPublicProfile(username: string): void {
     this.viewerRoot.style.display = "block";
-    this.viewerBody.innerHTML = `<div style="margin-top:30px; color:#9fc78a;">Loading ${escapeHtml(username)}…</div>`;
+    this.viewerBody.innerHTML = `<div style="margin-top:30px; color:#9aa882;">Loading ${escapeHtml(username)}…</div>`;
     void this.backend
       .fetchPublicProfile(username)
       .then((p) => this.renderPublicProfile(p))
@@ -198,7 +198,7 @@ export class LeaderboardPage {
     this.viewerBody.innerHTML = `
       <div style="margin: 30px 0 20px;">
         <div style="font-size:24px; font-weight:800; letter-spacing:2px; color:#eaf4e4;">${escapeHtml(p.username)}</div>
-        <div style="font-size:13px; color:#9fc78a; letter-spacing:1px; margin-top:2px;">
+        <div style="font-size:13px; color:#9aa882; letter-spacing:1px; margin-top:2px;">
           ${escapeHtml(p.rank.name)} — ${escapeHtml(p.careerTrack)}${p.careerPath ? ` (${escapeHtml(p.careerPath)})` : ""}
         </div>
       </div>
@@ -212,7 +212,7 @@ export class LeaderboardPage {
         ${statTile("Highest Wave", s.highestWave)}
         ${statTile("Playtime", playtimeStr)}
       </div>
-      <div style="font-size:13px; letter-spacing:2px; color:#9fc78a; margin-bottom:8px;">BADGES EARNED (${earned.length})</div>
+      <div style="font-size:13px; letter-spacing:2px; color:#9aa882; margin-bottom:8px;">BADGES EARNED (${earned.length})</div>
       <div style="display:flex; flex-wrap:wrap; gap:8px;">
         ${earned.length ? earned.map(badgeChipEarned).join("") : `<div style="color:#6f8566; font-size:13px;">No badges earned yet.</div>`}
       </div>
@@ -227,7 +227,7 @@ export class LeaderboardPage {
         const isCurrent = t === track;
         return `
           <div style="margin-bottom:14px; ${isCurrent ? "border-left:2px solid #6ea24a; padding-left:10px;" : ""}">
-            <div style="font-size:12px; letter-spacing:1px; color:${isCurrent ? "#bfe0ab" : "#7f9a72"}; margin-bottom:6px;">
+            <div style="font-size:12px; letter-spacing:1px; color:${isCurrent ? "#bfe0ab" : "#67725c"}; margin-bottom:6px;">
               ${TRACK_LABELS[t]}${isCurrent ? " — YOUR TRACK" : ""}
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:6px;">
@@ -235,7 +235,7 @@ export class LeaderboardPage {
                 .map(
                   (r) => `
                 <div title="${escapeHtml(r.perk)}" style="
-                  background:#0e1610; border:1px solid #2c3a26; padding:4px 8px; font-size:11px; color:#a9bfa0;
+                  background:#0e1610; border:1px solid #26301f; padding:4px 8px; font-size:11px; color:#8f9a80;
                 ">${r.abbr}</div>`
                 )
                 .join("")}
@@ -265,11 +265,11 @@ function renderFullPremiumBadges(badges: DisplayBadge[]): string {
           <div style="display:flex; align-items:center; gap:8px;">
             <span style="font-size:22px; filter:${locked ? "grayscale(1)" : "none"};">${b.icon}</span>
             <div>
-              <div style="font-weight:bold; font-size:13px; color:${locked ? "#8fa585" : col};">${escapeHtml(b.name)}</div>
-              <div style="font-size:9px; letter-spacing:1px; color:#6a8562; text-transform:uppercase;">${locked ? "NOT YET EARNED" : "EARNED"} · ${escapeHtml(b.rarity)}</div>
+              <div style="font-weight:bold; font-size:13px; color:${locked ? "#8f9a80" : col};">${escapeHtml(b.name)}</div>
+              <div style="font-size:9px; letter-spacing:1px; color:#67725c; text-transform:uppercase;">${locked ? "NOT YET EARNED" : "EARNED"} · ${escapeHtml(b.rarity)}</div>
             </div>
           </div>
-          ${ref ? `<div style="font-size:10px; color:#8fa585; margin-top:8px;">${escapeHtml(ref.realLife)}</div>` : ""}
+          ${ref ? `<div style="font-size:10px; color:#8f9a80; margin-top:8px;">${escapeHtml(ref.realLife)}</div>` : ""}
           <div style="font-size:10px; color:#7fae68; margin-top:6px;"><span style="color:#5a7a52;">HOW TO EARN:</span> ${escapeHtml(howToEarn)}</div>
           ${op ? `<div style="font-size:9px; color:#54654c; margin-top:4px;">${escapeHtml(op.name)}</div>` : ""}
         </div>`;
@@ -310,7 +310,7 @@ function badgeChipWithLock(b: DisplayBadge): string {
       <span style="font-size:20px; filter:${locked ? "grayscale(1)" : "none"};">${b.icon}</span>
       <div style="line-height:1.25;">
         <div style="font-weight:bold; font-size:12px; color:${locked ? "#6f8566" : col};">${escapeHtml(b.name)}</div>
-        <div style="font-size:9px; letter-spacing:1px; color:#7f9a72; text-transform:uppercase;">${escapeHtml(b.rarity)}</div>
+        <div style="font-size:9px; letter-spacing:1px; color:#67725c; text-transform:uppercase;">${escapeHtml(b.rarity)}</div>
       </div>
     </div>`;
 }
@@ -325,7 +325,7 @@ function badgeChipEarned(b: DisplayBadge): string {
       <span style="font-size:20px;">${b.icon}</span>
       <div style="line-height:1.25;">
         <div style="font-weight:bold; font-size:12px; color:${col};">${escapeHtml(b.name)}</div>
-        <div style="font-size:9px; letter-spacing:1px; color:#7f9a72; text-transform:uppercase;">${escapeHtml(b.rarity)}</div>
+        <div style="font-size:9px; letter-spacing:1px; color:#67725c; text-transform:uppercase;">${escapeHtml(b.rarity)}</div>
       </div>
     </div>`;
 }
