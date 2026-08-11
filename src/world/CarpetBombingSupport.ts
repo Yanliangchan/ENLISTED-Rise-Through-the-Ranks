@@ -3,32 +3,33 @@ import type { AudioManager } from "@/core/AudioManager";
 import type { EnemyManager } from "@/enemies/EnemySpawner";
 import type { PlayerController } from "@/player/PlayerController";
 import { CARPET_BOMBING } from "@/data/gamedata";
+import { carpetImpactPoints, type StrikePlan } from "@/world/strikePlan";
+import type { StrikeChargeStore } from "@/world/AirstrikeSupport";
 import { isUnlocked as isAdminUnlocked } from "@/core/AdminMode";
 
 /**
  * Carpet Bombing support ability. Equipped in the SPECIAL slot (alongside the
  * MATADOR, Hermes 900 UAV, and Precision Strike). Firing it opens the
- * tactical map to pick a box centre; after a slower inbound delay than
- * Precision Strike, a staggered string of bomb impacts rains down across a
- * large rectangular area. Anything caught in a direct hit dies instantly;
- * the wider blast does heavy damage; anything that survives inside the
- * affected area is stunned, then left slowed and less accurate for several
- * seconds. Large-area crowd control, not pin-point elimination — one charge
- * per deployment with a long cooldown.
+ * targeting map to place AND orient a bombing box; after a fixed 3-second
+ * inbound countdown a staggered string of bomb impacts rains down along the
+ * chosen heading. Anything caught in a direct hit dies instantly; the wider
+ * blast does heavy damage; survivors inside the affected area are stunned,
+ * then left slowed and less accurate for several seconds.
  *
- * Targeting/UI flow lives in main.ts (which opens the map on request and
- * feeds back the picked world coordinate); this class owns the ammo economy,
- * the inbound countdown, and the bombing run (impacts + effects + debuffs).
+ * The impact points are NOT rolled here — they come from
+ * `carpetImpactPoints(plan)`, the same call the targeting preview made, so
+ * what the player was shown is exactly what lands. The `state` machine makes
+ * each call-in run precisely once.
  */
 export class CarpetBombingSupport {
-  private charges = CARPET_BOMBING.chargesPerRun;
+  private state: "idle" | "inbound" | "running" = "idle";
   private cooldownLeft = 0;
   private inboundLeft = 0;
-  private target: Vector3 | null = null;
+  private plan: StrikePlan | null = null;
   private markerMesh: ReturnType<typeof MeshBuilder.CreateBox> | null = null;
   // Once inbound hits zero the run itself plays out over impactSpreadSec —
   // tracked separately so update() can stagger individual impacts.
-  private runElapsed = -1;
+  private runElapsed = 0;
   private impactTimes: number[] = [];
   private impactPoints: Vector3[] = [];
   private nextImpactIndex = 0;
@@ -37,57 +38,64 @@ export class CarpetBombingSupport {
     private readonly scene: Scene,
     private readonly audio: AudioManager,
     private readonly enemyManager: EnemyManager,
-    private readonly player: PlayerController
+    private readonly player: PlayerController,
+    private readonly store: StrikeChargeStore
   ) {}
 
   reset(): void {
-    this.charges = CARPET_BOMBING.chargesPerRun;
+    this.state = "idle";
     this.cooldownLeft = 0;
     this.inboundLeft = 0;
-    this.runElapsed = -1;
-    this.target = null;
-    this.markerMesh?.dispose();
-    this.markerMesh = null;
+    this.runElapsed = 0;
+    this.impactTimes = [];
+    this.impactPoints = [];
+    this.nextImpactIndex = 0;
+    this.plan = null;
+    this.clearMarker();
   }
 
   get chargesRemaining(): number {
-    return this.charges;
+    return this.store.charges();
   }
   get cooldownRemaining(): number {
     return Math.max(0, this.cooldownLeft);
   }
   get inbound(): boolean {
-    return this.inboundLeft > 0;
+    return this.state === "inbound";
   }
   get running(): boolean {
-    return this.runElapsed >= 0;
+    return this.state === "running";
   }
   get secondsToImpact(): number {
     return Math.max(0, this.inboundLeft);
   }
   /** True if a bombing run can be called right now (has a charge and isn't cooling down / already inbound or running). */
   get ready(): boolean {
-    return this.inboundLeft <= 0 && !this.running && this.cooldownLeft <= 0 && (this.charges > 0 || isAdminUnlocked());
+    return this.state === "idle" && this.cooldownLeft <= 0 && (this.chargesRemaining > 0 || isAdminUnlocked());
   }
 
-  /** Called when the player confirms a box centre on the map. Spends a charge and starts the inbound timer. */
-  callStrike(x: number, z: number): boolean {
+  /** Called once the player confirms a box placement + heading. Spends a charge and starts the inbound countdown. */
+  callStrike(plan: StrikePlan): boolean {
     if (!this.ready) {
       this.audio.uiClick();
       return false;
     }
-    if (!isAdminUnlocked()) this.charges -= 1;
-    this.target = new Vector3(x, 0, z);
+    if (!isAdminUnlocked() && !this.store.consume()) return false;
+    this.plan = plan;
+    this.state = "inbound";
     this.inboundLeft = CARPET_BOMBING.inboundDelaySec;
     this.audio.waveStart();
 
-    this.markerMesh?.dispose();
+    this.clearMarker();
     const m = MeshBuilder.CreateBox(
       "carpetbomb_marker",
-      { width: CARPET_BOMBING.areaLengthM, depth: CARPET_BOMBING.areaWidthM, height: 0.1 },
+      { width: CARPET_BOMBING.areaWidthM, depth: CARPET_BOMBING.areaLengthM, height: 0.1 },
       this.scene
     );
-    m.position.set(x, 0.08, z);
+    m.position.set(plan.x, 0.08, plan.z);
+    // Same heading the player set on the targeting map — the world marker and
+    // the preview footprint are the same rectangle.
+    m.rotation.y = plan.heading;
     m.isPickable = false;
     const mat = new StandardMaterial("carpetbomb_markerMat", this.scene);
     mat.emissiveColor = new Color3(0.95, 0.55, 0.1);
@@ -99,57 +107,57 @@ export class CarpetBombingSupport {
     return true;
   }
 
+  private clearMarker(): void {
+    this.markerMesh?.material?.dispose();
+    this.markerMesh?.dispose();
+    this.markerMesh = null;
+  }
+
   update(dt: number): void {
     if (this.cooldownLeft > 0) this.cooldownLeft -= dt;
 
-    if (this.inboundLeft > 0) {
+    if (this.state === "inbound") {
       this.inboundLeft -= dt;
       if (this.markerMesh) {
         const k = 0.18 + 0.22 * Math.abs(Math.sin(this.inboundLeft * 5));
         (this.markerMesh.material as StandardMaterial).alpha = k;
       }
-      if (this.inboundLeft <= 0 && this.target) {
-        this.beginRun(this.target);
-      }
+      if (this.inboundLeft <= 0 && this.plan) this.beginRun(this.plan);
       return;
     }
 
-    if (this.runElapsed >= 0) {
+    if (this.state === "running") {
       this.runElapsed += dt;
       while (this.nextImpactIndex < this.impactTimes.length && this.impactTimes[this.nextImpactIndex] <= this.runElapsed) {
         this.impact(this.impactPoints[this.nextImpactIndex]);
         this.nextImpactIndex++;
       }
-      if (this.nextImpactIndex >= this.impactTimes.length) {
-        this.finishRun();
-      }
+      if (this.nextImpactIndex >= this.impactTimes.length) this.finishRun();
     }
   }
 
-  private beginRun(centre: Vector3): void {
-    this.markerMesh?.dispose();
-    this.markerMesh = null;
-    this.target = null;
+  private beginRun(plan: StrikePlan): void {
+    this.clearMarker();
+    this.state = "running";
+    this.plan = null;
+    this.inboundLeft = 0;
 
     // A wide, sudden shake as the run starts — this is a saturation strike, not
     // a single pinpoint hit.
     this.player.shakeCamera(90);
 
-    this.impactPoints = [];
-    this.impactTimes = [];
-    for (let i = 0; i < CARPET_BOMBING.impactCount; i++) {
-      const lx = (Math.random() - 0.5) * CARPET_BOMBING.areaLengthM;
-      const lz = (Math.random() - 0.5) * CARPET_BOMBING.areaWidthM;
-      this.impactPoints.push(new Vector3(centre.x + lx, 0, centre.z + lz));
-      this.impactTimes.push((i / Math.max(1, CARPET_BOMBING.impactCount - 1)) * CARPET_BOMBING.impactSpreadSec);
-    }
+    // Replay the exact pattern the targeting preview drew.
+    this.impactPoints = carpetImpactPoints(plan).map((p) => new Vector3(p.x, 0, p.z));
+    this.impactTimes = this.impactPoints.map(
+      (_, i) => (i / Math.max(1, this.impactPoints.length - 1)) * CARPET_BOMBING.impactSpreadSec
+    );
     this.nextImpactIndex = 0;
     this.runElapsed = 0;
 
     // Survivor debuffs apply once, across the whole affected area, when the
     // run starts — anyone still alive when it ends has been through it.
     this.enemyManager.applyBombingDebuffInRadius(
-      centre,
+      new Vector3(plan.x, 0, plan.z),
       CARPET_BOMBING.survivorEffectRadiusM,
       CARPET_BOMBING.stunSec,
       CARPET_BOMBING.slowMult,
@@ -160,7 +168,11 @@ export class CarpetBombingSupport {
   }
 
   private finishRun(): void {
-    this.runElapsed = -1;
+    this.state = "idle";
+    this.runElapsed = 0;
+    this.impactTimes = [];
+    this.impactPoints = [];
+    this.nextImpactIndex = 0;
     this.cooldownLeft = CARPET_BOMBING.cooldownSec;
   }
 
@@ -187,6 +199,7 @@ export class CarpetBombingSupport {
       fmat.alpha = k * 0.9;
       if (life <= 0) {
         flash.dispose();
+        fmat.dispose();
         this.scene.onBeforeRenderObservable.remove(obs);
       }
     });

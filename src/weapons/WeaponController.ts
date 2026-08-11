@@ -2,7 +2,7 @@ import { Scene, Vector3, Matrix, MeshBuilder, StandardMaterial, Color3, LinesMes
 import { isNightMode } from "@/world/Level";
 import type { Weapon } from "@/data/weapons";
 import { WEAPONS } from "@/data/weapons";
-import { GEAR, MATADOR_BLAST, M203_BLAST, M203_BALLISTICS } from "@/data/gamedata";
+import { MATADOR_BLAST, M203_BLAST, M203_BALLISTICS } from "@/data/gamedata";
 import { computeEffectiveStats, damageAtRange, type EffectiveStats } from "@/weapons/ballistics";
 import { buildViewmodel, type Viewmodel } from "@/weapons/ViewmodelFactory";
 import { fireProjectile } from "@/weapons/Projectile";
@@ -174,7 +174,8 @@ export class WeaponController {
   }
 
   private reserveAmmoFor(weapon: Weapon): number {
-    const bonus = this.gameState.data.ownedGear.reduce((sum, id) => sum + (GEAR[id]?.reserveAmmoBonus ?? 0), 0);
+    // WORN pouches only — an assault-load rig sitting in the locker carries nothing.
+    const bonus = this.gameState.equippedGearBonus("reserveAmmoBonus");
     return Math.round(weapon.reserveAmmo * (1 + bonus));
   }
 

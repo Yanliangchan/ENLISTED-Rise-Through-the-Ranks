@@ -1,9 +1,9 @@
 import type { AudioManager } from "@/core/AudioManager";
+import type { StrikeChargeStore } from "@/world/AirstrikeSupport";
 import { isUnlocked as isAdminUnlocked } from "@/core/AdminMode";
 
 const UAV_DURATION_SEC = 20; // reveals all enemies for this long
 const UAV_COOLDOWN_SEC = 30; // recharge time between deployments
-const UAV_CHARGES_PER_RUN = 3; // limited uses; refills on redeploy
 
 export interface UAVCallbacks {
   /** Fired when a UAV is launched — used to prompt the player to open the tactical map. */
@@ -23,23 +23,22 @@ export class UAVSupport {
   active = false;
   private timeLeft = 0;
   private cooldownLeft = 0;
-  private charges = UAV_CHARGES_PER_RUN;
 
   constructor(
     private readonly audio: AudioManager,
+    private readonly store: StrikeChargeStore,
     private readonly callbacks: UAVCallbacks = {}
   ) {}
 
-  /** Reset charges/cooldown on spawn or redeploy. */
+  /** Clear in-flight state on spawn or redeploy. Charges live on the save and are topped up there. */
   reset(): void {
     this.active = false;
     this.timeLeft = 0;
     this.cooldownLeft = 0;
-    this.charges = UAV_CHARGES_PER_RUN;
   }
 
   get chargesRemaining(): number {
-    return this.charges;
+    return this.store.charges();
   }
 
   get secondsRemaining(): number {
@@ -66,7 +65,7 @@ export class UAVSupport {
 
   /** True if a UAV can be launched right now. */
   get ready(): boolean {
-    return !this.active && this.cooldownLeft <= 0 && (this.charges > 0 || isAdminUnlocked());
+    return !this.active && this.cooldownLeft <= 0 && (this.chargesRemaining > 0 || isAdminUnlocked());
   }
 
   /** Launch a UAV (call from main when UAV is the equipped special and Z is pressed). */
@@ -77,12 +76,12 @@ export class UAVSupport {
       this.callbacks.onUnavailable?.("cooldown");
       return;
     }
-    if (this.charges <= 0 && !isAdminUnlocked()) {
+    if (this.chargesRemaining <= 0 && !isAdminUnlocked()) {
       this.audio.uiClick();
       this.callbacks.onUnavailable?.("empty");
       return;
     }
-    if (!isAdminUnlocked()) this.charges -= 1;
+    if (!isAdminUnlocked() && !this.store.consume()) return;
     this.active = true;
     this.timeLeft = UAV_DURATION_SEC;
     this.audio.waveStart();

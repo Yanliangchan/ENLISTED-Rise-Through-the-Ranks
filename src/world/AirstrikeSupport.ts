@@ -1,82 +1,94 @@
 import { Scene, MeshBuilder, StandardMaterial, Color3, Vector3, ParticleSystem, Color4, DynamicTexture } from "@babylonjs/core";
 import type { AudioManager } from "@/core/AudioManager";
 import type { EnemyManager } from "@/enemies/EnemySpawner";
+import type { PlayerController } from "@/player/PlayerController";
+import { PRECISION_STRIKE } from "@/data/gamedata";
+import type { StrikePlan } from "@/world/strikePlan";
 import { isUnlocked as isAdminUnlocked } from "@/core/AdminMode";
 
-const CHARGES_PER_RUN = 3; // max 3 air strikes per match, shared across the whole run
-const COOLDOWN_SEC = 45;
-const INBOUND_DELAY_SEC = 3; // faster deployment than Carpet Bombing — small-area guaranteed elimination
-const BLAST_RADIUS_M = 16;
-// Minimal splash damage just outside the guaranteed-kill radius — this is a
-// pin-point strike, not an area-denial weapon (see Carpet Bombing for that).
-const OUTER_SPLASH_DAMAGE = 25;
+/** How the support class reaches the persistent charge stock without owning it. */
+export interface StrikeChargeStore {
+  charges(): number;
+  consume(): boolean;
+}
 
 /**
  * Precision Strike support ability. Equipped in the SPECIAL slot (alongside
  * the MATADOR, Hermes 900 UAV, and Carpet Bombing). Firing it opens the
- * tactical map to pick a target point; after a short inbound delay anything
- * inside BLAST_RADIUS_M dies instantly, with only minimal splash damage just
- * outside it. Small-area guaranteed elimination — fast to call in, but no
- * crowd-control reach. Limited charges per deployment with a cooldown between
- * calls.
+ * targeting map; once the player confirms a point, a fixed 3-second inbound
+ * countdown runs and then anything inside `blastRadiusM` dies instantly, with
+ * only minimal splash damage just outside it.
  *
- * Targeting/UI flow lives in main.ts (which opens the map on request and feeds
- * back the picked world coordinate); this class owns the ammo economy, the
- * inbound countdown, and the impact (damage + effect).
+ * Charges live on the save (bought in the Armoury, topped up each deployment)
+ * rather than in this class, so the shop, the HUD and the ability can never
+ * disagree about how many are left.
+ *
+ * `state` is the single source of truth for where a call-in is in its
+ * lifecycle, which is what stops a strike detonating twice: `detonate` is
+ * reachable only from the `inbound → idle` edge, and `ready` is false in every
+ * state but `idle`.
  */
 export class AirstrikeSupport {
-  private charges = CHARGES_PER_RUN;
+  private state: "idle" | "inbound" = "idle";
   private cooldownLeft = 0;
   private inboundLeft = 0;
-  private target: Vector3 | null = null;
+  private plan: StrikePlan | null = null;
   private markerMesh: ReturnType<typeof MeshBuilder.CreateCylinder> | null = null;
 
   constructor(
     private readonly scene: Scene,
     private readonly audio: AudioManager,
-    private readonly enemyManager: EnemyManager
+    private readonly enemyManager: EnemyManager,
+    private readonly player: PlayerController,
+    private readonly store: StrikeChargeStore
   ) {}
 
   reset(): void {
-    this.charges = CHARGES_PER_RUN;
+    this.state = "idle";
     this.cooldownLeft = 0;
     this.inboundLeft = 0;
-    this.target = null;
-    this.markerMesh?.dispose();
-    this.markerMesh = null;
+    this.plan = null;
+    this.clearMarker();
   }
 
   get chargesRemaining(): number {
-    return this.charges;
+    return this.store.charges();
   }
   get cooldownRemaining(): number {
     return Math.max(0, this.cooldownLeft);
   }
   get inbound(): boolean {
-    return this.inboundLeft > 0;
+    return this.state === "inbound";
   }
   get secondsToImpact(): number {
     return Math.max(0, this.inboundLeft);
   }
   /** True if a strike can be called right now (has a charge and isn't cooling down / already inbound). */
   get ready(): boolean {
-    return this.inboundLeft <= 0 && this.cooldownLeft <= 0 && (this.charges > 0 || isAdminUnlocked());
+    return this.state === "idle" && this.cooldownLeft <= 0 && (this.chargesRemaining > 0 || isAdminUnlocked());
   }
 
-  /** Called when the player confirms a target on the map. Spends a charge and starts the inbound timer. */
-  callStrike(x: number, z: number): boolean {
+  /** Called once the player confirms a target. Spends a charge and starts the inbound countdown. */
+  callStrike(plan: StrikePlan): boolean {
     if (!this.ready) {
       this.audio.uiClick();
       return false;
     }
-    if (!isAdminUnlocked()) this.charges -= 1;
-    this.target = new Vector3(x, 0, z);
-    this.inboundLeft = INBOUND_DELAY_SEC;
+    if (!isAdminUnlocked() && !this.store.consume()) return false;
+    this.plan = plan;
+    this.state = "inbound";
+    this.inboundLeft = PRECISION_STRIKE.inboundDelaySec;
     this.audio.waveStart();
-    // Ground marker so the player sees where it's coming down.
-    this.markerMesh?.dispose();
-    const m = MeshBuilder.CreateCylinder("airstrike_marker", { diameter: BLAST_RADIUS_M * 2, height: 0.1, tessellation: 24 }, this.scene);
-    m.position.set(x, 0.08, z);
+
+    // Ground marker so the player sees where it's coming down — the same
+    // radius the targeting preview drew, and the same one that kills.
+    this.clearMarker();
+    const m = MeshBuilder.CreateCylinder(
+      "airstrike_marker",
+      { diameter: PRECISION_STRIKE.blastRadiusM * 2, height: 0.1, tessellation: 32 },
+      this.scene
+    );
+    m.position.set(plan.x, 0.08, plan.z);
     m.isPickable = false;
     const mat = new StandardMaterial("airstrike_markerMat", this.scene);
     mat.emissiveColor = new Color3(0.9, 0.2, 0.12);
@@ -88,34 +100,53 @@ export class AirstrikeSupport {
     return true;
   }
 
+  private clearMarker(): void {
+    this.markerMesh?.material?.dispose();
+    this.markerMesh?.dispose();
+    this.markerMesh = null;
+  }
+
   update(dt: number): void {
     if (this.cooldownLeft > 0) this.cooldownLeft -= dt;
-    if (this.inboundLeft > 0) {
-      this.inboundLeft -= dt;
-      // Pulse the marker as impact nears.
-      if (this.markerMesh) {
-        const k = 0.2 + 0.25 * Math.abs(Math.sin(this.inboundLeft * 6));
-        (this.markerMesh.material as StandardMaterial).alpha = k;
-      }
-      if (this.inboundLeft <= 0 && this.target) {
-        this.detonate(this.target);
-        this.target = null;
-        this.cooldownLeft = COOLDOWN_SEC;
-        this.markerMesh?.dispose();
-        this.markerMesh = null;
-      }
+    if (this.state !== "inbound") return;
+
+    this.inboundLeft -= dt;
+    // Pulse the marker as impact nears.
+    if (this.markerMesh) {
+      const k = 0.2 + 0.25 * Math.abs(Math.sin(this.inboundLeft * 6));
+      (this.markerMesh.material as StandardMaterial).alpha = k;
     }
+    if (this.inboundLeft > 0) return;
+
+    // Leave `inbound` BEFORE detonating: the state change is what guarantees
+    // exactly one detonation per call, whatever happens inside detonate().
+    const target = this.plan;
+    this.state = "idle";
+    this.plan = null;
+    this.inboundLeft = 0;
+    this.cooldownLeft = PRECISION_STRIKE.cooldownSec;
+    this.clearMarker();
+    if (target) this.detonate(new Vector3(target.x, 0, target.z));
   }
 
   private detonate(at: Vector3): void {
     this.audio.explosion();
+    this.player.shakeCamera(55);
     // Guaranteed kill anywhere inside the strike radius...
-    this.enemyManager.killInRadius(at, BLAST_RADIUS_M);
+    this.enemyManager.killInRadius(at, PRECISION_STRIKE.blastRadiusM);
     // ...and only minimal splash damage in a thin band just outside it.
-    this.enemyManager.damageInRadius(at, BLAST_RADIUS_M * 1.4, OUTER_SPLASH_DAMAGE);
+    this.enemyManager.damageInRadius(
+      at,
+      PRECISION_STRIKE.blastRadiusM * PRECISION_STRIKE.outerSplashRadiusMult,
+      PRECISION_STRIKE.outerSplashDamage
+    );
 
     // A bright flash sphere + debris burst — cheap, self-disposing.
-    const flash = MeshBuilder.CreateSphere("airstrike_flash", { diameter: BLAST_RADIUS_M, segments: 10 }, this.scene);
+    const flash = MeshBuilder.CreateSphere(
+      "airstrike_flash",
+      { diameter: PRECISION_STRIKE.blastRadiusM, segments: 10 },
+      this.scene
+    );
     flash.position.set(at.x, 2, at.z);
     flash.isPickable = false;
     const fmat = new StandardMaterial("airstrike_flashMat", this.scene);
@@ -132,6 +163,7 @@ export class AirstrikeSupport {
       fmat.alpha = k * 0.9;
       if (life <= 0) {
         flash.dispose();
+        fmat.dispose();
         this.scene.onBeforeRenderObservable.remove(obs);
       }
     });

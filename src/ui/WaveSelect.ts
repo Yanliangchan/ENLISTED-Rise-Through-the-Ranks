@@ -6,6 +6,13 @@
  */
 export class WaveSelect {
   private root: HTMLDivElement;
+  /**
+   * Read by main.ts's pause/menu-open checks. Without this the world kept
+   * simulating underneath the modal — the player free-fell through the ground
+   * for as long as it took them to pick a wave, which is why a later-wave
+   * start "spawned below the floor" while a straight Wave 1 deploy did not.
+   */
+  visible = false;
 
   constructor(container: HTMLElement) {
     this.root = document.createElement("div");
@@ -18,7 +25,7 @@ export class WaveSelect {
     container.appendChild(this.root);
   }
 
-  show(highestWaveCleared: number, onSelect: (wave: number) => void): void {
+  show(highestWaveCleared: number, onSelect: (wave: number) => void, onCancel?: () => void): void {
     // Permanent checkpoints: Waves 5, 10, 15, and 20 only — unlocked once reached.
     const CHECKPOINTS = [5, 10, 15, 20];
     const milestones = CHECKPOINTS.filter((w) => w <= highestWaveCleared);
@@ -61,15 +68,23 @@ export class WaveSelect {
     const cancel = document.createElement("button");
     cancel.textContent = "CANCEL";
     cancel.style.cssText = "background:none; color:#7f9a72; border:1px solid #2c3a26; padding:6px 14px; font-family:inherit; font-size:11px; cursor:pointer; letter-spacing:1px;";
-    cancel.onclick = () => this.hide();
+    cancel.onclick = () => {
+      // The landing page has already torn itself down by the time this modal
+      // opens, so cancelling has to hand control back explicitly — otherwise
+      // the player is left staring at a live world with no menu.
+      this.hide();
+      onCancel?.();
+    };
     panel.appendChild(cancel);
 
     this.root.innerHTML = "";
     this.root.appendChild(panel);
     this.root.style.display = "flex";
+    this.visible = true;
   }
 
   hide(): void {
     this.root.style.display = "none";
+    this.visible = false;
   }
 }

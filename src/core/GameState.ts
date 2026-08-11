@@ -1,6 +1,16 @@
 import { WEAPONS } from "@/data/weapons";
 import { ATTACHMENTS } from "@/data/attachments";
-import { GEAR, THROWABLES, SPECIAL_ABILITY_PRICES, type AbilitySpecial } from "@/data/gamedata";
+import {
+  GEAR,
+  THROWABLES,
+  SPECIAL_ABILITY_PRICES,
+  STRIKE_BASE_CHARGES,
+  STRIKE_CHARGE_PRICES,
+  STRIKE_MAX_CHARGES,
+  LBV_POUCH_SLOTS,
+  ABILITY_SPECIALS,
+  type AbilitySpecial,
+} from "@/data/gamedata";
 import { STARTER_LOADOUT } from "@/data/weapons";
 import { BOTTY_UPGRADE_CATEGORIES, bottyUpgradePrice, type BottyUpgradeCategory } from "@/data/bottyUpgrades";
 
@@ -28,6 +38,18 @@ export interface SaveData {
   bottyUpgrades: Record<BottyUpgradeCategory, number>;
   /** Which owned plate type (hard/soft ballistic plates) is actually worn — null if neither owned/equipped yet. */
   equippedArmour: string | null;
+  /**
+   * Gear ids actually WORN, as opposed to merely owned. Owning a pouch no
+   * longer applies its effect — it has to be equipped, and the vest only has
+   * `LBV_POUCH_SLOTS` of capacity, so the rig is a real decision.
+   */
+  equippedGear: string[];
+  /** Remaining call-in charges per ability. Spent on use, bought in the Armoury, topped up to the base allowance each deployment. */
+  strikeCharges: Record<AbilitySpecial, number>;
+}
+
+function defaultStrikeCharges(): Record<AbilitySpecial, number> {
+  return { ...STRIKE_BASE_CHARGES };
 }
 
 function defaultBottyUpgrades(): Record<BottyUpgradeCategory, number> {
@@ -70,6 +92,8 @@ export function defaultSave(): SaveData {
     hasBotty: false,
     bottyUpgrades: defaultBottyUpgrades(),
     equippedArmour: null,
+    equippedGear: ["fast_helmet", "no4_uniform"],
+    strikeCharges: defaultStrikeCharges(),
   };
 }
 
@@ -110,6 +134,152 @@ export class GameState {
       this.data.loadout.throwable = "smoke_red";
       this.data.loadout.throwableCount = 0;
     }
+    this.migrateEquippedGear();
+    for (const id of ABILITY_SPECIALS) this.data.strikeCharges[id] ??= STRIKE_BASE_CHARGES[id];
+  }
+
+  /**
+   * Saves from before gear could be unequipped only recorded what was OWNED,
+   * and every owned item was implicitly active. Seed `equippedGear` so those
+   * players keep exactly the loadout they had: everything owned goes on, minus
+   * the plate type they weren't wearing, and anything that no longer fits the
+   * vest's slot budget is dropped from the back of the list rather than
+   * silently exceeding capacity.
+   */
+  private migrateEquippedGear(): void {
+    if (Array.isArray(this.data.equippedGear)) {
+      // Drop stale ids and anything no longer owned, then re-validate capacity.
+      this.data.equippedGear = this.data.equippedGear.filter(
+        (id) => GEAR[id] && (this.data.ownedGear.includes(id) || GEAR[id].alwaysEquipped)
+      );
+    } else {
+      this.data.equippedGear = this.data.ownedGear.filter((id) => {
+        const item = GEAR[id];
+        if (!item) return false;
+        if (item.plateType) return id === this.data.equippedArmour;
+        return true;
+      });
+    }
+    // Base kit is always worn and never occupies capacity.
+    for (const item of Object.values(GEAR)) {
+      if (item.alwaysEquipped && this.data.ownedGear.includes(item.id) && !this.data.equippedGear.includes(item.id)) {
+        this.data.equippedGear.push(item.id);
+      }
+    }
+    // Trim to the slot budget (last-equipped loses out) and keep the legacy
+    // `equippedArmour` field agreeing with reality for any older reader.
+    const kept: string[] = [];
+    let used = 0;
+    for (const id of this.data.equippedGear) {
+      const cost = GEAR[id]?.slotCost ?? 0;
+      if (used + cost > this.pouchSlotCapacity()) continue;
+      used += cost;
+      kept.push(id);
+    }
+    this.data.equippedGear = kept;
+    this.data.equippedArmour = kept.find((id) => GEAR[id]?.plateType) ?? null;
+  }
+
+  /** Total pouch capacity available — zero until the LBV platform itself is owned. */
+  pouchSlotCapacity(): number {
+    return this.data.ownedGear.includes("lbv") ? LBV_POUCH_SLOTS : 0;
+  }
+
+  /** Pouch slots currently consumed by worn upgrades. */
+  pouchSlotsUsed(): number {
+    return this.data.equippedGear.reduce((sum, id) => sum + (GEAR[id]?.slotCost ?? 0), 0);
+  }
+
+  isGearEquipped(id: string): boolean {
+    return this.data.equippedGear.includes(id);
+  }
+
+  /** Why `equipGear(id)` would refuse — null when it would succeed. */
+  gearEquipBlockedReason(id: string): string | null {
+    const item = GEAR[id];
+    if (!item) return "Unknown item";
+    if (!this.data.ownedGear.includes(id)) return "Not purchased";
+    if (this.isGearEquipped(id)) return null;
+    if (item.lbvUpgrade && !this.data.ownedGear.includes("lbv")) return "Requires the LBV platform";
+    const cost = item.slotCost ?? 0;
+    // A plate swap frees the outgoing plate's slots, so measure against that.
+    const freed = item.plateType
+      ? this.data.equippedGear.reduce((sum, wid) => sum + (GEAR[wid]?.plateType ? GEAR[wid]?.slotCost ?? 0 : 0), 0)
+      : 0;
+    if (this.pouchSlotsUsed() - freed + cost > this.pouchSlotCapacity()) return "Not enough pouch slots";
+    return null;
+  }
+
+  /**
+   * Wear an owned item. Plate types are mutually exclusive (wearing one takes
+   * the other off), and capacity is enforced — no silent over-equipping.
+   */
+  equipGear(id: string): boolean {
+    if (this.gearEquipBlockedReason(id) !== null) return false;
+    if (this.isGearEquipped(id)) return true;
+    const item = GEAR[id]!;
+    if (item.plateType) {
+      this.data.equippedGear = this.data.equippedGear.filter((wid) => !GEAR[wid]?.plateType);
+    }
+    this.data.equippedGear.push(id);
+    this.data.equippedArmour = this.data.equippedGear.find((wid) => GEAR[wid]?.plateType) ?? null;
+    this.save();
+    return true;
+  }
+
+  /** Take an item off. Base kit (helmet/uniform/vest platform) can't be removed. */
+  unequipGear(id: string): boolean {
+    const item = GEAR[id];
+    if (!item || item.alwaysEquipped || !this.isGearEquipped(id)) return false;
+    this.data.equippedGear = this.data.equippedGear.filter((wid) => wid !== id);
+    this.data.equippedArmour = this.data.equippedGear.find((wid) => GEAR[wid]?.plateType) ?? null;
+    this.save();
+    return true;
+  }
+
+  /** Sum a numeric gear field across WORN items only — the single rule every gear effect goes through. */
+  equippedGearBonus(field: "carryBonus" | "reserveAmmoBonus" | "medkitBonus"): number {
+    return this.data.equippedGear.reduce((sum, id) => sum + (GEAR[id]?.[field] ?? 0), 0);
+  }
+
+  strikeChargesFor(id: AbilitySpecial): number {
+    return this.data.strikeCharges[id] ?? 0;
+  }
+
+  /** Spend one charge. Returns false (and spends nothing) when the stock is empty. */
+  consumeStrikeCharge(id: AbilitySpecial): boolean {
+    if (this.strikeChargesFor(id) <= 0) return false;
+    this.data.strikeCharges[id] -= 1;
+    this.save();
+    return true;
+  }
+
+  canBuyStrikeCharge(id: AbilitySpecial): boolean {
+    return (
+      this.ownsAbility(id) &&
+      this.strikeChargesFor(id) < STRIKE_MAX_CHARGES[id] &&
+      this.data.credits >= STRIKE_CHARGE_PRICES[id]
+    );
+  }
+
+  /** Armoury purchase of one extra charge. Refuses when unaffordable, unowned, or already at the stock cap. */
+  buyStrikeCharge(id: AbilitySpecial): boolean {
+    if (!this.canBuyStrikeCharge(id)) return false;
+    if (!this.spendCredits(STRIKE_CHARGE_PRICES[id])) return false;
+    this.data.strikeCharges[id] = this.strikeChargesFor(id) + 1;
+    this.save();
+    return true;
+  }
+
+  /**
+   * Deployment top-up: every ability comes back to at least its base allowance,
+   * while anything bought above that carries forward untouched.
+   */
+  replenishStrikeChargesForDeployment(): void {
+    for (const id of ABILITY_SPECIALS) {
+      this.data.strikeCharges[id] = Math.max(this.strikeChargesFor(id), STRIKE_BASE_CHARGES[id]);
+    }
+    this.save();
   }
 
   private load(): SaveData | null {
@@ -203,15 +373,13 @@ export class GameState {
     return true;
   }
 
-  /** First Aid Kits carried at spawn; LBV medic upgrades expand this without affecting weapons. */
+  /** First Aid Kits carried at spawn; the WORN medic pouch expands this without affecting weapons. */
   startingMedkitCount(): number {
-    const gearBonus = this.data.ownedGear.reduce((sum, id) => sum + (GEAR[id]?.medkitBonus ?? 0), 0);
-    return STARTING_MEDKITS + gearBonus;
+    return STARTING_MEDKITS + this.equippedGearBonus("medkitBonus");
   }
 
   maxMedkitCount(): number {
-    const gearBonus = this.data.ownedGear.reduce((sum, id) => sum + (GEAR[id]?.medkitBonus ?? 0), 0);
-    return MAX_MEDKITS + gearBonus;
+    return MAX_MEDKITS + this.equippedGearBonus("medkitBonus");
   }
 
   buyBotty(price: number): boolean {
@@ -224,9 +392,8 @@ export class GameState {
 
   /** Switches which owned plate type (hard/soft ballistic plates) is actually worn. */
   equipArmour(id: string): void {
-    if (!this.data.ownedGear.includes(id) || !GEAR[id]?.plateType) return;
-    this.data.equippedArmour = id;
-    this.save();
+    if (!GEAR[id]?.plateType) return;
+    this.equipGear(id);
   }
 
   bottyUpgradeLevel(category: BottyUpgradeCategory): number {

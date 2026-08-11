@@ -1,6 +1,15 @@
 import { WEAPONS, WEAPON_CATEGORIES, type Weapon } from "@/data/weapons";
 import { ATTACHMENTS } from "@/data/attachments";
-import { GEAR, THROWABLES, SPECIAL_ABILITY_LABELS, SPECIAL_ABILITY_PRICES, ABILITY_SPECIALS } from "@/data/gamedata";
+import {
+  GEAR,
+  THROWABLES,
+  SPECIAL_ABILITY_LABELS,
+  SPECIAL_ABILITY_PRICES,
+  STRIKE_CHARGE_PRICES,
+  STRIKE_MAX_CHARGES,
+  ABILITY_SPECIALS,
+  type GearItem,
+} from "@/data/gamedata";
 import { BOTTY_UPGRADE_CATEGORIES, BOTTY_UPGRADES, bottyUpgradePrice } from "@/data/bottyUpgrades";
 import type { GameState } from "@/core/GameState";
 import type { WeaponController } from "@/weapons/WeaponController";
@@ -23,6 +32,8 @@ export class Armoury {
   private tabBar: HTMLDivElement;
   private content: HTMLDivElement;
   private creditsLabel: HTMLDivElement;
+  private toastEl: HTMLDivElement;
+  private toastTimer: number | null = null;
   private activeTab: Tab = "loadout";
   /** Which loadout weapon the Attachments tab is editing. */
   private attachmentTarget: "primary" | "secondary" = "primary";
@@ -60,6 +71,11 @@ export class Armoury {
     header.appendChild(title);
     header.appendChild(this.creditsLabel);
 
+    this.toastEl = document.createElement("div");
+    this.toastEl.style.cssText =
+      "min-height:16px; font-size:12px; letter-spacing:1px; color:#a8e08a; opacity:0;" +
+      "transition:opacity 200ms ease; margin-bottom:8px;";
+
     this.tabBar = document.createElement("div");
     this.tabBar.style.cssText = "display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;";
 
@@ -77,6 +93,7 @@ export class Armoury {
     footer.appendChild(startBtn);
 
     panel.appendChild(header);
+    panel.appendChild(this.toastEl);
     panel.appendChild(this.tabBar);
     panel.appendChild(this.content);
     panel.appendChild(footer);
@@ -124,8 +141,8 @@ export class Armoury {
       ["loadout", "Loadout"],
       ["weapons", "Weapons"],
       ["attachments", "Attachments"],
-      ["gear", "LBV Upgrades"],
-      ["throwables", "Equipment"],
+      ["gear", "LBV / Armour"],
+      ["throwables", "Throwables"],
       ["support", "Support Equipment"],
     ];
     for (const [id, label] of tabs) {
@@ -137,15 +154,39 @@ export class Armoury {
     }
   }
 
+  /**
+   * Re-derive every gear-dependent pool from the CURRENT equipped loadout and
+   * repaint. Called after any purchase, equip, or unequip.
+   *
+   * Carried counts are re-clamped here, which is what makes unequipping
+   * honest: taking off the medic pouch immediately drops any kits held above
+   * the smaller cap instead of letting the removed item keep paying out.
+   */
   private refresh(): void {
-    this.gameState.save();
     applyGearToPlayer(this.gameState, this.player);
+    this.gameState.data.medkitCount = Math.min(this.gameState.data.medkitCount, this.gameState.maxMedkitCount());
+    this.gameState.data.loadout.throwableCount = Math.min(
+      this.gameState.data.loadout.throwableCount,
+      maxThrowableCapacity(this.gameState)
+    );
+    this.gameState.save();
     this.weaponController.refreshAttachments();
     this.renderContent();
   }
 
+  /** Short confirmation line under the header — purchases and kit changes both report here. */
+  private toast(text: string, tone: "good" | "bad" = "good"): void {
+    this.toastEl.textContent = text;
+    this.toastEl.style.color = tone === "good" ? "#a8e08a" : "#e08a6a";
+    this.toastEl.style.opacity = "1";
+    if (this.toastTimer !== null) window.clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => {
+      this.toastEl.style.opacity = "0";
+    }, 2200);
+  }
+
   private renderContent(): void {
-    this.creditsLabel.textContent = `Credits: ${this.gameState.data.credits}`;
+    this.creditsLabel.textContent = `Credits: ${this.gameState.data.credits.toLocaleString()}`;
     this.content.innerHTML = "";
     switch (this.activeTab) {
       case "loadout":
@@ -472,55 +513,173 @@ export class Armoury {
     this.content.appendChild(wrap);
   }
 
+  /**
+   * LBV / equipment loadout. Every item shows what it costs, what it actually
+   * does, whether it's purchased, whether it's WORN, and the pouch capacity it
+   * occupies — so the player can see at a glance why they can't have all of it
+   * at once, and what they're giving up when they swap.
+   */
   private renderGear(): void {
-    const list = document.createElement("div");
-    list.style.cssText = "display:flex; flex-direction:column; gap:8px;";
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex; flex-direction:column; gap:10px;";
+
+    const capacity = this.gameState.pouchSlotCapacity();
+    const used = this.gameState.pouchSlotsUsed();
+
+    // Capacity bar — the constraint that makes the rig a decision.
+    const header = document.createElement("div");
+    header.className = "mil-inset";
+    header.style.cssText = "padding:12px 14px;";
+    const pips = capacity > 0
+      ? "▮".repeat(used) + "▯".repeat(Math.max(0, capacity - used))
+      : "—";
+    header.innerHTML =
+      `<div style="display:flex; justify-content:space-between; align-items:center;">` +
+      `<span style="font-weight:bold; color:#9fc78a; letter-spacing:1px;">VEST CAPACITY</span>` +
+      `<span style="letter-spacing:4px; color:${used > capacity ? "#e08a6a" : "#e0c15a"}; font-size:16px;">${pips}` +
+      `<span style="font-size:12px; letter-spacing:1px; color:#9fae9c; margin-left:10px;">${used} / ${capacity} SLOTS</span></span></div>` +
+      `<div style="font-size:11px; color:#8fa886; margin-top:6px;">` +
+      (capacity > 0
+        ? "Buy freely — but only what fits on the vest is worn. Unequipping removes its effect immediately."
+        : "Purchase the Modular Load Bearing Vest to unlock pouch capacity.") +
+      `</div>`;
+    wrap.appendChild(header);
+
     for (const item of Object.values(GEAR)) {
-      if (item.price === 0) continue;
-      const owned = this.gameState.data.ownedGear.includes(item.id);
-      const needsLbv = !!item.lbvUpgrade && !this.gameState.data.ownedGear.includes("lbv");
-      const row = this.shopRow(item.name, item.price, owned, () => {
-        if (needsLbv) return;
-        if (this.gameState.spendCredits(item.price)) {
-          this.gameState.data.ownedGear.push(item.id);
-          // LBV grants 5 First Aid Kits immediately, not just on the next respawn.
-          if (item.id === "lbv") {
-            this.gameState.data.medkitCount = Math.max(this.gameState.data.medkitCount, this.gameState.startingMedkitCount());
-          }
-          // First plate type bought is worn automatically; buying a second
-          // type just adds it to the locker — switch which is worn below.
-          if (item.plateType && !this.gameState.data.equippedArmour) {
-            this.gameState.equipArmour(item.id);
-          }
-          this.gameState.save();
-          this.audio.purchase();
-          this.refresh();
-        }
-      });
-      if (needsLbv) {
-        const note = document.createElement("span");
-        note.textContent = " (requires LBV)";
-        note.style.cssText = "color:#a55; font-size:12px; margin-left:8px;";
-        row.appendChild(note);
-      }
-      // Own both plate types? Wear whichever suits the fight — heavy protection
-      // vs. mobility — rather than being locked into whichever was bought first.
-      if (item.plateType && owned) {
-        const equipped = this.gameState.data.equippedArmour === item.id;
-        const equipBtn = document.createElement("button");
-        equipBtn.textContent = equipped ? "WORN" : "Wear";
-        styleButton(equipBtn, equipped ? "#4a7a3c" : "#2a332480");
-        equipBtn.disabled = equipped;
-        equipBtn.onclick = () => {
-          this.gameState.equipArmour(item.id);
-          this.audio.uiClick();
-          this.refresh();
-        };
-        row.appendChild(equipBtn);
-      }
-      list.appendChild(row);
+      if (item.price === 0 && !item.alwaysEquipped) continue;
+      wrap.appendChild(this.gearCard(item));
     }
-    this.content.appendChild(list);
+    this.content.appendChild(wrap);
+  }
+
+  private gearCard(item: GearItem): HTMLDivElement {
+    const owned = this.gameState.data.ownedGear.includes(item.id);
+    const equipped = this.gameState.isGearEquipped(item.id);
+    const needsLbv = !!item.lbvUpgrade && !this.gameState.data.ownedGear.includes("lbv");
+    const affordable = this.gameState.data.credits >= item.price;
+
+    const card = document.createElement("div");
+    card.className = "mil-inset";
+    card.style.cssText =
+      "padding:12px 14px; display:flex; gap:14px; align-items:flex-start;" +
+      `border-left:3px solid ${equipped ? "#4a7a3c" : owned ? "#3c4a34" : "#2a3324"};`;
+
+    const info = document.createElement("div");
+    info.style.cssText = "flex:1; min-width:0;";
+
+    const titleRow = document.createElement("div");
+    titleRow.style.cssText = "display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:4px;";
+    const name = document.createElement("span");
+    name.textContent = item.name;
+    name.style.cssText = `font-weight:bold; color:${equipped ? "#cfe6b8" : "#b8ccb0"};`;
+    titleRow.appendChild(name);
+
+    const status = document.createElement("span");
+    if (equipped) {
+      status.textContent = item.alwaysEquipped ? "STANDARD ISSUE" : "EQUIPPED";
+      status.style.cssText = "font-size:10px; letter-spacing:2px; color:#a8e08a; border:1px solid #4a7a3c; padding:2px 7px;";
+    } else if (owned) {
+      status.textContent = "IN LOCKER";
+      status.style.cssText = "font-size:10px; letter-spacing:2px; color:#9fae9c; border:1px solid #3c4a34; padding:2px 7px;";
+    } else {
+      status.textContent = "LOCKED";
+      status.style.cssText = "font-size:10px; letter-spacing:2px; color:#7f8a78; border:1px solid #2a3324; padding:2px 7px;";
+    }
+    titleRow.appendChild(status);
+
+    if (item.slotCost) {
+      const slots = document.createElement("span");
+      slots.textContent = `${item.slotCost} SLOT${item.slotCost > 1 ? "S" : ""}`;
+      slots.style.cssText = "font-size:10px; letter-spacing:1.5px; color:#e0c15a;";
+      titleRow.appendChild(slots);
+    }
+    info.appendChild(titleRow);
+
+    const effect = document.createElement("div");
+    effect.textContent = item.effect ?? "—";
+    effect.style.cssText = `font-size:12.5px; color:${equipped ? "#a8e08a" : "#c9d8bf"}; margin-bottom:4px;`;
+    info.appendChild(effect);
+
+    const notes = document.createElement("div");
+    notes.textContent = item.realNotes;
+    notes.style.cssText = "font-size:11px; color:#8a9a84; line-height:1.45;";
+    info.appendChild(notes);
+
+    if (needsLbv && !owned) {
+      const req = document.createElement("div");
+      req.textContent = "Requires the Modular Load Bearing Vest.";
+      req.style.cssText = "font-size:11px; color:#c98a6a; margin-top:5px;";
+      info.appendChild(req);
+    }
+
+    const actions = document.createElement("div");
+    actions.style.cssText = "display:flex; flex-direction:column; gap:6px; min-width:120px; align-items:stretch;";
+
+    if (!owned) {
+      const buy = document.createElement("button");
+      buy.textContent = `${item.price}c`;
+      styleButton(buy, needsLbv || !affordable ? "#5a3232" : "#3c6b32");
+      buy.disabled = needsLbv;
+      buy.onclick = () => {
+        if (needsLbv) return;
+        if (!this.gameState.spendCredits(item.price)) {
+          this.toast(`Not enough credits for ${item.name}.`, "bad");
+          this.audio.uiClick();
+          return;
+        }
+        this.gameState.data.ownedGear.push(item.id);
+        // Auto-wear on purchase when it fits, so buying something has an
+        // immediate effect rather than quietly landing in the locker.
+        const worn = this.gameState.equipGear(item.id);
+        this.audio.purchase();
+        this.toast(worn ? `${item.name} purchased and equipped.` : `${item.name} purchased — no free pouch slots, stored in locker.`);
+        this.refresh();
+      };
+      actions.appendChild(buy);
+    } else if (item.alwaysEquipped) {
+      const fixed = document.createElement("button");
+      fixed.textContent = "WORN";
+      fixed.disabled = true;
+      styleButton(fixed, "#4a7a3c");
+      actions.appendChild(fixed);
+    } else if (equipped) {
+      const off = document.createElement("button");
+      off.textContent = "UNEQUIP";
+      styleButton(off, "#2a332480");
+      off.onclick = () => {
+        this.gameState.unequipGear(item.id);
+        this.audio.uiClick();
+        this.toast(`${item.name} unequipped — its effect is removed.`);
+        this.refresh();
+      };
+      actions.appendChild(off);
+    } else {
+      const blocked = this.gameState.gearEquipBlockedReason(item.id);
+      const on = document.createElement("button");
+      on.textContent = "EQUIP";
+      styleButton(on, blocked ? "#5a3232" : "#3c6b32");
+      on.onclick = () => {
+        if (!this.gameState.equipGear(item.id)) {
+          this.toast(`Cannot equip ${item.name} — ${blocked ?? "unavailable"}.`, "bad");
+          this.audio.uiClick();
+          return;
+        }
+        this.audio.purchase();
+        this.toast(`${item.name} equipped.`);
+        this.refresh();
+      };
+      actions.appendChild(on);
+      if (blocked) {
+        const why = document.createElement("div");
+        why.textContent = blocked;
+        why.style.cssText = "font-size:10px; color:#c98a6a; text-align:center;";
+        actions.appendChild(why);
+      }
+    }
+
+    card.appendChild(info);
+    card.appendChild(actions);
+    return card;
   }
 
   private renderThrowables(): void {
@@ -543,27 +702,89 @@ export class Armoury {
 
   private renderSupport(): void {
     const wrap = document.createElement("div");
+
+    // --- Call-in charges -----------------------------------------------------
+    const owned = ABILITY_SPECIALS.filter((id) => this.gameState.ownsAbility(id));
+    if (owned.length > 0) {
+      const chargeHeading = document.createElement("div");
+      chargeHeading.textContent = "Call-In Charges";
+      chargeHeading.style.cssText = "font-weight:bold; margin-bottom:4px; color:#9fc78a;";
+      wrap.appendChild(chargeHeading);
+      const note = document.createElement("div");
+      note.textContent =
+        "Charges are spent when a strike is called. Buy replacements here — each deployment also restores the free allowance.";
+      note.style.cssText = "font-size:11px; color:#8a9a84; margin-bottom:10px;";
+      wrap.appendChild(note);
+
+      for (const id of owned) {
+        const held = this.gameState.strikeChargesFor(id);
+        const max = STRIKE_MAX_CHARGES[id];
+        const price = STRIKE_CHARGE_PRICES[id];
+        const atCap = held >= max;
+        const affordable = this.gameState.data.credits >= price;
+
+        const row = document.createElement("div");
+        row.className = "mil-row";
+
+        const label = document.createElement("div");
+        label.style.cssText = "flex:1; min-width:0; font-size:13px;";
+        label.innerHTML =
+          `<span>${SPECIAL_ABILITY_LABELS[id]}</span>` +
+          `<span style="color:#e0a15a; font-weight:bold; margin-left:10px;">× ${held}</span>` +
+          `<span style="color:#8a9a84; font-size:11px; margin-left:6px;">/ ${max} max</span>`;
+        row.appendChild(label);
+
+        const btn = document.createElement("button");
+        btn.textContent = atCap ? "AT CAPACITY" : `+1 CHARGE — ${price}c`;
+        styleButton(btn, atCap ? "#2a332480" : affordable ? "#3c6b32" : "#5a3232");
+        btn.disabled = atCap;
+        btn.onclick = () => {
+          if (!this.gameState.buyStrikeCharge(id)) {
+            this.toast(
+              atCap ? "Already carrying the maximum charges." : `Not enough credits — ${price}c needed.`,
+              "bad"
+            );
+            this.audio.uiClick();
+            return;
+          }
+          this.audio.purchase();
+          this.toast(`${SPECIAL_ABILITY_LABELS[id]} — charge purchased (× ${this.gameState.strikeChargesFor(id)}).`);
+          this.refresh();
+        };
+        row.appendChild(btn);
+        wrap.appendChild(row);
+      }
+
+      const hr = document.createElement("hr");
+      hr.className = "mil-hr";
+      wrap.appendChild(hr);
+    }
+
     const heading = document.createElement("div");
     heading.textContent = "AI Squadmate";
     heading.style.cssText = "font-weight:bold; margin-bottom:10px; color:#9fc78a;";
     wrap.appendChild(heading);
 
-    const owned = this.gameState.data.hasBotty;
+    const hasBotty = this.gameState.data.hasBotty;
     const row = this.shopRow(
       "BOTTY — AI combat companion. Follows, suppresses, covers, and can be commanded via the wheel (Q).",
       BOTTY_PRICE,
-      owned,
+      hasBotty,
       () => {
         if (this.gameState.buyBotty(BOTTY_PRICE)) {
           this.audio.purchase();
           this.onBuyBotty?.();
+          this.toast("BOTTY deployed to your squad.");
           this.refresh();
+        } else {
+          this.toast(`Not enough credits — ${BOTTY_PRICE}c needed.`, "bad");
+          this.audio.uiClick();
         }
       }
     );
     wrap.appendChild(row);
 
-    if (owned) {
+    if (hasBotty) {
       const note = document.createElement("div");
       note.textContent = "BOTTY is deployed with you. Use First Aid Kits to heal him if he goes down.";
       note.style.cssText = "color:#9fc78a; font-size:12px; margin-top:8px;";

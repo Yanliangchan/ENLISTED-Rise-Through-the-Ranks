@@ -1,4 +1,4 @@
-import { UniversalCamera, Scene, Vector3, MeshBuilder, Mesh } from "@babylonjs/core";
+import { UniversalCamera, Scene, Vector3, MeshBuilder, Mesh, Ray } from "@babylonjs/core";
 import type { InputManager } from "@/core/InputManager";
 import type { AudioManager } from "@/core/AudioManager";
 
@@ -306,13 +306,64 @@ export class PlayerController {
     this.health = this.maxHealth;
     this.armour = this.maxArmour;
     this.stamina = this.staminaMax;
-    this.verticalVelocity = 0;
-    this.collider.position = position.clone();
+    this.teleportTo(position);
   }
 
-  /** Repositions the player without touching health/armour — used to reset to the base at the start of each wave. */
+  /**
+   * Repositions the player without touching health/armour — used to reset to
+   * the base at the start of each wave.
+   *
+   * The placement is resolved against the actual world rather than trusted
+   * blind: a downward ray finds the solid ground under the target point and
+   * seats the capsule's feet on it. A spawn point authored slightly below the
+   * terrain (or a stale position carried over from another mode) would
+   * otherwise start the capsule intersecting the floor, and the very first
+   * `moveWithCollisions` resolves that by dropping the player straight through
+   * it. Falls back to the requested position when nothing is underfoot.
+   */
   teleportTo(position: Vector3): void {
     this.verticalVelocity = 0;
+    this.isGrounded = false;
     this.collider.position = position.clone();
+
+    const from = position.add(new Vector3(0, 6, 0));
+    const pick = this.scene.pickWithRay(
+      new Ray(from, new Vector3(0, -1, 0), 40),
+      (m) => m.isPickable && m.checkCollisions && m !== this.collider
+    );
+    if (pick?.hit && pick.pickedPoint) {
+      // Seat the feet a hair above the surface so the first collision sweep
+      // resolves upward-clear instead of starting embedded.
+      this.collider.position.y = pick.pickedPoint.y + 0.05;
+    }
+  }
+
+  /**
+   * Full spawn reset for a fresh deployment: position (ground-resolved),
+   * health/armour/stamina, stance, look angles, and every transient combat
+   * effect. Anything a previous run could leave behind — a crouch, a decaying
+   * camera shake, a frozen-movement flag, a pitched-down camera — is cleared
+   * here so a later-wave start begins in exactly the same state as Wave 1.
+   */
+  spawnForDeployment(position: Vector3, yaw = 0): void {
+    this.respawn(position);
+    this.frozen = false;
+    this.isCrouching = false;
+    this.currentEyeHeight = STAND_EYE_HEIGHT;
+    this.camera.position.y = this.currentEyeHeight - STAND_EYE_HEIGHT / 2;
+    this.collider.ellipsoid.y = this.currentEyeHeight / 2;
+    this.collider.ellipsoidOffset.y = this.currentEyeHeight / 2;
+    this.collider.rotation.y = yaw;
+    this.camera.rotation.x = 0;
+    this.shakeMagnitude = 0;
+    this.shakeTime = 0;
+    this.lastShakeYaw = 0;
+    this.lastShakePitch = 0;
+    this.noiseTimer = 0;
+    this.sprintRamp = 0;
+    this.footstepTimer = 0;
+    this._isMoving = false;
+    this._isSprinting = false;
+    this.laserOn = false;
   }
 }

@@ -3,10 +3,17 @@ import type { GameState } from "@/core/GameState";
 import type { PlayerController } from "@/player/PlayerController";
 
 /**
- * Folds owned gear (`gamedata.ts` GEAR) into the player's stat pools: FAST
+ * Folds EQUIPPED gear (`gamedata.ts` GEAR) into the player's stat pools: FAST
  * helmet's small headshot mitigation, the LBV's carry bonus (extra
- * throwables), and the armour plate's damage-absorbing pool. Call after any
- * purchase and once at run start.
+ * throwables), the plate carrier's damage-absorbing pool, and the pouch
+ * upgrades' ammunition/medical/endurance effects.
+ *
+ * Ownership alone does nothing — an item has to be worn (`equippedGear`) for
+ * any of it to apply, and taking it off puts every stat back where it was.
+ * That's why this recomputes every pool from scratch on each call instead of
+ * accumulating: there is no path by which an unequipped item can leave a
+ * lingering effect behind. Call after any purchase, equip/unequip, and once at
+ * run start.
  */
 export function applyGearToPlayer(gameState: GameState, player: PlayerController): void {
   let armour = 0;
@@ -16,12 +23,9 @@ export function applyGearToPlayer(gameState: GameState, player: PlayerController
   let sprintDurationBonus = 0;
   let staminaRegenBonus = 0;
   let staminaDrainReduction = 0;
-  for (const id of gameState.data.ownedGear) {
+  for (const id of gameState.data.equippedGear) {
     const item = GEAR[id];
     if (!item) continue;
-    // Hard/soft plates are mutually EQUIPPED — owning both is fine, but only
-    // the one selected in the Armoury actually contributes its stats.
-    if (item.plateType && id !== gameState.data.equippedArmour) continue;
     if (item.armour) armour += item.armour;
     if (item.damageReduction) damageReduction = Math.max(damageReduction, item.damageReduction);
     if (item.movementSpeedMult) moveMult *= item.movementSpeedMult;
@@ -42,12 +46,7 @@ export function applyGearToPlayer(gameState: GameState, player: PlayerController
 }
 
 export function carryBonus(gameState: GameState): number {
-  let bonus = 0;
-  for (const id of gameState.data.ownedGear) {
-    const item = GEAR[id];
-    if (item?.carryBonus) bonus += item.carryBonus;
-  }
-  return bonus;
+  return gameState.equippedGearBonus("carryBonus");
 }
 
 export function maxThrowableCapacity(gameState: GameState): number {

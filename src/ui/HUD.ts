@@ -68,6 +68,13 @@ export class HUD {
   private specialEl: HTMLDivElement;
   private creditsEl: HTMLDivElement;
   private waveEl: HTMLDivElement;
+  private enemyCountEl: HTMLDivElement;
+  /** Big screen-centre countdown used for the pre-wave beat and inbound call-ins. */
+  private bigCountEl: HTMLDivElement;
+  private lastBigCountText = "";
+  /** While in the future, `setBigCountdown` ignores non-holding callers. */
+  private bigCountHoldUntil = 0;
+  private lastCreditsShown = -1;
   private uavEl: HTMLDivElement;
   private medkitEl: HTMLDivElement;
   private crosshair: HTMLDivElement;
@@ -217,13 +224,26 @@ export class HUD {
       border: 1px solid rgba(159,199,138,0.22); border-radius: 3px;
     `);
     this.waveEl = el("div", "font-size:15px; font-weight:bold; letter-spacing:1px; color:#eef5e8; text-transform:uppercase;");
-    this.creditsEl = el("div", "color:#e0c15a; margin-top:2px;");
+    this.enemyCountEl = el("div", "font-size:13px; letter-spacing:1px; color:#ff8f7a; margin-top:1px;");
+    this.creditsEl = el("div", "color:#e0c15a; margin-top:2px; transition: color 140ms ease, text-shadow 140ms ease;");
     this.uavEl = el("div", "color:#7fd0ff; font-size:13px; margin-top:4px;");
     this.medkitEl = el("div", "color:#8fd68f; font-size:13px;");
     topCentre.appendChild(this.waveEl);
+    topCentre.appendChild(this.enemyCountEl);
     topCentre.appendChild(this.creditsEl);
     topCentre.appendChild(this.uavEl);
     topCentre.appendChild(this.medkitEl);
+
+    // Screen-centre countdown: the pre-wave "WAVE 6 IN 5" beat and the
+    // "TARGET LOCKED / 3 / 2 / 1 / IMPACT" call-in warning share this slot —
+    // only one of them is ever live at a time, and both want the same
+    // impossible-to-miss placement above the crosshair.
+    this.bigCountEl = el("div", `
+      position:absolute; top:26%; left:50%; transform:translateX(-50%);
+      text-align:center; pointer-events:none; opacity:0;
+      transition: opacity 160ms ease;
+      text-shadow: 0 0 18px rgba(0,0,0,0.95), 2px 2px 3px rgba(0,0,0,0.95);
+    `);
 
     // Notifications / kill feed: UPPER LEFT.
     this.killFeedEl = el("div", `
@@ -332,6 +352,7 @@ export class HUD {
     this.root.appendChild(this.flashOverlay);
     this.root.appendChild(this.hurtOverlay);
     this.root.appendChild(this.bloodOverlay);
+    this.root.appendChild(this.bigCountEl);
     this.root.appendChild(this.centerMessageEl);
     this.root.appendChild(this.lockHintEl);
     this.root.appendChild(this.interactPromptEl);
@@ -496,8 +517,29 @@ export class HUD {
         this.specialEl.style.display = "none";
       }
 
-      this.creditsEl.textContent = `Credits: ${this.gameState.data.credits}`;
+      const credits = this.gameState.data.credits;
+      if (credits !== this.lastCreditsShown) {
+        // Flash on any change so a kill payout / wave bonus / purchase is felt,
+        // not just silently reflected.
+        const gained = credits > this.lastCreditsShown && this.lastCreditsShown >= 0;
+        this.lastCreditsShown = credits;
+        this.creditsEl.textContent = `CREDITS  ${credits.toLocaleString()}`;
+        this.creditsEl.style.color = gained ? "#fff0a8" : "#e0c15a";
+        this.creditsEl.style.textShadow = gained ? "0 0 12px rgba(224,193,90,0.9)" : "1px 1px 2px rgba(0,0,0,0.9)";
+        window.setTimeout(() => {
+          this.creditsEl.style.color = "#e0c15a";
+          this.creditsEl.style.textShadow = "1px 1px 2px rgba(0,0,0,0.9)";
+        }, 400);
+      }
       this.waveEl.textContent = this.phaseLabel();
+
+      const remaining = this.waveManager.enemyManager.totalForWaveRemaining;
+      if (this.waveManager.phase === "combat") {
+        this.enemyCountEl.textContent = `OPFOR REMAINING  ${remaining}`;
+        this.enemyCountEl.style.display = "block";
+      } else {
+        this.enemyCountEl.style.display = "none";
+      }
     }
 
     // Cross-fades between the rifle crosshair and the M203 sight over the
@@ -581,13 +623,35 @@ export class HUD {
 
   private phaseLabel(): string {
     const wm = this.waveManager;
-    if (wm.phase === "intro") {
-      return `SCOUT THE SECTOR — Wave ${wm.wave} begins in ${Math.max(0, Math.ceil(wm.introTimeRemaining))}s`;
+    if (wm.phase === "countdown") return `WAVE ${wm.wave} IN ${Math.max(1, Math.ceil(wm.timeUntilWaveStart))}`;
+    if (wm.phase === "armoury") return `ARMOURY — DEPLOY WHEN READY [B]`;
+    if (wm.phase === "gameover") return "MISSION FAILED";
+    return `WAVE ${wm.wave}${wm.enemyManager.isEliteWave(wm.wave) ? " — ELITE" : ""}`;
+  }
+
+  /**
+   * Drive the big screen-centre countdown. Pass null to clear it. Writes only
+   * on change so the transition isn't restarted every frame.
+   *
+   * `holdMs` claims the slot for a fixed spell — used by the "WAVE 6" slam,
+   * which fires once and must not be stomped by the per-frame callers that
+   * otherwise clear this line the very next tick.
+   */
+  setBigCountdown(label: string | null, value?: string, color = "#ffd08a", holdMs = 0): void {
+    const now = performance.now();
+    if (holdMs <= 0 && now < this.bigCountHoldUntil) return;
+    const key = label === null ? "" : `${label}|${value ?? ""}|${color}`;
+    if (key === this.lastBigCountText) return;
+    this.lastBigCountText = key;
+    this.bigCountHoldUntil = holdMs > 0 ? now + holdMs : 0;
+    if (label === null) {
+      this.bigCountEl.style.opacity = "0";
+      return;
     }
-    if (wm.phase === "armoury") {
-      return `ARMOURY — Wave ${wm.wave} in ${Math.max(0, Math.ceil(wm.armouryTimeRemaining))}s`;
-    }
-    return `WAVE ${wm.wave} — ${wm.enemyManager.totalForWaveRemaining} OPFOR remaining`;
+    this.bigCountEl.innerHTML =
+      `<div style="font-size:15px; letter-spacing:6px; color:${color}; margin-bottom:4px;">${label}</div>` +
+      (value ? `<div style="font-size:64px; font-weight:bold; line-height:1; letter-spacing:4px; color:${color};">${value}</div>` : "");
+    this.bigCountEl.style.opacity = "1";
   }
 
   private applyCrosshairSpread(px: number): void {

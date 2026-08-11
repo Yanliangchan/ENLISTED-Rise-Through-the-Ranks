@@ -84,6 +84,44 @@ export const SPECIAL_ABILITY_PRICES: Record<AbilitySpecial, number> = {
   carpetbombing: 30000,
 };
 
+/**
+ * Call-in charges are a consumable stock now, not a per-deployment allowance
+ * that silently refills: every deployment tops the player up to at least
+ * `STRIKE_BASE_CHARGES`, and anything bought in the Armoury on top of that
+ * carries forward until it's spent. `STRIKE_MAX_CHARGES` bounds the stockpile
+ * so the shop can never turn a call-in into an every-wave certainty.
+ */
+export const STRIKE_BASE_CHARGES: Record<AbilitySpecial, number> = {
+  uav: 2,
+  airstrike: 3,
+  carpetbombing: 1,
+};
+export const STRIKE_MAX_CHARGES: Record<AbilitySpecial, number> = {
+  uav: 5,
+  airstrike: 6,
+  carpetbombing: 3,
+};
+/** Price of ONE extra charge, bought from the Armoury's Support Equipment tab. */
+export const STRIKE_CHARGE_PRICES: Record<AbilitySpecial, number> = {
+  uav: 1400,
+  airstrike: 3800,
+  carpetbombing: 9000,
+};
+
+/**
+ * Pin-point elimination strike (Z to call, opens the targeting map).
+ * Shared by AirstrikeSupport (which owns the damage) and the targeting
+ * preview (which draws the blast footprint), so the ring the player aims with
+ * is exactly the radius that later kills.
+ */
+export const PRECISION_STRIKE = {
+  blastRadiusM: 16, // guaranteed kill inside this radius
+  outerSplashRadiusMult: 1.4, // thin band beyond the kill radius that takes splash
+  outerSplashDamage: 25,
+  inboundDelaySec: 3, // "TARGET LOCKED → 3 → 2 → 1 → IMPACT"
+  cooldownSec: 45,
+};
+
 /** Large-area saturation bombing run (Z to fire, opens the tactical map to pick an impact zone). */
 export const CARPET_BOMBING = {
   areaLengthM: 60, // long axis of the rectangular bombing box
@@ -99,9 +137,8 @@ export const CARPET_BOMBING = {
   accuracyMult: 0.4, // survivor accuracy multiplier while affected
   accuracyDebuffSec: 5,
   survivorEffectRadiusM: 20, // radius (from box centre) applying the survivor debuffs
-  inboundDelaySec: 7, // slower than Precision Strike — big, slow saturation run
+  inboundDelaySec: 3, // "TARGET LOCKED → 3 → 2 → 1 → IMPACT", same beat as Precision Strike
   cooldownSec: 90,
-  chargesPerRun: 1,
 };
 
 /** MATADOR blast (fired via the launcher weapon, not thrown). */
@@ -155,47 +192,74 @@ export interface GearItem {
   lbvUpgrade?: boolean;
   /** One of the mutually-EQUIPPED plate types (hard/soft) — owning both is fine, but only one is worn at a time. */
   plateType?: boolean;
+  /**
+   * Pouch slots this item occupies on the vest. The LBV platform provides
+   * `LBV_POUCH_SLOTS`; owning every upgrade is deliberately NOT the same as
+   * wearing every upgrade, so the rig is a real loadout decision (armour vs.
+   * ammunition vs. medical vs. endurance) rather than a shopping list.
+   */
+  slotCost?: number;
+  /** Base kit that is always worn and never occupies vest capacity (helmet, uniform, the LBV platform itself). */
+  alwaysEquipped?: boolean;
+  /** One-line summary of what wearing this actually changes, shown in the Armoury. */
+  effect?: string;
   realNotes: string;
 }
 
+/** Pouch capacity the Modular Load Bearing Vest platform provides. */
+export const LBV_POUCH_SLOTS = 3;
+
 export const GEAR: Record<string, GearItem> = {
   fast_helmet: {
-    id: "fast_helmet", name: "FAST Helmet", price: 0,
+    id: "fast_helmet", name: "FAST Helmet", price: 0, alwaysEquipped: true,
     armour: 15, damageReduction: 0.15,
+    effect: "+15 armour · 15% of incoming damage absorbed",
     realNotes: "Default headgear. SAF issue. Small headshot mitigation.",
   },
   no4_uniform: {
-    id: "no4_uniform", name: "No. 4 Uniform (SAF Digital Camo)", price: 0,
+    id: "no4_uniform", name: "No. 4 Uniform (SAF Digital Camo)", price: 0, alwaysEquipped: true,
+    effect: "Cosmetic — sets the soldier skin",
     realNotes: "Default player + friendly appearance. SAF pixelised digital camouflage pattern (manufactured by Sritex / PT Sri Rejeki Isman Tbk). Cosmetic, sets the soldier skin.",
   },
   lbv: {
-    id: "lbv", name: "Modular Load Bearing Vest", price: 900,
+    id: "lbv", name: "Modular Load Bearing Vest", price: 900, alwaysEquipped: true,
     carryBonus: 1,
+    effect: `+1 throwable carried · provides ${LBV_POUCH_SLOTS} pouch slots`,
     realNotes: "Base modular LBV platform. Unlocks plate, pouch, assault-load and hydration upgrades.",
   },
   hard_ballistic_plates: {
     id: "hard_ballistic_plates", name: "Hard Ballistic Plates", price: 1800, lbvUpgrade: true, plateType: true,
-    armour: 90, damageReduction: 0.65, movementSpeedMult: 0.94, sprintAccelerationMult: 0.9,
-    realNotes: "Maximum rifle-rated protection: much larger armour pool and strong damage absorption, offset by slower movement and sprint pickup.",
+    slotCost: 2,
+    armour: 120, damageReduction: 0.7, movementSpeedMult: 0.92, sprintAccelerationMult: 0.9,
+    effect: "+120 armour · 70% damage absorbed · −8% move speed, slower sprint pickup",
+    realNotes: "Maximum rifle-rated protection: much larger armour pool and strong damage absorption, offset by slower movement and sprint pickup. Bulky — takes two pouch slots.",
   },
   soft_ballistic_plates: {
     id: "soft_ballistic_plates", name: "Soft Ballistic Plates", price: 1200, lbvUpgrade: true, plateType: true,
-    armour: 50, damageReduction: 0.42, movementSpeedMult: 0.99,
-    realNotes: "Lightweight survivability upgrade with moderate armour and minimal mobility penalty.",
+    slotCost: 1,
+    armour: 70, damageReduction: 0.5, movementSpeedMult: 0.97,
+    effect: "+70 armour · 50% damage absorbed · −3% move speed",
+    realNotes: "Lightweight survivability upgrade with moderate armour and minimal mobility penalty. Leaves room on the vest for two more pouches.",
   },
   assault_load_pouches: {
     id: "assault_load_pouches", name: "Assault Load Magazine Pouches", price: 1100, lbvUpgrade: true,
-    reserveAmmoBonus: 0.35, carryBonus: 1,
-    realNotes: "Extra rifle magazine pouches increase reserve ammunition and carried equipment, without changing magazine size or reload speed.",
+    slotCost: 1,
+    reserveAmmoBonus: 0.75, carryBonus: 2,
+    effect: "+75% reserve ammunition · +2 throwables carried",
+    realNotes: "Extra rifle magazine pouches sharply increase reserve ammunition and carried equipment, without changing magazine size or reload speed.",
   },
   medic_pouch: {
-    id: "medic_pouch", name: "Medic Pouch", price: 950, lbvUpgrade: true, medkitBonus: 2,
+    id: "medic_pouch", name: "Medic Pouch", price: 950, lbvUpgrade: true, medkitBonus: 3,
+    slotCost: 1,
+    effect: "+3 First Aid Kits at spawn · +3 to the carry cap",
     realNotes: "Dedicated IFAK pouch: spawn with additional First Aid Kits and raise the kit carry cap.",
   },
   hydration_pack: {
     id: "hydration_pack", name: "Hydration Pack", price: 850, lbvUpgrade: true,
-    sprintDurationBonus: 0.35, staminaRegenBonus: 0.3, staminaDrainReduction: 0.2,
-    realNotes: "Rear-mounted bladder and shoulder tube improve sprint endurance, stamina regeneration and running efficiency.",
+    slotCost: 1,
+    sprintDurationBonus: 0.7, staminaRegenBonus: 0.6, staminaDrainReduction: 0.35,
+    effect: "+70% sprint duration · +60% stamina regen · −35% stamina drain",
+    realNotes: "Rear-mounted bladder and shoulder tube substantially improve sprint endurance, stamina regeneration and running efficiency.",
   },
 };
 

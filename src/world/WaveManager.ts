@@ -4,7 +4,11 @@ import { ECONOMY, ELITE_WAVE } from "@/data/gamedata";
 import type { GameState } from "@/core/GameState";
 import type { AudioManager } from "@/core/AudioManager";
 
-export type RunPhase = "intro" | "combat" | "armoury" | "gameover";
+/**
+ * `armoury` — shop open between waves, waits for the player (no timer).
+ * `countdown` — the fixed pre-wave beat, shown as "WAVE N IN 5…1".
+ */
+export type RunPhase = "armoury" | "countdown" | "combat" | "gameover";
 
 export interface WaveManagerCallbacks {
   onWaveStart?: (wave: number, isElite: boolean) => void;
@@ -13,27 +17,44 @@ export interface WaveManagerCallbacks {
   onKillFeed?: (enemyName: string, headshot: boolean) => void;
   onGameOver?: (waveReached: number) => void;
   onPlayerDamaged?: (damage: number, sourcePosition: import("@babylonjs/core").Vector3) => void;
+  /** Fires once per whole second of the pre-wave countdown (5,4,3,2,1) — drives the HUD tick + beep. */
+  onCountdownTick?: (secondsLeft: number, wave: number) => void;
 }
 
-const ARMOURY_DURATION_SEC = 45;
-/** Free-roam window before Wave 1 so the player can scout the map before OPFOR forms up. */
-const INTRO_DURATION_SEC = 10;
+/** Pre-wave countdown, in seconds. `Wave cleared → 5 second countdown → next wave`. */
+export const WAVE_COUNTDOWN_SEC = 5;
+
+/** Milestones the player may restart a run from, once reached. */
+export const WAVE_CHECKPOINTS = [5, 10, 15, 20];
 
 /**
- * Orchestrates the wave-survival loop: a free-roam intro before Wave 1,
- * spawn a wave via `EnemyManager`, wait for it to clear, award the scaling
- * `WAVES`/`ECONOMY` bonus, open the between-wave armoury for a breather,
- * then advance. Ends the run on player death.
+ * Orchestrates the wave-survival loop: an armoury breather (open until the
+ * player deploys), a fixed 5-second countdown, the wave itself, then the
+ * scaling `WAVES`/`ECONOMY` clear bonus and back round. Ends the run on player
+ * death.
+ *
+ * Every phase transition goes through `setPhase`, and `startWave` is latched,
+ * so a wave can never be started twice, no two countdowns can run at once, and
+ * the next wave can never begin before the current one has actually finished.
  */
 export class WaveManager {
   readonly enemyManager: EnemyManager;
-  phase: RunPhase = "intro";
+  private _phase: RunPhase = "armoury";
   wave: number;
-  armouryTimeRemaining = ARMOURY_DURATION_SEC;
-  introTimeRemaining = INTRO_DURATION_SEC;
+  countdownRemaining = WAVE_COUNTDOWN_SEC;
+  /**
+   * The wave this run was STARTED at. Persists across death so the game can
+   * offer the player their chosen entry point again instead of silently
+   * dumping them back at Wave 1.
+   */
+  runStartWave = 1;
+  /** Guards against a second `startWave` landing while one is already in flight. */
+  private waveInFlight = false;
+  /** Whole-second boundary already announced, so each tick fires exactly once. */
+  private lastCountdownTick = -1;
 
   constructor(
-    private readonly scene: import("@babylonjs/core").Scene,
+    scene: import("@babylonjs/core").Scene,
     private readonly player: PlayerController,
     private readonly gameState: GameState,
     private readonly audio: AudioManager,
@@ -52,38 +73,80 @@ export class WaveManager {
     });
   }
 
+  get phase(): RunPhase {
+    return this._phase;
+  }
+
+  private setPhase(next: RunPhase): void {
+    if (this._phase === next) return;
+    this._phase = next;
+    this.callbacks.onPhaseChange?.(next);
+  }
+
   /**
    * Starts a fresh deployment at a specific wave — 1 for a clean start, or a
    * milestone (5/10/15/...) the player has previously cleared and chose to
-   * jump back into from the landing page's wave picker.
+   * jump back into.
+   *
+   * Everything a wave needs is established HERE rather than being inherited
+   * from a Wave 1 that may never have run: the wave number, the run's start
+   * wave, a cleared battlefield, and a fully reset player standing on real
+   * ground at the base. A Wave 10 start is therefore identical in every
+   * respect to a Wave 1 start except the number.
    */
   beginRunAt(startWave: number): void {
-    this.wave = Math.max(1, Math.floor(startWave));
-    this.gameState.data.wave = this.wave;
+    const wave = Math.max(1, Math.floor(startWave));
+    this.enemyManager.clearAll();
+    this.waveInFlight = false;
+    this.wave = wave;
+    this.runStartWave = wave;
+    this.gameState.data.wave = wave;
     this.gameState.save();
-    this.beginIntro();
+    this.player.spawnForDeployment(this.spawnPosition);
+    this.beginCountdown();
   }
 
-  /** Free-roam scouting window before Wave 1 only — no shop, no enemies. */
-  beginIntro(): void {
-    this.phase = "intro";
-    this.introTimeRemaining = INTRO_DURATION_SEC;
-    this.callbacks.onPhaseChange?.(this.phase);
+  /** Checkpoints this run may be restarted from after death: Wave 1 plus every milestone up to where it began. */
+  restartOptions(): number[] {
+    return [1, ...WAVE_CHECKPOINTS.filter((w) => w <= this.runStartWave)];
   }
 
+  /**
+   * Redeploy after death at the player's chosen wave. Credits/unlocks/gear
+   * earned this session are kept (GameState persists them independently);
+   * everything run-scoped — enemies, wave number, phase, timers, player state —
+   * is rebuilt from scratch.
+   */
+  restartRun(startWave: number): void {
+    this.setPhase("armoury"); // leave gameover first so the phase callback fires cleanly
+    this.beginRunAt(startWave);
+  }
+
+  /** Opens the between-wave shop. No timer — the wave starts when the player deploys. */
   beginArmoury(): void {
-    this.phase = "armoury";
-    this.armouryTimeRemaining = ARMOURY_DURATION_SEC;
-    this.callbacks.onPhaseChange?.(this.phase);
+    this.waveInFlight = false;
+    this.setPhase("armoury");
   }
 
-  /** Remaining seconds until the next wave starts, whichever pre-combat phase we're in. */
+  /** Starts the fixed pre-wave countdown. Idempotent — re-entry just restarts the same single timer. */
+  beginCountdown(): void {
+    this.waveInFlight = false;
+    this.countdownRemaining = WAVE_COUNTDOWN_SEC;
+    this.lastCountdownTick = -1;
+    this.setPhase("countdown");
+  }
+
+  /** Remaining seconds until the next wave starts (0 while not counting down). */
   get timeUntilWaveStart(): number {
-    return this.phase === "intro" ? this.introTimeRemaining : this.armouryTimeRemaining;
+    return this._phase === "countdown" ? Math.max(0, this.countdownRemaining) : 0;
   }
 
   startWave(): void {
-    this.phase = "combat";
+    // Latch + phase guard: a duplicate call (double-click on DEPLOY, a stray
+    // skipArmoury, the countdown hitting zero on the same frame) is a no-op
+    // rather than a second spawn set for the same wave.
+    if (this.waveInFlight || this._phase === "combat" || this._phase === "gameover") return;
+    this.waveInFlight = true;
     // Reset to the main base at the start of every wave — a player who wandered
     // off (or is still mid-armoury) never gets caught out in an unsafe spot the
     // instant OPFOR forms up. Position only: health/armour are untouched.
@@ -91,37 +154,33 @@ export class WaveManager {
     const isElite = this.enemyManager.isEliteWave(this.wave);
     this.enemyManager.startWave(this.wave, this.player);
     this.audio.waveStart();
-    this.callbacks.onPhaseChange?.(this.phase);
+    this.setPhase("combat");
     this.callbacks.onWaveStart?.(this.wave, isElite);
   }
 
   update(dt: number): void {
-    if (this.phase === "gameover") return;
+    if (this._phase === "gameover") return;
 
     if (this.player.isDead) {
-      this.phase = "gameover";
-      this.callbacks.onPhaseChange?.(this.phase);
+      this.setPhase("gameover");
       this.callbacks.onGameOver?.(this.wave);
       return;
     }
 
-    if (this.phase === "intro") {
-      this.introTimeRemaining -= dt;
-      if (this.introTimeRemaining <= 0) this.startWave();
-      return;
-    }
-
-    if (this.phase === "armoury") {
-      this.armouryTimeRemaining -= dt;
-      if (this.armouryTimeRemaining <= 0) this.startWave();
-      return;
-    }
-
-    if (this.phase === "combat") {
-      this.enemyManager.update(dt, this.player, this.wave);
-      if (this.enemyManager.totalForWaveRemaining === 0) {
-        this.clearWave();
+    if (this._phase === "countdown") {
+      this.countdownRemaining -= dt;
+      const secondsLeft = Math.max(0, Math.ceil(this.countdownRemaining));
+      if (secondsLeft !== this.lastCountdownTick && secondsLeft > 0) {
+        this.lastCountdownTick = secondsLeft;
+        this.callbacks.onCountdownTick?.(secondsLeft, this.wave);
       }
+      if (this.countdownRemaining <= 0) this.startWave();
+      return;
+    }
+
+    if (this._phase === "combat") {
+      this.enemyManager.update(dt, this.player, this.wave);
+      if (this.enemyManager.totalForWaveRemaining === 0) this.clearWave();
     }
   }
 
@@ -143,22 +202,8 @@ export class WaveManager {
     this.beginArmoury();
   }
 
+  /** Player pressed DEPLOY in the armoury — roll straight into the pre-wave countdown. */
   skipArmoury(): void {
-    if (this.phase === "armoury" || this.phase === "intro") this.startWave();
-  }
-
-  /**
-   * Redeploy after death: credits/unlocks/gear already earned this session
-   * are kept (GameState persists them independently) — only the wave count
-   * and combat state reset, and the player respawns full health straight
-   * into the armoury so they can spend before the next Wave 1.
-   */
-  restartRun(spawnPosition: import("@babylonjs/core").Vector3): void {
-    this.enemyManager.clearAll();
-    this.wave = 1;
-    this.gameState.data.wave = 1;
-    this.gameState.save();
-    this.player.respawn(spawnPosition);
-    this.beginArmoury();
+    if (this._phase === "armoury") this.beginCountdown();
   }
 }

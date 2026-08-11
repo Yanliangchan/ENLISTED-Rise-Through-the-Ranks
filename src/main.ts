@@ -27,6 +27,7 @@ import { SupplyCrateManager } from "@/world/SupplyCrates";
 import { LandingPage } from "@/ui/LandingPage";
 import { ScopeOverlay } from "@/ui/ScopeOverlay";
 import { TacticalMap } from "@/ui/TacticalMap";
+import { StrikeTargeting } from "@/ui/StrikeTargeting";
 import { SafeZoneManager } from "@/world/SafeZone";
 import { UAVSupport } from "@/world/UAVSupport";
 import { AirstrikeSupport } from "@/world/AirstrikeSupport";
@@ -34,6 +35,7 @@ import { CarpetBombingSupport } from "@/world/CarpetBombingSupport";
 import { MedKitController } from "@/player/MedKit";
 import { Ambience } from "@/world/Ambience";
 import { Vector3, Ray, Color3 } from "@babylonjs/core";
+import { SPECIAL_ABILITY_LABELS, type AbilitySpecial } from "@/data/gamedata";
 import { buildTrainingRange, RANGE_FIRING_LINE, RANGE_DISTANCES_M } from "@/world/TrainingRange";
 import { buildIronCitadel, type IronCitadelHandles } from "@/world/IronCitadel";
 import { MultiplayerMenu, type MatchStartInfo } from "@/ui/MultiplayerMenu";
@@ -176,6 +178,8 @@ async function boot(): Promise<void> {
     onWaveStart: (wave, isElite) => {
       applyWaveArcLighting(game.scene, wave);
       const beat = [...STORY_BEATS].reverse().find(([w]) => wave === w);
+      // A brief "WAVE N" slam as the countdown resolves, then the story beat.
+      hud.setBigCountdown(isElite ? "ELITE WAVE" : "", `WAVE ${wave}`, isElite ? "#ff8f5a" : "#ffd08a", 1200);
       if (isElite) {
         hud.showCenterMessage(`⚠ ELITE WAVE ${wave} — reinforced OPFOR, bigger payout`, 3500);
       } else {
@@ -187,14 +191,23 @@ async function boot(): Promise<void> {
       stats.recordWaveCleared(wave);
       stats.recordCredits(bonus);
     },
+    onCountdownTick: (secondsLeft, wave) => {
+      hud.setBigCountdown(`WAVE ${wave} IN`, String(secondsLeft));
+      audio.uiClick();
+    },
     onPhaseChange: (phase) => {
       if (phase === "armoury") {
         armoury.show();
       } else {
         armoury.hide();
       }
+      // The big centre countdown belongs to the countdown phase only — clearing
+      // it on every other transition is what stops a stale "WAVE 6 IN 3" from
+      // hanging around into combat or the death screen.
+      if (phase !== "countdown") hud.setBigCountdown(null);
+      if (phase === "combat") hud.setBigCountdown(null);
       if (phase === "gameover") {
-        gameOverScreen.show(waveManager.wave);
+        gameOverScreen.show(waveManager.wave, waveManager.restartOptions());
       }
     },
     onGameOver: (waveReached) => {
@@ -292,6 +305,9 @@ async function boot(): Promise<void> {
   function resupplyOnSpawn(): void {
     weaponController.resetAllAmmo();
     gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
+    // Charges live on the save now: every deployment restores the free
+    // allowance while anything bought above it carries forward.
+    gameState.replenishStrikeChargesForDeployment();
     uav.reset();
     airstrike.reset();
     carpetBombing.reset();
@@ -340,9 +356,12 @@ async function boot(): Promise<void> {
     hud.showCenterMessage("CONTACT UNAWARE — RECON TOUCH", 2000);
   }
 
-  gameOverScreen.onRestart = () => {
+  gameOverScreen.onRestart = (wave) => {
     gameOverScreen.hide();
-    waveManager.restartRun(SPAWN_POINT);
+    // restartRun fully rebuilds the run (enemies, wave, phase, timers, player
+    // position/health) at the chosen wave; beginDeployment restores the
+    // consumables on top of it.
+    waveManager.restartRun(wave);
     beginDeployment();
     // The Redeploy click is a user gesture — grab the pointer right here so
     // the player spawns already in control instead of having to click again.
@@ -650,6 +669,10 @@ async function boot(): Promise<void> {
         const timeOfDay = isNightMode() ? "NIGHT" : "DAY";
         hud.showCenterMessage(`OPERATION SENTINEL SHIELD — ${timeOfDay} DEPLOYMENT. Scout the sector before OPFOR forms up`, 4000);
         loadout.switchTo("primary"); // guarantee the real loadout weapon, not whatever the range last had equipped
+        // Fold the equipped rig in FIRST: beginRunAt fills health/armour from
+        // these pools, so a gear change made since the last run has to be live
+        // before the spawn, not after it.
+        applyGearToPlayer(gameState, player);
         waveManager.beginRunAt(startWave);
         beginDeployment();
         game.renderingPaused = false;
@@ -658,7 +681,7 @@ async function boot(): Promise<void> {
       // Always a fresh Wave 1 start by default — a checkpoint jump is an
       // explicit choice, never a silent resume from wherever was last saved.
       if (gameState.data.highestWaveCleared >= 5) {
-        waveSelect.show(gameState.data.highestWaveCleared, startDeployment);
+        waveSelect.show(gameState.data.highestWaveCleared, startDeployment, () => showMainMenu());
       } else {
         startDeployment(1);
       }
@@ -681,7 +704,7 @@ async function boot(): Promise<void> {
   }
   function exitToMainMenu(): void {
     waveManager.enemyManager.clearAll();
-    waveManager.beginIntro();
+    waveManager.beginArmoury();
     hud.setVisible(true);
     showMainMenu(); // landingPage.visible becomes true before we hide the pause menu
     pauseMenu.hide();
@@ -697,7 +720,15 @@ async function boot(): Promise<void> {
 
   const tacticalMap = new TacticalMap(uiRoot, buildingLayout);
 
-  const uav = new UAVSupport(audio, {
+  // Call-in charges are owned by the save, not by the ability classes, so the
+  // Armoury, the HUD and the ability itself can never disagree about how many
+  // are left. Each ability gets a thin view onto its own counter.
+  const chargeStore = (id: AbilitySpecial) => ({
+    charges: () => gameState.strikeChargesFor(id),
+    consume: () => gameState.consumeStrikeCharge(id),
+  });
+
+  const uav = new UAVSupport(audio, chargeStore("uav"), {
     onActivate: () => {
       hud.showCenterMessage("HERMES 900 UAV OVERHEAD — press M for tactical map", 4000);
       stats.recordUavCall();
@@ -705,8 +736,44 @@ async function boot(): Promise<void> {
     onUnavailable: (reason) =>
       hud.showCenterMessage(reason === "empty" ? "NO HERMES 900 UAV CHARGES REMAINING" : "HERMES 900 UAV RECHARGING", 1500),
   });
-  const airstrike = new AirstrikeSupport(game.scene, audio, waveManager.enemyManager);
-  const carpetBombing = new CarpetBombingSupport(game.scene, audio, waveManager.enemyManager, player);
+  const airstrike = new AirstrikeSupport(game.scene, audio, waveManager.enemyManager, player, chargeStore("airstrike"));
+  const carpetBombing = new CarpetBombingSupport(game.scene, audio, waveManager.enemyManager, player, chargeStore("carpetbombing"));
+  const strikeTargeting = new StrikeTargeting(uiRoot, buildingLayout);
+
+  /**
+   * Open the targeting overlay for a call-in and, only once the player has
+   * confirmed a plan, fire it. Nothing is spent until confirmation, and the
+   * overlay hands its callback back exactly once, so a strike can never be
+   * called twice from one activation.
+   */
+  function beginStrikeTargeting(id: "airstrike" | "carpetbombing"): void {
+    const ability = id === "airstrike" ? airstrike : carpetBombing;
+    if (!ability.ready) {
+      hud.showCenterMessage(
+        ability.cooldownRemaining > 0
+          ? `${SPECIAL_ABILITY_LABELS[id]} RECHARGING — ${Math.ceil(ability.cooldownRemaining)}s`
+          : `NO ${SPECIAL_ABILITY_LABELS[id].toUpperCase()} CHARGES — buy more in the Armoury [B]`,
+        2200
+      );
+      audio.uiClick();
+      return;
+    }
+    document.exitPointerLock();
+    strikeTargeting.begin(
+      id === "carpetbombing" ? "carpet" : "precision",
+      (plan) => {
+        const ok = ability.callStrike(plan);
+        input.lockPointer();
+        if (!ok) return;
+        if (id === "airstrike") stats.recordAirstrikeCall();
+        audio.waveStart();
+      },
+      () => {
+        input.lockPointer();
+        hud.showCenterMessage("CALL-IN ABORTED", 1500);
+      }
+    );
+  }
 
   // ---- Focus keeper -------------------------------------------------------
   // The game should always own the mouse while actually in play: any click or
@@ -719,7 +786,9 @@ async function boot(): Promise<void> {
       armoury.visible ||
       gameOverScreen.visible ||
       landingPage.visible ||
+      waveSelect.visible ||
       tacticalMap.visible ||
+      strikeTargeting.visible ||
       commandWheel.visible ||
       rangeUI.resultsOpen
     );
@@ -734,6 +803,9 @@ async function boot(): Promise<void> {
   };
 
   window.addEventListener("keydown", (e) => {
+    // The strike-targeting overlay is modal: it handles its own keys and must
+    // not have them double-handled here.
+    if (strikeTargeting.visible) return;
     if (e.code === "Escape") {
       // In the Iron Citadel preview, ESC leaves straight back to the menu
       // rather than opening the wave-mode pause menu.
@@ -761,11 +833,15 @@ async function boot(): Promise<void> {
     // B opens the armoury/loadout. In the survival game that's the intro/armoury
     // phase; in multiplayer it's a 15s window after each (re)spawn so you can
     // swap your weapon before committing to the fight.
-    const bAllowedSurvival = !citadelActive && (waveManager.phase === "intro" || waveManager.phase === "armoury");
+    const bAllowedSurvival = !citadelActive && (waveManager.phase === "countdown" || waveManager.phase === "armoury");
     const bAllowedMp = !!netMatch && (netMatch.canChangeWeapon() || armoury.visible);
     if (e.code === "KeyB" && (bAllowedSurvival || bAllowedMp)) {
       if (armoury.visible) {
         armoury.hide();
+        // Closing the shop is the player saying they're done — roll straight
+        // into the pre-wave countdown so the run always progresses rather than
+        // stalling in an armoury phase with nothing driving it.
+        if (!citadelActive && waveManager.phase === "armoury") waveManager.skipArmoury();
         input.lockPointer();
       } else {
         armoury.show(); // show() releases the pointer for the shop UI
@@ -792,7 +868,8 @@ async function boot(): Promise<void> {
       !citadelActive &&
       waveManager.phase !== "gameover" &&
       !armoury.visible &&
-      !tacticalMap.visible
+      !tacticalMap.visible &&
+      !strikeTargeting.visible
     ) {
       const special = gameState.data.loadout.special;
       if (
@@ -803,40 +880,8 @@ async function boot(): Promise<void> {
         gameState.data.loadout.special = null;
       } else if (special === "uav") {
         uav.activate();
-      } else if (special === "airstrike") {
-        if (airstrike.ready) {
-          hud.showCenterMessage("PRECISION STRIKE — click an impact point on the map", 3000);
-          tacticalMap.beginTargeting((x, z) => {
-            const ok = airstrike.callStrike(x, z);
-            tacticalMap.hide();
-            input.lockPointer();
-            if (ok) {
-              stats.recordAirstrikeCall();
-              hud.showCenterMessage(`STRIKE INBOUND — impact in ${Math.ceil(airstrike.secondsToImpact)}s`, 2500);
-            }
-          });
-          document.exitPointerLock();
-        } else {
-          hud.showCenterMessage(airstrike.cooldownRemaining > 0 ? "AIR STRIKE RECHARGING" : "NO AIR STRIKE CHARGES", 1500);
-        }
-      } else if (special === "carpetbombing") {
-        if (carpetBombing.ready) {
-          hud.showCenterMessage("CARPET BOMBING — click a target zone on the map", 3000);
-          tacticalMap.beginTargeting((x, z) => {
-            const ok = carpetBombing.callStrike(x, z);
-            tacticalMap.hide();
-            input.lockPointer();
-            if (ok) {
-              hud.showCenterMessage(`BOMBING RUN INBOUND — impact in ${Math.ceil(carpetBombing.secondsToImpact)}s`, 3000);
-            }
-          });
-          document.exitPointerLock();
-        } else {
-          hud.showCenterMessage(
-            carpetBombing.cooldownRemaining > 0 ? "CARPET BOMBING RECHARGING" : "NO CARPET BOMBING CHARGES",
-            1500
-          );
-        }
+      } else if (special === "airstrike" || special === "carpetbombing") {
+        beginStrikeTargeting(special);
       }
     }
   });
@@ -855,8 +900,10 @@ async function boot(): Promise<void> {
       armoury.visible ||
       gameOverScreen.visible ||
       (landingPage.visible && !netMatch) ||
+      waveSelect.visible ||
       (mpMenu?.visible ?? false) ||
       tacticalMap.visible ||
+      strikeTargeting.visible ||
       commandWheel.visible;
 
     if (!paused) {
@@ -908,6 +955,12 @@ async function boot(): Promise<void> {
     if (tacticalMap.visible) {
       tacticalMap.update(player, waveManager.enemyManager.intel(player.position, uav.active));
     }
+    if (strikeTargeting.visible) {
+      // Targeting always sees every live contact: the player is choosing where
+      // to drop ordnance, and the preview promises to show the enemies caught
+      // inside the footprint.
+      strikeTargeting.update(dt, player, waveManager.enemyManager.intel(player.position, true));
+    }
 
     damageNumbers.update(game.scene);
     if (!rangeActive && !citadelActive) {
@@ -924,15 +977,32 @@ async function boot(): Promise<void> {
         hud.updateUAV(uav.active, uav.secondsRemaining, uav.chargesRemaining, uav.cooldownRemaining);
       } else if (special === "airstrike") {
         if (airstrike.inbound) hud.setSupportLine(`STRIKE INBOUND — ${Math.ceil(airstrike.secondsToImpact)}s`, "#ff8f5a");
-        else if (airstrike.cooldownRemaining > 0) hud.setSupportLine(`Precision Strike recharging — ${Math.ceil(airstrike.cooldownRemaining)}s`, "#8a9a84");
-        else hud.setSupportLine(`Precision Strike ready ×${airstrike.chargesRemaining} [Z]`, airstrike.chargesRemaining > 0 ? "#e0a15a" : "#8a9a84");
+        else if (airstrike.cooldownRemaining > 0) hud.setSupportLine(`PRECISION STRIKE × ${airstrike.chargesRemaining} — recharging ${Math.ceil(airstrike.cooldownRemaining)}s`, "#8a9a84");
+        else hud.setSupportLine(`PRECISION STRIKE × ${airstrike.chargesRemaining} [Z]`, airstrike.chargesRemaining > 0 ? "#e0a15a" : "#8a9a84");
       } else if (special === "carpetbombing") {
         if (carpetBombing.inbound) hud.setSupportLine(`BOMBING RUN INBOUND — ${Math.ceil(carpetBombing.secondsToImpact)}s`, "#ff8f5a");
         else if (carpetBombing.running) hud.setSupportLine("BOMBING RUN IN PROGRESS", "#ff8f5a");
-        else if (carpetBombing.cooldownRemaining > 0) hud.setSupportLine(`Carpet Bombing recharging — ${Math.ceil(carpetBombing.cooldownRemaining)}s`, "#8a9a84");
-        else hud.setSupportLine(`Carpet Bombing ready ×${carpetBombing.chargesRemaining} [Z]`, carpetBombing.chargesRemaining > 0 ? "#e0a15a" : "#8a9a84");
+        else if (carpetBombing.cooldownRemaining > 0) hud.setSupportLine(`CARPET BOMB × ${carpetBombing.chargesRemaining} — recharging ${Math.ceil(carpetBombing.cooldownRemaining)}s`, "#8a9a84");
+        else hud.setSupportLine(`CARPET BOMB × ${carpetBombing.chargesRemaining} [Z]`, carpetBombing.chargesRemaining > 0 ? "#e0a15a" : "#8a9a84");
       } else {
         hud.setSupportLine(null);
+      }
+
+      // Inbound call-ins own the big centre countdown while they run — but only
+      // outside the pre-wave countdown, which has the stronger claim on it.
+      if (waveManager.phase !== "countdown") {
+        const inboundSecs = airstrike.inbound
+          ? airstrike.secondsToImpact
+          : carpetBombing.inbound
+            ? carpetBombing.secondsToImpact
+            : null;
+        if (inboundSecs !== null) {
+          hud.setBigCountdown("TARGET LOCKED", String(Math.max(1, Math.ceil(inboundSecs))), "#ff8f5a");
+        } else if (carpetBombing.running) {
+          hud.setBigCountdown("IMPACT", "", "#ff8f5a");
+        } else {
+          hud.setBigCountdown(null);
+        }
       }
       hud.updateMedkit(medKit.count);
       hud.updateBotty(
@@ -998,6 +1068,14 @@ async function boot(): Promise<void> {
       },
       weaponController,
       input,
+      applyGearToPlayer,
+      waveSelect,
+      landingPage: () => landingPage,
+      airstrike,
+      carpetBombing,
+      strikeTargeting,
+      uav,
+      beginStrikeTargeting,
       botty: () => botty,
       /** Test helper: current player physics state (grounded/moving/aiming). */
       debugPlayerState: () => ({
