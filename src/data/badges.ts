@@ -49,7 +49,8 @@ export const BADGES: Record<string, Badge> = {
     perk: "Endurance: −40% stamina drain, faster sprint recovery.",
     realLife:
       "SAF Ranger tab (red) — a volunteer confidence course in small-unit tactics, survival and combat endurance for combat vocations. One of the toughest schools in the SAF; earned by passing Ranger selection and the full course.",
-    howToEarn: "Survive an 8-wave endurance gauntlet with NO resupply and NO armour equipped.",
+    howToEarn:
+      "OPERATION: RANGER GAUNTLET — hold Pasir Panjang Terminal through 18 escalating waves with NO resupply, NO armour and no BOTTY.",
   },
 
   guards: {
@@ -62,7 +63,8 @@ export const BADGES: Record<string, Badge> = {
     perk: "Mobility: +12% move speed, −15% ADS time.",
     realLife:
       "SAF Guards tab — awarded on conversion into a Guards unit, recognised for rapid, aggressive light-infantry doctrine. Earned by completing Guards conversion training.",
-    howToEarn: "Clear 4 marked strongpoints in a single deployment under a strict time limit.",
+    howToEarn:
+      "OPERATION: STRONGPOINT ASSAULT — fight through all four layered objectives at Pasir Panjang Terminal, ending at Bukit Chandu, inside the mission clock.",
   },
 
   parachutist: {
@@ -138,8 +140,8 @@ export const BADGES: Record<string, Badge> = {
  * survival waves as optional objectives selectable from the Armoury.
  */
 export const CHALLENGE_OPS: Record<string, { name: string; badgeId: string; brief: string }> = {
-  op_ranger_gauntlet: { name: "Op: Ranger Gauntlet", badgeId: "ranger", brief: "Survive 8 waves with no resupply and no armour." },
-  op_guards_assault: { name: "Op: Guards Assault", badgeId: "guards", brief: "Clear 4 strongpoints under a strict time limit." },
+  op_ranger_gauntlet: { name: "Op: Ranger Gauntlet", badgeId: "ranger", brief: "18 waves at Pasir Panjang Terminal. No resupply, no armour, no support." },
+  op_guards_assault: { name: "Op: Guards Assault", badgeId: "guards", brief: "Take four layered objectives across Pasir Panjang Terminal, ending at Bukit Chandu." },
   op_airborne_insertion: { name: "Op: Airborne Insertion", badgeId: "parachutist", brief: "Parachute onto the drop zone and secure it. (Tiers at 1/5/15 drops.)" },
   op_halo_insertion: { name: "Op: HALO Insertion", badgeId: "freefall", brief: "High-altitude freefall onto a marked covert LZ." },
   op_amphibious: { name: "Op: Amphibious Raid", badgeId: "combat_diver", brief: "Infiltrate a coastal objective via water." },

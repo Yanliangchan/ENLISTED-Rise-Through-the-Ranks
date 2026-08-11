@@ -14,7 +14,7 @@ import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
 import { CAMP_POSITION } from "@/world/Level";
 import { isInSafeZone, isInExclusionZone, steerAroundExclusionZone } from "@/world/SafeZone";
-import { isNavigable, findNearestNavigable, clampToPlayable, PLAYABLE_HALF } from "@/world/Nav";
+import { isNavigable, findNearestNavigable, clampToPlayable, playableHalf } from "@/world/Nav";
 
 export type EnemyState =
   | "idle"
@@ -780,7 +780,8 @@ export class EnemyInstance implements Damageable {
     this.movingThisFrame = true;
 
     // Hard boundary: never allow an enemy to drift outside the playable arena.
-    if (Math.abs(this.root.position.x) > PLAYABLE_HALF || Math.abs(this.root.position.z) > PLAYABLE_HALF) {
+    const bound = playableHalf();
+    if (Math.abs(this.root.position.x) > bound || Math.abs(this.root.position.z) > bound) {
       const clamped = clampToPlayable(this.root.position);
       this.root.position.x = clamped.x;
       this.root.position.z = clamped.z;

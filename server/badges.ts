@@ -4,6 +4,15 @@ import { query, queryOne } from "./db.js";
 /** The 8 carried guns eligible for the Combat Skills badge — the MATADOR (a launcher, never a hitscan kill) is never in this list. */
 export const COMBAT_SKILLS_WEAPON_ROSTER = ["sar21", "br18", "p30", "mp5k", "m110", "trg22", "fnmag", "colt_iar"];
 
+/**
+ * Operation completion bars. These must stay in step with the client
+ * (RANGER_GAUNTLET_WAVES in main.ts, and the four objectives defined in
+ * PasirPanjang.ts) — a client that submits a full clear has to clear the bar
+ * here exactly, or the badge silently never awards.
+ */
+const RANGER_GAUNTLET_WAVES = 18;
+const STRONGPOINT_OBJECTIVES = 4;
+
 /** Snapshot handed to badge checks: the just-updated lifetime totals plus this match's own deltas. */
 export interface BadgeCheckInput {
   lifetime: {
@@ -72,14 +81,16 @@ const BADGE_CHECKS: Record<string, (input: BadgeCheckInput) => boolean> = {
   paramedic: (i) => i.lifetime.bottyHeals >= 200,
   adss: (i) => i.lifetime.airstrikeCalls >= 200,
   aiie: (i) => i.lifetime.uavCalls >= 300,
-  // Ranger Gauntlet: 8 waves cleared under the mission's actual no-resupply
-  // rules (main.ts forces this via WaveManager.configureRun + a no-armour
-  // loadout) — noResupplyWaveReached only exists on a genuine Ranger run, so
-  // this can't be spoofed by a long normal wave-survival deployment.
-  ranger_tab: (i) => i.match.missionType === "ranger_gauntlet" && (i.match.noResupplyWaveReached ?? 0) >= 8,
-  // Guards: all 4 Firebase Kranji strongpoints cleared in one Strongpoint
-  // Assault mission.
-  guards_tab: (i) => i.match.missionType === "strongpoint_assault" && (i.match.strongpointsCleared ?? 0) >= 4,
+  // Ranger Gauntlet: the full 18-wave run cleared under the mission's actual
+  // no-resupply, no-armour rules (main.ts enforces both via
+  // WaveManager.configureRun and a zeroed armour pool) — noResupplyWaveReached
+  // is only ever populated by a genuine Ranger run, so a long ordinary
+  // wave-survival deployment can't stand in for it.
+  ranger_tab: (i) => i.match.missionType === "ranger_gauntlet" && (i.match.noResupplyWaveReached ?? 0) >= RANGER_GAUNTLET_WAVES,
+  // Guards: every objective at Pasir Panjang Terminal taken in one Strongpoint
+  // Assault — including Bukit Chandu, which only unlocks once the other three
+  // have fallen.
+  guards_tab: (i) => i.match.missionType === "strongpoint_assault" && (i.match.strongpointsCleared ?? 0) >= STRONGPOINT_OBJECTIVES,
   // double_kill / triple_kill / quad_kill / killstreak_* / untouchable /
   // last_man_standing / medic / resupplier / engineer / defender need
   // per-match data (kill-window timing, damage-taken, revive/resupply counts)

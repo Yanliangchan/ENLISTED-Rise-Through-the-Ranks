@@ -15,6 +15,8 @@ export class StrongpointHUD {
   private listEl: HTMLDivElement;
   private timerEl: HTMLDivElement;
   private resultOverlay: HTMLDivElement;
+  /** Rebuilt with the result panel each time; holds server-awarded badges once they land. */
+  private badgeEl: HTMLDivElement | null = null;
   onReturnToBase?: () => void;
 
   constructor(container: HTMLElement) {
@@ -30,7 +32,7 @@ export class StrongpointHUD {
 
     const title = document.createElement("div");
     title.className = "mil-title";
-    title.textContent = "STRONGPOINT ASSAULT";
+    title.textContent = "PASIR PANJANG TERMINAL";
     title.style.fontSize = "13px";
 
     this.timerEl = document.createElement("div");
@@ -85,10 +87,25 @@ export class StrongpointHUD {
 
     wrap.appendChild(title);
     wrap.appendChild(sub);
+    this.badgeEl = document.createElement("div");
+    this.badgeEl.style.cssText = `font-size:13px; color:${SAF.amber}; margin-bottom:20px; letter-spacing:1px; min-height:0;`;
+    wrap.appendChild(this.badgeEl);
     wrap.appendChild(btn);
     this.resultOverlay.appendChild(wrap);
     this.resultOverlay.style.display = "flex";
     document.exitPointerLock();
+  }
+
+  /**
+   * Appends any badges the server awarded for this run to the result panel.
+   * Arrives after `showResult` because the award is decided server-side on
+   * match submit, one network round trip later.
+   */
+  showBadges(badges: Array<{ code: string; name: string; icon: string }>): void {
+    if (!this.badgeEl || badges.length === 0) return;
+    this.badgeEl.innerHTML =
+      `<div style="color:${SAF.textDim}; font-size:11px; letter-spacing:2px; margin-bottom:6px;">AWARDED</div>` +
+      badges.map((b) => `${b.icon} ${b.name}`).join(" &nbsp;·&nbsp; ");
   }
 
   updateTimer(secondsLeft: number): void {
@@ -98,16 +115,38 @@ export class StrongpointHUD {
     this.timerEl.style.color = secondsLeft <= 60 ? SAF.red : SAF.amber;
   }
 
+  /**
+   * Objective board: one row per strongpoint, plus — for whichever one is
+   * being fought — its live defensive layer and how many are left behind it.
+   * That second line is what tells the player a position has depth, so
+   * clearing the outer screen reads as progress into it rather than a bug.
+   */
   updateObjectives(strongpoints: Strongpoint[]): void {
     this.listEl.innerHTML = strongpoints
       .map((sp, i) => {
-        const colour = sp.state === "cleared" ? SAF.sage : sp.state === "active" ? SAF.amber : SAF.textFaint;
-        const mark = sp.state === "cleared" ? "✓" : sp.state === "active" ? "▸" : String(i + 1);
+        const colour =
+          sp.state === "cleared" ? SAF.sage : sp.state === "active" ? SAF.amber : SAF.textFaint;
+        const mark =
+          sp.state === "cleared" ? "✓" : sp.state === "active" ? "▸" : sp.state === "gated" ? "🔒" : String(i + 1);
+        const strike = sp.state === "cleared" ? "text-decoration:line-through;" : "";
+        let sub = "";
+        if (sp.state === "active") {
+          const phase = sp.phases[sp.phaseIndex];
+          const left = sp.phases.length - sp.phaseIndex - 1;
+          if (phase) {
+            sub =
+              `<div style="margin:1px 0 3px 22px; font-family:${SAF.fontMono}; font-size:10px; color:${SAF.textDim}; letter-spacing:1px;">` +
+              `${phase.label}${left > 0 ? ` · +${left} LAYER${left > 1 ? "S" : ""}` : " · FINAL"}` +
+              `</div>`;
+          }
+        } else if (sp.state === "gated") {
+          sub = `<div style="margin:1px 0 3px 22px; font-size:10px; color:${SAF.textFaint}; letter-spacing:1px;">CLEAR THE TERMINAL FIRST</div>`;
+        }
         return (
           `<div style="display:flex; gap:8px; align-items:baseline; font-size:12px; color:${colour};">` +
           `<span style="font-family:${SAF.fontMono}; width:14px;">${mark}</span>` +
-          `<span style="letter-spacing:1px; text-transform:uppercase; ${sp.state === "cleared" ? "text-decoration:line-through;" : ""}">${sp.name}</span>` +
-          `</div>`
+          `<span style="letter-spacing:1px; text-transform:uppercase; ${strike}">${sp.name}</span>` +
+          `</div>${sub}`
         );
       })
       .join("");

@@ -1,4 +1,5 @@
 import { Scene, Vector3, Ray } from "@babylonjs/core";
+import { activeMap } from "@/world/MapProfile";
 
 /**
  * Lightweight navigation validation — a stand-in for a real nav mesh. The map
@@ -9,12 +10,23 @@ import { Scene, Vector3, Ray } from "@babylonjs/core";
  * points and to rescue any AI that ends up trapped in geometry.
  */
 
-/** Half-extent of the playable area — just inside the ±100 boundary wall. */
+/**
+ * Default half-extent of the playable area — just inside the Singapore map's
+ * ±100 boundary wall. Maps that need a bigger footprint (Pasir Panjang
+ * Terminal) override it via `MapProfile.playableHalfM`; everything that used
+ * to read this constant now goes through `playableHalf()` so the bound tracks
+ * whichever map is actually active.
+ */
 export const PLAYABLE_HALF = 96;
+
+/** The active map's playable half-extent, defaulting to the Singapore bound. */
+export function playableHalf(): number {
+  return activeMap().playableHalfM ?? PLAYABLE_HALF;
+}
 
 /** Clamp a position into the playable square (keeps y). */
 export function clampToPlayable(pos: Vector3): Vector3 {
-  const h = PLAYABLE_HALF;
+  const h = playableHalf();
   return new Vector3(
     Math.max(-h, Math.min(h, pos.x)),
     pos.y,
@@ -37,10 +49,15 @@ export function clampToPlayable(pos: Vector3): Vector3 {
  * ray passes through them to the floor below.
  */
 export function isNavigable(scene: Scene, pos: Vector3): boolean {
-  const h = PLAYABLE_HALF;
+  const h = playableHalf();
   if (Math.abs(pos.x) > h || Math.abs(pos.z) > h) return false;
   const ray = new Ray(new Vector3(pos.x, 200, pos.z), new Vector3(0, -1, 0), 210);
-  const pick = scene.pickWithRay(ray, (m) => m.isPickable && m.checkCollisions);
+  // `isEnabled()` is load-bearing, not belt-and-braces: when pickWithRay is
+  // given a predicate, Babylon uses it INSTEAD of its own
+  // enabled/visible/pickable checks. Without it the raycast still hits maps
+  // that are switched off — the hidden Singapore city was blocking navigation
+  // across Pasir Panjang Terminal from a carpark slab 11m up.
+  const pick = scene.pickWithRay(ray, (m) => m.isEnabled() && m.isPickable && m.checkCollisions);
   if (!pick?.hit) return true; // nothing solid at all — open ground
   const mesh = pick.pickedMesh;
   if (mesh?.metadata?.walkable === true) return true; // tagged interior floor/ramp/platform

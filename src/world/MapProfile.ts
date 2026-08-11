@@ -25,6 +25,12 @@ export interface MapProfile {
   spawnProtectionSec: number;
   /** Ring of OPFOR spawn anchors — jittered + validated at runtime by EnemySpawner. */
   enemySpawnPoints: Vector3[];
+  /**
+   * Half-extent of this map's navigable square, in metres. Omitted means
+   * Nav.ts's default (96) — the Singapore boundary wall. Only maps that
+   * genuinely need a bigger footprint set it.
+   */
+  playableHalfM?: number;
 }
 
 /** The original dense Singapore-district map (default). Values lifted verbatim from the old SafeZone/EnemySpawner constants so behaviour is unchanged. */
@@ -48,29 +54,39 @@ export const SINGAPORE_PROFILE: MapProfile = {
 };
 
 /**
- * Firebase Kranji — a port/industrial dockyard used by the Strongpoint
- * Assault and Ranger Gauntlet operations (see StrongpointMission.ts,
- * Kranji.ts). Shares Singapore's coordinate space (both sit near world
- * origin, inside Nav.ts's fixed ±96 playable half-extent) rather than being
- * offset far away like Iron Citadel — Kranji spawns real AI via
- * EnemyManager.spawnGroupAt, which needs isNavigable()/findNearestNavigable()
- * to actually work, and those are hardcoded to check distance from world
- * origin. Only one of Singapore/Kranji/Iron Citadel is ever visually enabled
- * at a time (main.ts toggles mesh roots), so sharing the coordinate range is
- * safe — nothing renders or gets picked from the inactive map's geometry.
+ * Pasir Panjang Terminal — the PSA container terminal on the southwestern
+ * coast, and the venue for both Operations (see PasirPanjang.ts,
+ * StrongpointMission.ts). Centred on the world origin like Singapore rather
+ * than offset far away like Iron Citadel: the terminal spawns real AI through
+ * EnemyManager, so it needs isNavigable()/findNearestNavigable() to actually
+ * resolve, and those measure from the origin. Only one map root is ever
+ * enabled at a time (main.ts), so sharing the coordinate range is safe —
+ * nothing renders or gets picked from the inactive map's geometry.
+ *
+ * The terminal is substantially larger than the city, so it raises the
+ * navigable bound via playableHalfM; Singapore and Iron Citadel omit the field
+ * and keep Nav.ts's original 96.
  */
-export const KRANJI_PROFILE: MapProfile = {
-  id: "kranji",
-  baseCenter: new Vector3(0, 0, -60),
-  safeZoneRadius: 10,
-  aiExclusionRadius: 18,
-  minSpawnDistanceFromBase: 18 + 10,
+export const PASIR_PANJANG_PROFILE: MapProfile = {
+  id: "pasir_panjang",
+  baseCenter: new Vector3(0, 0, -116),
+  safeZoneRadius: 11,
+  aiExclusionRadius: 20,
+  minSpawnDistanceFromBase: 34,
   spawnProtectionSec: 3,
+  playableHalfM: 130,
+  // Ring of approaches for the Ranger Gauntlet's waves — spread across the
+  // yard so successive waves come from genuinely different directions rather
+  // than funnelling up one lane.
   enemySpawnPoints: [
-    new Vector3(-40, 0, -10),
-    new Vector3(40, 0, -10),
-    new Vector3(-40, 0, 35),
-    new Vector3(40, 0, 35),
+    new Vector3(-74, 0, -60),
+    new Vector3(74, 0, -56),
+    new Vector3(-96, 0, -14),
+    new Vector3(96, 0, -10),
+    new Vector3(-58, 0, 30),
+    new Vector3(60, 0, 34),
+    new Vector3(-24, 0, 62),
+    new Vector3(28, 0, 66),
   ],
 };
 

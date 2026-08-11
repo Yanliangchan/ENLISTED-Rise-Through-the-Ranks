@@ -50,10 +50,11 @@ import { MedicalStation } from "@/world/MedicalStation";
 import { BottyController, BOTTY_MAX_HEALTH } from "@/companion/Botty";
 import { BottyMarker } from "@/ui/BottyMarker";
 import { CommandWheel } from "@/ui/CommandWheel";
-import { buildKranji, type KranjiHandles } from "@/world/Kranji";
+import { buildPasirPanjang, TERMINAL_SPAWN, type PasirPanjangHandles } from "@/world/PasirPanjang";
 import { StrongpointMission } from "@/world/StrongpointMission";
 import { StrongpointHUD } from "@/ui/StrongpointHUD";
-import { KRANJI_PROFILE, SINGAPORE_PROFILE, setActiveMap } from "@/world/MapProfile";
+import { PASIR_PANJANG_PROFILE, SINGAPORE_PROFILE, setActiveMap, activeMap } from "@/world/MapProfile";
+import { isNavigable } from "@/world/Nav";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -67,8 +68,14 @@ const STORY_BEATS: Array<[number, string]> = [
 ];
 
 const DEBUG = new URLSearchParams(location.search).has("debug");
-/** Flat credit award for clearing all 4 Firebase Kranji strongpoints — a fixed mission bonus, not a per-wave economy change. */
+/** Flat award for taking all four Pasir Panjang objectives — a fixed mission bonus, not a per-wave economy change. */
 const STRONGPOINT_CLEAR_BONUS = 5000;
+/**
+ * Ranger Gauntlet length. Long enough that finishing it is an endurance
+ * result rather than a short challenge — and the exact number the server's
+ * `ranger_tab` predicate checks `noResupplyWaveReached` against.
+ */
+const RANGER_GAUNTLET_WAVES = 18;
 
 /**
  * Resolve the logged-in operator before building the game: auto-login via a
@@ -152,18 +159,18 @@ async function boot(): Promise<void> {
   // the wave-survival players never pay for its geometry.
   let citadelActive = false;
   let citadel: IronCitadelHandles | null = null;
-  // Firebase Kranji: shared night-dockyard geometry for both Operations modes
-  // below. Built once, lazily, on whichever of the two is entered first.
-  let kranji: KranjiHandles | null = null;
-  // Strongpoint Assault: a fixed 4-objective clear mission, decoupled from
-  // WaveManager entirely (see StrongpointMission.ts) — the "not more endless
-  // waves" mode.
+  // Pasir Panjang Terminal: shared night-dockyard geometry for both
+  // Operations below. Built once, lazily, on whichever is entered first.
+  let terminal: PasirPanjangHandles | null = null;
+  // Strongpoint Assault: four layered objectives, decoupled from WaveManager
+  // entirely (see StrongpointMission.ts) — the "not more endless waves" mode.
+  // Note it therefore owns the enemyManager tick itself.
   let strongpointActive = false;
   let strongpointMission: StrongpointMission | null = null;
   // Ranger Gauntlet: the existing wave-survival loop, reused rather than
   // forked (weaponController/enemyManager only ever hit-detect against the
-  // single global waveManager instance below), capped at 8 waves with
-  // resupply withheld — see WaveManager.configureRun.
+  // single global waveManager instance below), capped at RANGER_GAUNTLET_WAVES
+  // with resupply withheld — see WaveManager.configureRun.
   let rangerActive = false;
   /** gameState.data.wave belongs to the survival campaign — saved/restored around a Ranger deployment so it never bleeds into that progress. */
   let rangerSavedWave = 1;
@@ -253,7 +260,7 @@ async function boot(): Promise<void> {
       // screen with a restart option), so this only needs to submit the
       // distinctly-flagged match for the badge check and call out the win.
       audio.waveClear();
-      hud.showCenterMessage(`RANGER GAUNTLET COMPLETE — WAVE ${wave} CLEARED, NO RESUPPLY`, 4000);
+      hud.showCenterMessage(`RANGER GAUNTLET COMPLETE — ${wave} WAVES, NO RESUPPLY, NO ARMOUR`, 5000);
       const match = stats.endRun(wave, { missionType: "ranger_gauntlet", noResupplyWaveReached: wave });
       if (backend) {
         void backend
@@ -601,124 +608,163 @@ async function boot(): Promise<void> {
     showMainMenu();
   }
 
-  // ---- Firebase Kranji: Strongpoint Assault (fixed 4-objective clear) ----
-  function enterStrongpointAssault(): void {
-    if (!kranji) kranji = buildKranji(game.scene); // lazy first-time build, shared with Ranger Gauntlet below
-    kranji.root.setEnabled(true);
+  // ---- Operations: shared entry/exit plumbing ---------------------------
+  /** True while either Operation is running — the two share a map, a HUD treatment, and the no-friendly-AI rule. */
+  function operationActive(): boolean {
+    return strongpointActive || rangerActive;
+  }
+
+  /**
+   * Swaps the world over to Pasir Panjang Terminal and strips the deployment
+   * back to the player alone. Operations are meant to be finished on your own
+   * positioning, weapons and decisions, so BOTTY is pulled off the field
+   * entirely rather than merely told to hold — `enterX` calls this, and
+   * `leaveTerminal` puts him back.
+   */
+  function enterTerminal(): PasirPanjangHandles {
+    if (!terminal) terminal = buildPasirPanjang(game.scene); // lazy first-time build, shared by both Operations
+    terminal.root.setEnabled(true);
     citadel?.root.setEnabled(false);
     setSurvivalWorldEnabled(false);
-    setActiveMap(KRANJI_PROFILE);
+    setActiveMap(PASIR_PANJANG_PROFILE);
     landingPage.hide();
     game.renderingPaused = false;
-    strongpointActive = true;
+    botty?.root.setEnabled(false);
+    bottyMarker.hide();
     loadout.switchTo("primary");
     applyGearToPlayer(gameState, player);
+    hud.setVisible(true);
+    return terminal;
+  }
+
+  /** Tears an Operation down: city back on, standard profile, BOTTY returned, menu up. */
+  function leaveTerminal(): void {
+    waveManager.enemyManager.clearAll();
+    terminal?.root.setEnabled(false);
+    setSurvivalWorldEnabled(true);
+    setActiveMap(SINGAPORE_PROFILE);
+    botty?.root.setEnabled(true);
+    strongpointHud.hide();
+    hud.setVisible(true);
+    hud.setWavePanelSuppressed(false);
+    game.renderingPaused = true;
+    document.exitPointerLock();
+    applyGearToPlayer(gameState, player); // restores the armour pool the Ranger Gauntlet zeroed
+    player.respawn(SPAWN_POINT);
+    showMainMenu();
+  }
+
+  // ---- OPERATION: Strongpoint Assault (four layered objectives) ----------
+  function enterStrongpointAssault(): void {
+    const map = enterTerminal();
+    strongpointActive = true;
     weaponController.resetAllAmmo();
-    player.respawn(kranji.spawn);
+    player.respawn(map.spawn);
     player.inSafeZone = false;
     player.spawnProtected = false;
     (player as unknown as { collider: { rotation: { y: number } } }).collider.rotation.y = 0;
     player.camera.rotation.x = 0;
-    hud.setVisible(true);
     hud.setWavePanelSuppressed(true); // no WaveManager phase of its own — the objective panel (top-left) owns mission status instead
     waveManager.enemyManager.clearAll();
     stats.beginRun();
-    strongpointMission = new StrongpointMission(waveManager.enemyManager, kranji.strongpointDefs, {
+    const refreshObjectives = () => strongpointHud.updateObjectives(strongpointMission!.strongpoints);
+    strongpointMission = new StrongpointMission(waveManager.enemyManager, map.strongpointDefs, {
       onStrongpointActivated: (sp) => {
         audio.waveStart();
-        strongpointHud.updateObjectives(strongpointMission!.strongpoints);
+        refreshObjectives();
         hud.showCenterMessage(`CONTACT — ${sp.name.toUpperCase()}`, 2000);
       },
-      onStrongpointCleared: (_sp, cleared, total) => {
-        audio.waveClear();
-        strongpointHud.updateObjectives(strongpointMission!.strongpoints);
-        hud.showCenterMessage(`STRONGPOINT CLEARED — ${cleared}/${total}`, 2500);
+      onPhaseAdvanced: (sp, phase) => {
+        audio.uiClick();
+        refreshObjectives();
+        hud.showCenterMessage(`${sp.name.toUpperCase()} — PUSHING TO ${phase.label}`, 2200);
       },
-      onMissionClear: () => {
+      onGateOpened: (sp) => {
+        audio.waveStart();
+        refreshObjectives();
+        hud.showCenterMessage(`TERMINAL CLEAR — ${sp.name.toUpperCase()} IS OPEN. MOVE NORTH.`, 5000);
+      },
+      onStrongpointCleared: (sp, cleared, total) => {
         audio.waveClear();
-        strongpointHud.showResult(true, "All four strongpoints neutralised.");
+        refreshObjectives();
+        hud.showCenterMessage(`${sp.name.toUpperCase()} SECURED — ${cleared}/${total}`, 2600);
+      },
+      onMissionClear: (seconds) => {
+        audio.waveClear();
+        const mins = Math.floor(seconds / 60);
+        strongpointHud.showResult(true, `Terminal secured and Bukit Chandu taken in ${mins}m ${seconds % 60}s.`);
         gameState.addCredits(STRONGPOINT_CLEAR_BONUS);
         stats.recordCredits(STRONGPOINT_CLEAR_BONUS);
         const match = stats.endRun(waveManager.wave, {
           missionType: "strongpoint_assault",
-          strongpointsCleared: strongpointMission?.strongpoints.length ?? 4,
+          strongpointsCleared: strongpointMission?.clearedCount ?? 4,
         });
         if (backend) {
           void backend
             .submitMatch(match)
             .then((resp) => {
               stats.applyServerProfile(resp.profile.stats);
+              strongpointHud.showBadges(resp.newBadges);
             })
             .catch(() => {});
         }
       },
       onMissionFail: (reason) => {
         audio.explosion();
-        strongpointHud.showResult(false, reason === "timeout" ? "Time expired before all strongpoints fell." : "Operator down.");
+        const held = strongpointMission?.clearedCount ?? 0;
+        strongpointHud.showResult(
+          false,
+          reason === "timeout"
+            ? `Operation timed out with ${held}/4 objectives taken.`
+            : `Operator down with ${held}/4 objectives taken.`
+        );
       },
       onTimerTick: (secondsLeft) => strongpointHud.updateTimer(secondsLeft),
     });
     strongpointHud.updateObjectives(strongpointMission.strongpoints);
     strongpointHud.show();
-    hud.showCenterMessage("STRONGPOINT ASSAULT — clear all four strongpoints before time runs out", 4000);
+    hud.showCenterMessage(
+      "STRONGPOINT ASSAULT — take the three terminal objectives, then Bukit Chandu. No support, no resupply.",
+      5500
+    );
     input.lockPointer();
   }
 
   function exitStrongpointAssaultToMenu(): void {
     strongpointActive = false;
     strongpointMission = null;
-    waveManager.enemyManager.clearAll();
-    kranji?.root.setEnabled(false);
-    setSurvivalWorldEnabled(true);
-    setActiveMap(SINGAPORE_PROFILE);
-    strongpointHud.hide();
-    hud.setVisible(true);
-    hud.setWavePanelSuppressed(false);
-    game.renderingPaused = true;
-    document.exitPointerLock();
-    player.respawn(SPAWN_POINT);
-    showMainMenu();
+    leaveTerminal();
   }
 
-  // ---- Firebase Kranji: Ranger Gauntlet (8-wave, no-resupply endurance) --
+  // ---- OPERATION: Ranger Gauntlet (18 waves, no resupply, no armour) -----
   function enterRangerGauntlet(): void {
-    if (!kranji) kranji = buildKranji(game.scene); // lazy first-time build, shared with Strongpoint Assault above
-    kranji.root.setEnabled(true);
-    citadel?.root.setEnabled(false);
-    setSurvivalWorldEnabled(false);
-    setActiveMap(KRANJI_PROFILE);
-    landingPage.hide();
-    game.renderingPaused = false;
+    const map = enterTerminal();
     rangerActive = true;
     rangerSavedWave = gameState.data.wave; // beginRunAt below overwrites gameState.data.wave — restore it on exit so the survival campaign's progress is untouched
-    loadout.switchTo("primary");
-    applyGearToPlayer(gameState, player);
     // "No resupply and no armour equipped" — the badge's literal condition.
+    // applyGearToPlayer (in enterTerminal) has just refilled the armour pool
+    // from the equipped rig, so zero it after, not before.
     player.armour = 0;
     player.maxArmour = 0;
-    waveManager.configureRun({ maxWave: 8, resupplyDisabled: true }, kranji.spawn);
+    waveManager.configureRun({ maxWave: RANGER_GAUNTLET_WAVES, resupplyDisabled: true }, map.spawn);
     waveManager.beginRunAt(1);
     beginDeployment();
-    hud.setVisible(true);
-    hud.showCenterMessage("RANGER GAUNTLET — 8 waves, no resupply, no armour. Hold Firebase Kranji.", 4500);
+    hud.showCenterMessage(
+      `RANGER GAUNTLET — ${RANGER_GAUNTLET_WAVES} waves at Pasir Panjang Terminal. No resupply, no armour, no support.`,
+      5500
+    );
     input.lockPointer();
   }
 
   function exitRangerGauntletToMenu(): void {
     rangerActive = false;
-    waveManager.enemyManager.clearAll();
+    // Hand the shared WaveManager back to the survival campaign before the
+    // teardown below: default ruleset, city spawn point, wave count restored.
     waveManager.configureRun({}, SPAWN_POINT);
     waveManager.beginArmoury();
     gameState.data.wave = rangerSavedWave;
     gameState.save();
-    kranji?.root.setEnabled(false);
-    setSurvivalWorldEnabled(true);
-    setActiveMap(SINGAPORE_PROFILE);
-    hud.setVisible(true);
-    game.renderingPaused = true;
-    document.exitPointerLock();
-    player.respawn(SPAWN_POINT);
-    showMainMenu();
+    leaveTerminal();
   }
 
   // ---- Private-room multiplayer (1v1 / 2v2) -----------------------------
@@ -872,11 +918,11 @@ async function boot(): Promise<void> {
     backend?.flush();
   }
   function exitToMainMenu(): void {
-    // Route through the mode-specific exit so Kranji's map profile/geometry
+    // Route through the mode-specific exit so the terminal's map profile/geometry
     // and the shared waveManager's Ranger config always get torn down —
     // otherwise ESC → Exit to Menu from a Ranger/Strongpoint deployment would
-    // strand the player on Kranji's coordinates under Kranji's (wrong)
-    // MapProfile the next time they deploy.
+    // strand the player on the terminal's coordinates under the terminal's
+    // (wrong) MapProfile the next time they deploy.
     if (strongpointActive) {
       exitStrongpointAssaultToMenu();
       pauseMenu.hide();
@@ -1038,6 +1084,8 @@ async function boot(): Promise<void> {
       !landingPage.visible &&
       !rangeActive &&
       !citadelActive &&
+      !operationActive() && // no friendly AI to command in an Operation
+
       waveManager.phase !== "gameover" &&
       !armoury.visible
     ) {
@@ -1114,19 +1162,23 @@ async function boot(): Promise<void> {
       } else {
         player.update(dt);
         ambience.update(dt);
-        safeZone.update(dt); // reads activeMap() live, so this already tracks Kranji's own base/radius once setActiveMap(KRANJI_PROFILE) is set
+        safeZone.update(dt); // reads activeMap() live, so this already tracks the terminal's own base/radius once setActiveMap(PASIR_PANJANG_PROFILE) is set
         loadout.update();
         weaponController.update(dt);
         throwableController.update(dt);
+        // Strongpoint Assault has no WaveManager run of its own, so the
+        // mission owns the OPFOR tick (see StrongpointMission.update); the
+        // Ranger Gauntlet is a real wave run and still goes through WaveManager.
         if (strongpointActive) {
           strongpointMission?.update(dt, player);
         } else {
           waveManager.update(dt);
         }
-        // Kranji has no supply-crate/medical-station props — ticking these
-        // against Singapore's (hidden) prop positions would only risk a
-        // confusing pickup prompt with nothing there to see.
-        if (!strongpointActive && !rangerActive) {
+        // The terminal has no supply-crate/medical-station props — ticking
+        // these against Singapore's (hidden) prop positions would only risk a
+        // confusing pickup prompt with nothing there to see. Withholding them
+        // is also the point of an Operation: no resupply in the field.
+        if (!operationActive()) {
           supplyCrates.update(dt);
           medicalStation.update(dt);
         }
@@ -1134,7 +1186,9 @@ async function boot(): Promise<void> {
         airstrike.update(dt);
         carpetBombing.update(dt);
         medKit.update(dt);
-        if (botty) {
+        // No friendly AI in Operations — BOTTY is disabled on entry and must
+        // not tick, be healed, or be commanded while one is running.
+        if (botty && !operationActive()) {
           botty.setWave(waveManager.wave, player.maxHealth); // scale accuracy/health with the fight
           botty.setUpgrades(gameState.data.bottyUpgrades); // pick up any Armoury purchases immediately
           botty.update(dt, player);
@@ -1159,12 +1213,15 @@ async function boot(): Promise<void> {
 
     damageNumbers.update(game.scene);
     if (!rangeActive && !citadelActive) {
+      // In an Operation there is no BOTTY and no field resupply, so none of
+      // those prompts/markers should reach the HUD at all.
+      const inOp = operationActive();
       hud.update(
         input.isPointerLocked,
         waveManager.enemyManager.livePositions(),
-        bottyHealPrompt() ?? medicalStation.promptText ?? supplyCrates.promptText,
-        supplyCrates.liveCrates(),
-        botty ? { x: botty.position.x, z: botty.position.z, isDown: botty.isDown } : null
+        inOp ? null : bottyHealPrompt() ?? medicalStation.promptText ?? supplyCrates.promptText,
+        inOp ? [] : supplyCrates.liveCrates(),
+        botty && !inOp ? { x: botty.position.x, z: botty.position.z, isDown: botty.isDown } : null
       );
       // Top-centre support line reflects the equipped SPECIAL ability only.
       const special = gameState.data.loadout.special;
@@ -1205,7 +1262,7 @@ async function boot(): Promise<void> {
       );
     }
 
-    if (botty && !paused && !rangeActive && !citadelActive) {
+    if (botty && !paused && !rangeActive && !citadelActive && !operationActive()) {
       bottyMarker.update(game.scene, player.camera, botty.position.add(new Vector3(0, 1.75, 0)), botty.isDown);
     } else {
       bottyMarker.hide();
@@ -1249,6 +1306,63 @@ async function boot(): Promise<void> {
       enterIronCitadel,
       exitIronCitadelToMenu,
       citadel: () => citadel,
+      enterStrongpointAssault,
+      exitStrongpointAssaultToMenu,
+      enterRangerGauntlet,
+      exitRangerGauntletToMenu,
+      strongpointMission: () => strongpointMission,
+      terminal: () => terminal,
+      activeMapId: () => activeMap().id,
+      /**
+       * Test helper: sample isNavigable over a grid of the active map and
+       * report coverage plus the biggest fully-blocked pocket. Used to catch
+       * dead zones and unreachable objectives in the terminal's geometry
+       * without having to walk it by hand.
+       */
+      navSweep: (half = 120, step = 4) => {
+        const cols: boolean[][] = [];
+        let open = 0;
+        let total = 0;
+        for (let x = -half; x <= half; x += step) {
+          const row: boolean[] = [];
+          for (let z = -half; z <= half; z += step) {
+            const ok = isNavigable(game.scene, new Vector3(x, 0, z));
+            row.push(ok);
+            total++;
+            if (ok) open++;
+          }
+          cols.push(row);
+        }
+        // Flood fill from the deploy point to find what is actually reachable —
+        // open ground behind a sealed wall is still a dead zone.
+        const w = cols.length;
+        const h = cols[0].length;
+        const idx = (v: number) => Math.round((v + half) / step);
+        const seen = cols.map((r) => r.map(() => false));
+        const sx = idx(TERMINAL_SPAWN.x);
+        const sz = idx(TERMINAL_SPAWN.z);
+        const queue: Array<[number, number]> = [];
+        if (cols[sx]?.[sz]) {
+          queue.push([sx, sz]);
+          seen[sx][sz] = true;
+        }
+        let reached = 0;
+        while (queue.length) {
+          const [cx, cz] = queue.pop()!;
+          reached++;
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const nx = cx + dx;
+            const nz = cz + dz;
+            if (nx < 0 || nz < 0 || nx >= w || nz >= h) continue;
+            if (seen[nx][nz] || !cols[nx][nz]) continue;
+            seen[nx][nz] = true;
+            queue.push([nx, nz]);
+          }
+        }
+        return { total, open, reached, openPct: Math.round((open / total) * 100), reachedPct: Math.round((reached / open) * 100) };
+      },
+      /** Test helper: is a world point reachable from the deploy point? */
+      navAt: (x: number, z: number) => isNavigable(game.scene, new Vector3(x, 0, z)),
       /** Test helper: spawn soldier avatars near a world point to verify netplay rendering. */
       spawnTestSoldiers: (x: number, y: number, z: number) => {
         const mk = (team: "blue" | "red", num: number, dx: number) => {
@@ -1272,6 +1386,7 @@ async function boot(): Promise<void> {
       uav,
       beginStrikeTargeting,
       botty: () => botty,
+      spawnBotty,
       /** Test helper: current player physics state (grounded/moving/aiming). */
       debugPlayerState: () => ({
         grounded: player.grounded,

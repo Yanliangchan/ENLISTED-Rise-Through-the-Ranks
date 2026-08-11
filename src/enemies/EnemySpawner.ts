@@ -366,14 +366,24 @@ export class EnemyManager {
    * formulas (`waveHealthMultiplier`/`difficultyMultForWave`), letting later
    * strongpoints simply pass a higher constant for a tougher fixed squad
    * without a second scaling system.
+   *
+   * `isElite` routes through the same ELITE_WAVE health/damage/reward scaling
+   * the Elite Waves use — reserved for an operation's final holdout, so the
+   * last position hits harder than a merely higher difficultyWave would.
    */
-  spawnGroupAt(center: Vector3, typeIds: string[], difficultyWave: number): EnemyInstance[] {
+  spawnGroupAt(center: Vector3, typeIds: string[], difficultyWave: number, isElite = false): EnemyInstance[] {
     const spawned: EnemyInstance[] = [];
     for (const typeId of typeIds) {
-      const jitter = new Vector3((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6);
+      // Tight jitter: these anchors are hand-placed on real cover, so the
+      // spawn should stay on the position rather than wander off it.
+      const jitter = new Vector3((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4);
       let position = ensureClearOfCamp(center.add(jitter));
       position = ensureClearOfCamp(findNearestNavigable(this.scene, position));
-      const enemy = this.spawnEnemy(typeId, position, difficultyWave, false);
+      // findNearestNavigable only validates x/z and preserves y, so an anchor
+      // placed on an upper deck keeps its height and the defender holds that
+      // level instead of dropping to the ground floor.
+      position.y = center.y;
+      const enemy = this.spawnEnemy(typeId, position, difficultyWave, isElite);
       if (enemy) spawned.push(enemy);
     }
     return spawned;
