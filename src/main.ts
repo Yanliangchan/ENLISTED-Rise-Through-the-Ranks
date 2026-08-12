@@ -352,9 +352,19 @@ async function boot(): Promise<void> {
   const strongpointHud = new StrongpointHUD(uiRoot);
   strongpointHud.onReturnToBase = () => exitStrongpointAssaultToMenu();
 
-  /** Full resupply on every spawn/redeploy — mags, reserve ammo, and throwables all come back to full. Withheld entirely under the Ranger Gauntlet's "no resupply" rule. */
+  /**
+   * Full resupply on every spawn/redeploy — mags, reserve ammo, and
+   * throwables all come back to full. Always runs, including for the Ranger
+   * Gauntlet: this is the ONE call site for this function in the whole game
+   * (the initial DEPLOY, and a post-death restart both route through
+   * `beginDeployment()` below, and nothing else calls it), so it only ever
+   * fires at the start of a brand-new attempt — never mid-run. The Ranger
+   * Gauntlet's "no resupply" rule is therefore already satisfied by there
+   * being no OTHER resupply trigger between waves; gating this one too used
+   * to mean a restart after death kept whatever depleted mags you died with,
+   * which read as "a new attempt" not actually resetting anything.
+   */
   function resupplyOnSpawn(): void {
-    if (waveManager.resupplyDisabled) return;
     weaponController.resetAllAmmo();
     gameState.data.loadout.throwableCount = maxThrowableCapacity(gameState);
     // Charges live on the save now: every deployment restores the free

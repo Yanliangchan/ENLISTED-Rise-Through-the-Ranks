@@ -31,7 +31,14 @@ export interface WaveManagerCallbacks {
 export interface WaveManagerConfig {
   /** Stop after this wave clears — fires onMissionComplete instead of continuing to the next wave's armoury/countdown. */
   maxWave?: number;
-  /** When true, the caller (main.ts's resupplyOnSpawn) should skip refilling ammo/armour between waves — read via `WaveManager.resupplyDisabled`. */
+  /**
+   * Marks a run as having no resupply mechanic — read via
+   * `WaveManager.resupplyDisabled` (currently informational only; the game has
+   * no in-run resupply trigger for it to gate). A brand-new attempt (first
+   * deploy or a restart after death) is NOT "resupply" — it's the run's
+   * starting baseline, and always gets the normal full loadout regardless of
+   * this flag. See the long comment on `resupplyOnSpawn` in main.ts.
+   */
   resupplyDisabled?: boolean;
 }
 
