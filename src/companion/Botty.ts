@@ -17,6 +17,7 @@ import { CAMP_POSITION } from "@/world/Level";
 import { isInSafeZone } from "@/world/SafeZone";
 import { findNearestNavigable } from "@/world/Nav";
 import type { BottyUpgradeCategory } from "@/data/bottyUpgrades";
+import { registerSmokeOccluder } from "@/world/RayIndex";
 
 export type BottyCommand = "default" | "followMe" | "goDark" | "coverMe" | "engage" | "retreat";
 
@@ -576,6 +577,7 @@ export class BottyController {
     puff.isPickable = true;
     puff.checkCollisions = false;
     puff.metadata = { isSmoke: true };
+    registerSmokeOccluder(puff);
     window.setTimeout(() => puff.dispose(), 9000);
     this.audio.throwableFuse();
     void player; // reserved: could nudge the smoke toward the player's sightline in a future pass

@@ -1,5 +1,6 @@
 import { Vector3 } from "@babylonjs/core";
 import { CAMP_POSITION } from "@/world/Level";
+import { invalidateRayIndex } from "@/world/RayIndex";
 
 /**
  * Per-map configuration for everything the wave/AI/safe-zone systems used to
@@ -95,6 +96,11 @@ let active: MapProfile = SINGAPORE_PROFILE;
 /** Set once at boot, before the wave systems run, based on the player's chosen map. */
 export function setActiveMap(profile: MapProfile): void {
   active = profile;
+  // Switching maps enables one world's geometry and disables another's, which
+  // is exactly what the static ray index and the navigability memo are built
+  // from — both must be rebuilt before the next query or the AI will navigate
+  // and shoot against the map it just left.
+  invalidateRayIndex();
 }
 
 /** The currently-active map's config. Read at call time so a boot-time swap is picked up everywhere. */

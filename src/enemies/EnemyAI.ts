@@ -15,6 +15,7 @@ import type { AudioManager } from "@/core/AudioManager";
 import { CAMP_POSITION } from "@/world/Level";
 import { isInSafeZone, isInExclusionZone, steerAroundExclusionZone } from "@/world/SafeZone";
 import { isNavigable, findNearestNavigable, clampToPlayable, playableHalf } from "@/world/Nav";
+import { isPathBlocked, isSightBlocked } from "@/world/RayIndex";
 
 export type EnemyState =
   | "idle"
@@ -438,18 +439,13 @@ export class EnemyInstance implements Damageable {
     const dist = dir.length();
     if (dist <= 0.01) return true;
     dir.normalize();
-    const ray = new Ray(from, dir, dist - 0.3);
-    const pick = this.scene.pickWithRay(
-      ray,
-      (mesh) =>
-        // Solid world geometry blocks sight, and so does thrown smoke (an
-        // obscurant with checkCollisions off, tagged isSmoke) — that's the
-        // whole point of a smoke screen: it hides the player from the AI.
-        (mesh.metadata?.isSmoke ||
-          (mesh.isPickable && mesh.checkCollisions && !mesh.metadata?.damageable)) &&
-        mesh.name !== "playerCollider"
-    );
-    return !pick?.hit;
+    // Solid world geometry blocks sight, and so does thrown smoke (an
+    // obscurant with checkCollisions off, tagged isSmoke) — that's the whole
+    // point of a smoke screen: it hides the player from the AI. Static
+    // geometry comes from the broadphase index; smoke is dynamic and gets
+    // tested directly against the few live puffs. Both exclude the player's
+    // own capsule and every combatant hit mesh so they can never self-block.
+    return !isSightBlocked(this.scene, from, dir, dist - 0.3);
   }
 
   /** True if the player lies inside the enemy's forward vision cone (not behind it). */
@@ -839,19 +835,20 @@ export class EnemyInstance implements Damageable {
     return 0; // boxed in — the sidestep/teleport fallback takes over
   }
 
-  /** True if nothing solid (excluding the player and other combatants) is within `len` along `dir`. */
+  /**
+   * True if nothing solid (excluding the player and other combatants) is within
+   * `len` along `dir`.
+   *
+   * Goes through the static ray index rather than `scene.pickWithRay`: this is
+   * the hottest raycast in the game by a wide margin — `computeAvoidanceAngle`
+   * above fires up to nine of these per refresh, per moving enemy, several
+   * times a second — and it only ever asks "is anything there", never "what".
+   * The index answers that from world-space AABBs in the grid cells the ray
+   * actually crosses, instead of inverting a world matrix for all ~1400
+   * collidable meshes in the scene. See RayIndex for the measurements.
+   */
   private pathClear(from: Vector3, dir: Vector3, len: number): boolean {
-    const ray = new Ray(from, dir, len);
-    const pick = this.scene.pickWithRay(
-      ray,
-      (m) =>
-        m.isPickable &&
-        m.checkCollisions &&
-        m !== this.root &&
-        m.name !== "playerCollider" &&
-        !m.metadata?.damageable
-    );
-    return !pick?.hit;
+    return !isPathBlocked(this.scene, from, dir, len, (m) => m !== this.root);
   }
 
   /** Teleport to the nearest walkable ground and clear all stuck state. */

@@ -13,6 +13,7 @@ import type { GameState } from "@/core/GameState";
 import type { EnemyManager } from "@/enemies/EnemySpawner";
 import { ZONE_MULTIPLIER, type HitMeshMetadata, type HitZone } from "@/weapons/Damageable";
 import type { ScopeOverlay } from "@/ui/ScopeOverlay";
+import { invalidateRayIndex } from "@/world/RayIndex";
 
 const BASE_FOV = 1.1;
 /** Optics at or above this zoom get the real windowed scope lens instead of just a centred in-world sight. */
@@ -704,6 +705,9 @@ export class WeaponController {
     mesh.setEnabled(false);
     mesh.checkCollisions = false;
     mesh.isPickable = false;
+    // The pane was static world geometry a moment ago; the broadphase index
+    // must forget it so AI sight and pathing treat the opening as passable.
+    invalidateRayIndex();
     if (!this.glassShardMat) {
       const m = new StandardMaterial("glassShardMat", this.scene);
       m.diffuseColor = new Color3(0.7, 0.85, 0.95);

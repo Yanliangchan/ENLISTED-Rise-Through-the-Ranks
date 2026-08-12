@@ -55,6 +55,7 @@ import { StrongpointMission } from "@/world/StrongpointMission";
 import { StrongpointHUD } from "@/ui/StrongpointHUD";
 import { PASIR_PANJANG_PROFILE, SINGAPORE_PROFILE, setActiveMap, activeMap } from "@/world/MapProfile";
 import { isNavigable } from "@/world/Nav";
+import { invalidateRayIndex, rayIndexStats } from "@/world/RayIndex";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -124,6 +125,10 @@ async function boot(): Promise<void> {
   const survivalWorldMeshes = game.scene.meshes.filter((m) => !m.infiniteDistance);
   function setSurvivalWorldEnabled(on: boolean): void {
     for (const m of survivalWorldMeshes) if (!m.isDisposed()) m.setEnabled(on);
+    // Wholesale enable/disable of the city is exactly the kind of change the
+    // static broadphase is built from — rebuild it, or the AI keeps pathing
+    // and sighting against whichever world was live when it was last built.
+    invalidateRayIndex();
   }
 
   const input = new InputManager(canvas);
@@ -569,7 +574,10 @@ async function boot(): Promise<void> {
   // ---- Iron Citadel free-roam preview (multiplayer-map WIP) --------------
   let citadelExitBtn: HTMLButtonElement | null = null;
   function enterIronCitadel(): void {
-    if (!citadel) citadel = buildIronCitadel(game.scene); // lazy first-time build
+    if (!citadel) {
+      citadel = buildIronCitadel(game.scene); // lazy first-time build
+      invalidateRayIndex();
+    }
     citadel.root.setEnabled(true); // show the complex; hide the survival city
     setSurvivalWorldEnabled(false);
     landingPage.hide();
@@ -632,7 +640,10 @@ async function boot(): Promise<void> {
    * `leaveTerminal` puts him back.
    */
   function enterTerminal(): PasirPanjangHandles {
-    if (!terminal) terminal = buildPasirPanjang(game.scene); // lazy first-time build, shared by both Operations
+    if (!terminal) {
+      terminal = buildPasirPanjang(game.scene); // lazy first-time build, shared by both Operations
+      invalidateRayIndex(); // brand-new static geometry — rebuild the broadphase
+    }
     terminal.root.setEnabled(true);
     citadel?.root.setEnabled(false);
     setSurvivalWorldEnabled(false);
@@ -795,7 +806,10 @@ async function boot(): Promise<void> {
   }
 
   function enterNetMatch(net: NetClient, info: MatchStartInfo): void {
-    if (!citadel) citadel = buildIronCitadel(game.scene);
+    if (!citadel) {
+      citadel = buildIronCitadel(game.scene);
+      invalidateRayIndex();
+    }
     citadel.root.setEnabled(true);
     setSurvivalWorldEnabled(false); // the complex is a sealed interior — drop the survival city entirely
     botty?.root.setEnabled(false); // BOTTY is single-player only — never present in multiplayer
@@ -1371,6 +1385,8 @@ async function boot(): Promise<void> {
         }
         return { total, open, reached, openPct: Math.round((open / total) * 100), reachedPct: Math.round((reached / open) * 100) };
       },
+      /** Test helper: static broadphase index occupancy stats. */
+      rayIndexStats: () => rayIndexStats(game.scene),
       /** Test helper: is a world point reachable from the deploy point? */
       navAt: (x: number, z: number) => isNavigable(game.scene, new Vector3(x, 0, z)),
       /**

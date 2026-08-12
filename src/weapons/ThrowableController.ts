@@ -6,6 +6,7 @@ import type { AudioManager } from "@/core/AudioManager";
 import type { GameState } from "@/core/GameState";
 import type { InputManager } from "@/core/InputManager";
 import { admitLightToFrozenWorld } from "@/world/Level";
+import { registerSmokeOccluder } from "@/world/RayIndex";
 
 const THROW_SPEED = 11;
 const THROW_ARC_UP = 3;
@@ -247,6 +248,9 @@ export class ThrowableController {
     smoke.isPickable = true;
     smoke.checkCollisions = false;
     smoke.metadata = { isSmoke: true };
+    // Smoke is the one dynamic sight-blocker, so it can't live in the static
+    // ray index — register it as an occluder the AI's LOS test checks directly.
+    registerSmokeOccluder(smoke);
     this.smokeVolumes.push({ mesh: smoke, expiresAt: performance.now() + throwable.effectDurationSec * 1000 });
   }
 

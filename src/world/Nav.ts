@@ -1,5 +1,6 @@
-import { Scene, Vector3, Ray } from "@babylonjs/core";
+import { Scene, Vector3 } from "@babylonjs/core";
 import { activeMap } from "@/world/MapProfile";
+import { probeGround, rayIndexGeneration } from "@/world/RayIndex";
 
 /**
  * Lightweight navigation validation — a stand-in for a real nav mesh. The map
@@ -51,18 +52,61 @@ export function clampToPlayable(pos: Vector3): Vector3 {
 export function isNavigable(scene: Scene, pos: Vector3): boolean {
   const h = playableHalf();
   if (Math.abs(pos.x) > h || Math.abs(pos.z) > h) return false;
-  const ray = new Ray(new Vector3(pos.x, 200, pos.z), new Vector3(0, -1, 0), 210);
-  // `isEnabled()` is load-bearing, not belt-and-braces: when pickWithRay is
-  // given a predicate, Babylon uses it INSTEAD of its own
-  // enabled/visible/pickable checks. Without it the raycast still hits maps
-  // that are switched off — the hidden Singapore city was blocking navigation
-  // across Pasir Panjang Terminal from a carpark slab 11m up.
-  const pick = scene.pickWithRay(ray, (m) => m.isEnabled() && m.isPickable && m.checkCollisions);
-  if (!pick?.hit) return true; // nothing solid at all — open ground
-  const mesh = pick.pickedMesh;
-  if (mesh?.metadata?.walkable === true) return true; // tagged interior floor/ramp/platform
-  // Otherwise the topmost solid surface must be the outdoor ground itself.
-  return mesh?.name === "ground" && (pick.pickedPoint?.y ?? 99) < 0.8;
+
+  // Memoised on a coarse grid: the world is static for the whole run, so the
+  // answer for a given column never changes between rebuilds of the ray index.
+  // AI re-probes the same ground constantly (stuck checks, spawn validation,
+  // the patrol/relocate paths), and this turns almost all of that into a map
+  // lookup. `navCacheGeneration` is bumped whenever the static world changes.
+  if (navCacheGeneration !== rayIndexGeneration()) {
+    navCache.clear();
+    navCacheGeneration = rayIndexGeneration();
+  }
+  const key = navKey(pos.x, pos.z);
+  const cached = navCache.get(key);
+  if (cached !== undefined) return cached;
+
+  // `probeGround` walks only the grid cells under this column instead of
+  // testing every mesh in the scene — see RayIndex for why that matters. It
+  // considers only enabled, non-disposed static geometry, which is what the
+  // old `isEnabled()` predicate was there to enforce: without it the raycast
+  // hit maps that are switched off, and the hidden Singapore city was blocking
+  // navigation across Pasir Panjang Terminal from a carpark slab 11m up.
+  const hit = probeGround(scene, pos.x, pos.z, 200, 210);
+  let result: boolean;
+  if (!hit) {
+    result = true; // nothing solid at all — open ground
+  } else if (hit.mesh.metadata?.walkable === true) {
+    result = true; // tagged interior floor/ramp/platform
+  } else {
+    // Otherwise the topmost solid surface must be the outdoor ground itself.
+    result = hit.mesh.name === "ground" && hit.y < 0.8;
+  }
+  navCache.set(key, result);
+  return result;
+}
+
+/**
+ * Navigability memo. Keyed on a ~0.5m grid — finer than any decision the AI
+ * makes with it, coarse enough that repeated probes around a single enemy all
+ * collapse onto the same entry. Cleared wholesale whenever the static world
+ * changes (map build/switch), which is the only thing that can change an answer.
+ */
+const navCache = new Map<number, boolean>();
+/** Static-world generation the memo's contents belong to (see RayIndex). */
+let navCacheGeneration = -1;
+const NAV_CACHE_CELL = 0.5;
+/** Grid is ±512m at 0.5m resolution — comfortably larger than any map's bounds. */
+function navKey(x: number, z: number): number {
+  const gx = Math.round(x / NAV_CACHE_CELL) + 1024;
+  const gz = Math.round(z / NAV_CACHE_CELL) + 1024;
+  return gx * 4096 + gz;
+}
+
+/** Drop every memoised navigability answer. Normally unnecessary — the memo
+ * self-invalidates on the RayIndex generation — but exposed for tests. */
+export function clearNavCache(): void {
+  navCache.clear();
 }
 
 /**
