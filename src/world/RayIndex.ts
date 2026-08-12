@@ -45,6 +45,29 @@ import { Scene, AbstractMesh, Ray, Vector3, Matrix } from "@babylonjs/core";
  * cheap `isDisposed()` guard at query time rather than forcing a rebuild.
  */
 
+/**
+ * Guard every `scene.pickWithRay` predicate must start with.
+ *
+ * When `pickWithRay` is handed a predicate, Babylon uses it *instead of* its
+ * own enabled/visible filtering — it does not AND them together. So a predicate
+ * that only tests `isPickable` happily returns meshes belonging to a map that
+ * is switched off, because disabling a map only clears `isEnabled`; the meshes
+ * stay in `scene.meshes`, still pickable.
+ *
+ * That is not hypothetical. While an Operation is running, the Singapore city
+ * is disabled but still present, and it left ~930 pickable meshes lying
+ * invisibly across the terminal: **49.5% of measured shots were stopped by
+ * disabled geometry** — buildings, the boundary wall, the old ground plane —
+ * so half the player's rounds died in mid-air against a city that isn't there.
+ * Nav.ts hit the same trap earlier (a hidden carpark slab blocking navigation).
+ *
+ * Compose every pick predicate from this rather than re-deriving it, so the
+ * next raycast added to the game can't reintroduce the same bug.
+ */
+export function isLiveMesh(m: AbstractMesh): boolean {
+  return !m.isDisposed() && m.isEnabled();
+}
+
 /** Grid cell size in metres. Props cluster at ~2-10m, so 8m keeps occupancy low without exploding cell count. */
 const CELL_M = 8;
 

@@ -7,6 +7,7 @@ import { findNearestNavigable } from "@/world/Nav";
 import { activeMap } from "@/world/MapProfile";
 import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
+import { isLiveMesh } from "@/world/RayIndex";
 
 // OPFOR spawn anchors come from the active map profile (MapProfile.ts): the
 // Singapore ring, or Iron Citadel's building entry points. Every anchor is
@@ -302,7 +303,7 @@ export class EnemyManager {
     const ray = new Ray(from, dir, dist - 0.3);
     const pick = this.scene.pickWithRay(
       ray,
-      (m) => m.isPickable && m.checkCollisions && m.name !== "playerCollider" && !m.metadata?.damageable
+      (m) => isLiveMesh(m) && m.isPickable && m.checkCollisions && m.name !== "playerCollider" && !m.metadata?.damageable
     );
     return !pick?.hit;
   }

@@ -55,7 +55,7 @@ import { StrongpointMission } from "@/world/StrongpointMission";
 import { StrongpointHUD } from "@/ui/StrongpointHUD";
 import { PASIR_PANJANG_PROFILE, SINGAPORE_PROFILE, setActiveMap, activeMap } from "@/world/MapProfile";
 import { isNavigable } from "@/world/Nav";
-import { invalidateRayIndex, rayIndexStats } from "@/world/RayIndex";
+import { invalidateRayIndex, rayIndexStats, isLiveMesh } from "@/world/RayIndex";
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const uiRoot = document.getElementById("ui-root") as HTMLDivElement;
@@ -1411,7 +1411,7 @@ async function boot(): Promise<void> {
         const origin = new Vector3(ox, oy, oz);
         const dir = new Vector3(tx, ty, tz).subtract(origin).normalize();
         const ray = new Ray(origin, dir, 1000);
-        const pick = game.scene.pickWithRay(ray, (mesh) => mesh.isPickable && !mesh.metadata?.isSmoke);
+        const pick = game.scene.pickWithRay(ray, (mesh) => isLiveMesh(mesh) && mesh.isPickable && !mesh.metadata?.isSmoke);
         return {
           hit: !!pick?.hit,
           hitMesh: pick?.pickedMesh?.name ?? null,
@@ -1457,7 +1457,7 @@ async function boot(): Promise<void> {
         const cam = player.camera;
         const dir = cam.getDirection(new Vector3(0, 0, 1));
         const ray = new Ray(cam.globalPosition, dir, 1000);
-        const pick = game.scene.pickWithRay(ray, (m) => m.isPickable);
+        const pick = game.scene.pickWithRay(ray, (m) => isLiveMesh(m) && m.isPickable);
         return {
           camPos: { x: cam.globalPosition.x, y: cam.globalPosition.y, z: cam.globalPosition.z },
           dir: { x: dir.x, y: dir.y, z: dir.z },

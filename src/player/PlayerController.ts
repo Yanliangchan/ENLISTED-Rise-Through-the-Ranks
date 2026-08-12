@@ -1,6 +1,7 @@
 import { UniversalCamera, Scene, Vector3, MeshBuilder, Mesh, Ray } from "@babylonjs/core";
 import type { InputManager } from "@/core/InputManager";
 import type { AudioManager } from "@/core/AudioManager";
+import { isLiveMesh } from "@/world/RayIndex";
 
 const FOOTSTEP_INTERVAL_WALK = 0.46; // seconds between footstep sounds at walk speed
 const FOOTSTEP_INTERVAL_SPRINT = 0.32;
@@ -329,7 +330,7 @@ export class PlayerController {
     const from = position.add(new Vector3(0, 6, 0));
     const pick = this.scene.pickWithRay(
       new Ray(from, new Vector3(0, -1, 0), 40),
-      (m) => m.isPickable && m.checkCollisions && m !== this.collider
+      (m) => isLiveMesh(m) && m.isPickable && m.checkCollisions && m !== this.collider
     );
     if (pick?.hit && pick.pickedPoint) {
       // Seat the feet a hair above the surface so the first collision sweep

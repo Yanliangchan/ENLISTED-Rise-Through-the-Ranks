@@ -2,6 +2,7 @@ import { Scene, Vector3, MeshBuilder, StandardMaterial, Color3, Ray } from "@bab
 import type { EnemyManager } from "@/enemies/EnemySpawner";
 import type { PlayerController } from "@/player/PlayerController";
 import type { AudioManager } from "@/core/AudioManager";
+import { isLiveMesh } from "@/world/RayIndex";
 
 export interface BlastSpec {
   radiusM: number;
@@ -46,7 +47,7 @@ export function fireProjectile(
     const moveDist = velocity.length() * dt;
     const moveDir = velocity.normalizeToNew();
     const ray = new Ray(mesh.position, moveDir, moveDist + 0.2);
-    const pick = scene.pickWithRay(ray, (m) => m.isPickable && m !== mesh);
+    const pick = scene.pickWithRay(ray, (m) => isLiveMesh(m) && m.isPickable && m !== mesh);
 
     if (pick?.hit && pick.pickedPoint && pick.distance <= moveDist) {
       detonate(pick.pickedPoint);

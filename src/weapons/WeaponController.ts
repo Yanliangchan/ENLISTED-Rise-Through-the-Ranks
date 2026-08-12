@@ -13,7 +13,7 @@ import type { GameState } from "@/core/GameState";
 import type { EnemyManager } from "@/enemies/EnemySpawner";
 import { ZONE_MULTIPLIER, type HitMeshMetadata, type HitZone } from "@/weapons/Damageable";
 import type { ScopeOverlay } from "@/ui/ScopeOverlay";
-import { invalidateRayIndex } from "@/world/RayIndex";
+import { invalidateRayIndex, isLiveMesh } from "@/world/RayIndex";
 
 const BASE_FOV = 1.1;
 /** Optics at or above this zoom get the real windowed scope lens instead of just a centred in-world sight. */
@@ -626,7 +626,7 @@ export class WeaponController {
     const ray = new Ray(origin, worldDir, 1000);
     // Bullets ignore smoke entirely (it only obscures vision) — shooting into,
     // through, or out of a cloud damages whatever the round actually reaches.
-    const pick = this.scene.pickWithRay(ray, (mesh) => mesh.isPickable && !mesh.metadata?.isSmoke);
+    const pick = this.scene.pickWithRay(ray, (mesh) => isLiveMesh(mesh) && mesh.isPickable && !mesh.metadata?.isSmoke);
 
     const muzzleWorld = this.activeViewmodel
       ? this.activeViewmodel.muzzle.getAbsolutePosition()
@@ -684,7 +684,7 @@ export class WeaponController {
   private penetrationShot(blockedPoint: Vector3, worldDir: Vector3, muzzleWorld: Vector3): void {
     const penOrigin = blockedPoint.add(worldDir.scale(0.05));
     const penRay = new Ray(penOrigin, worldDir, WeaponController.PENETRATION_DEPTH_M);
-    const penPick = this.scene.pickWithRay(penRay, (mesh) => mesh.isPickable && !mesh.metadata?.isSmoke);
+    const penPick = this.scene.pickWithRay(penRay, (mesh) => isLiveMesh(mesh) && mesh.isPickable && !mesh.metadata?.isSmoke);
     if (!penPick?.hit || !penPick.pickedPoint) return;
     const meta = penPick.pickedMesh?.metadata as HitMeshMetadata | undefined;
     if (!meta?.damageable || meta.damageable.isDead) return;

@@ -17,7 +17,7 @@ import { CAMP_POSITION } from "@/world/Level";
 import { isInSafeZone } from "@/world/SafeZone";
 import { findNearestNavigable } from "@/world/Nav";
 import type { BottyUpgradeCategory } from "@/data/bottyUpgrades";
-import { registerSmokeOccluder } from "@/world/RayIndex";
+import { registerSmokeOccluder, isLiveMesh } from "@/world/RayIndex";
 
 export type BottyCommand = "default" | "followMe" | "goDark" | "coverMe" | "engage" | "retreat";
 
@@ -411,7 +411,7 @@ export class BottyController {
   private snapToGround(): void {
     const from = this.position.add(new Vector3(0, 3, 0));
     const ray = new Ray(from, new Vector3(0, -1, 0), 12);
-    const pick = this.scene.pickWithRay(ray, (m) => m.isPickable && m.checkCollisions && m !== this.root);
+    const pick = this.scene.pickWithRay(ray, (m) => isLiveMesh(m) && m.isPickable && m.checkCollisions && m !== this.root);
     if (pick?.hit && pick.pickedPoint) {
       this.root.position.y = pick.pickedPoint.y;
     }
@@ -426,7 +426,7 @@ export class BottyController {
     // Exclude BOTTY's OWN meshes: the eye ray originates inside BOTTY's head/body
     // (both are pickable so the player can shoot BOTTY), so without this the ray
     // instantly "hits" itself, LOS always reads blocked, and BOTTY never fires.
-    const pick = this.scene.pickWithRay(ray, (m) => m.isPickable && m !== this.root && !m.name.startsWith("botty_"));
+    const pick = this.scene.pickWithRay(ray, (m) => isLiveMesh(m) && m.isPickable && m !== this.root && !m.name.startsWith("botty_"));
     return !pick?.hit;
   }
 
