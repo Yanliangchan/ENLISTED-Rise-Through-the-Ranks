@@ -55,6 +55,38 @@ interface DamageIndicator {
  * throwable count, credits, wave/objective, dynamic-spread crosshair,
  * hitmarkers, damage-direction indicators, kill feed, and a top-down radar.
  */
+/**
+ * Element-local cache of the last value written to each DOM property.
+ *
+ * The HUD is rebuilt from game state every frame, and most of that state does
+ * not change between frames — health sits at 100, the crosshair stays the same
+ * width, the safe-zone banner keeps the same five style properties for as long
+ * as you stand in it. Assigning `textContent` or a `style` property is not free
+ * even when the value is identical: it goes through the DOM/CSSOM and dirties
+ * the element for the next style recalculation. Skipping the write when nothing
+ * changed removes almost all of the HUD's per-frame layout cost, which is pure
+ * overhead on exactly the low-end machines that can least afford it.
+ */
+interface CachedEl extends HTMLElement {
+  __hudCache?: Record<string, string>;
+}
+
+/** Write `textContent` only if it differs from what's already there. */
+function setText(el: HTMLElement, value: string): void {
+  const cache = ((el as CachedEl).__hudCache ??= {});
+  if (cache.__text === value) return;
+  cache.__text = value;
+  el.textContent = value;
+}
+
+/** Write a style property only if it differs from what's already there. */
+function setStyle(el: HTMLElement, prop: string, value: string): void {
+  const cache = ((el as CachedEl).__hudCache ??= {});
+  if (cache[prop] === value) return;
+  cache[prop] = value;
+  (el.style as unknown as Record<string, string>)[prop] = value;
+}
+
 export class HUD {
   private root: HTMLDivElement;
   private healthBar: HTMLDivElement;
@@ -488,19 +520,19 @@ export class HUD {
     this.cratePositions = cratePositions;
     this.bottyPos = bottyPos;
 
-    this.interactPromptEl.textContent = interactPrompt ?? "";
-    this.interactPromptEl.style.opacity = interactPrompt ? "1" : "0";
+    setText(this.interactPromptEl, interactPrompt ?? "");
+    setStyle(this.interactPromptEl, "opacity", interactPrompt ? "1" : "0");
 
-    this.healthBar.style.width = `${Math.max(0, (this.player.health / this.player.maxHealth) * 100)}%`;
-    this.armourBar.style.width = this.player.maxArmour
+    setStyle(this.healthBar, "width", `${Math.max(0, (this.player.health / this.player.maxHealth) * 100)}%`);
+    setStyle(this.armourBar, "width", this.player.maxArmour
       ? `${Math.max(0, (this.player.armour / this.player.maxArmour) * 100)}%`
-      : "0%";
-    this.armourValueEl.textContent = `${Math.round(this.player.armour)}/${this.player.maxArmour}`;
+      : "0%");
+    setText(this.armourValueEl, `${Math.round(this.player.armour)}/${this.player.maxArmour}`);
 
     const ammo = this.weaponController.ammo;
-    this.ammoEl.textContent = this.weaponController.isReloading
+    setText(this.ammoEl, this.weaponController.isReloading
       ? "RELOADING…"
-      : `${ammo.mag} / ${ammo.reserve}`;
+      : `${ammo.mag} / ${ammo.reserve}`);
 
     // Slow-changing text at ~10Hz — none of it changes mid-frame, and writing
     // identical strings every frame still costs layout/parse time.
@@ -558,10 +590,10 @@ export class HUD {
     // cut, so flipping modes reads as a deliberate handling beat.
     const m203Blend = this.weaponController.m203Blend;
     const scoped = this.weaponController.isScopedIn;
-    this.crosshair.style.display = scoped || m203Blend >= 0.995 ? "none" : "block";
-    this.crosshair.style.opacity = String(1 - m203Blend);
-    this.m203Sight.style.display = m203Blend <= 0.005 ? "none" : "block";
-    this.m203Sight.style.opacity = String(m203Blend);
+    setStyle(this.crosshair, "display", scoped || m203Blend >= 0.995 ? "none" : "block");
+    setStyle(this.crosshair, "opacity", String(1 - m203Blend));
+    setStyle(this.m203Sight, "display", m203Blend <= 0.005 ? "none" : "block");
+    setStyle(this.m203Sight, "opacity", String(m203Blend));
     // Small, sharp, and mostly static — a light touch of dynamic spread (tracking
     // the weapon's actual live spread cone, not just a static per-weapon stat)
     // plus a brief per-shot kick reads as feedback without the crosshair
@@ -571,22 +603,22 @@ export class HUD {
     this.applyCrosshairSpread(spreadPx);
 
     if (this.player.inSafeZone) {
-      this.safeZoneEl.textContent = "SAFE ZONE";
-      this.safeZoneEl.style.color = SAF.sage;
-      this.safeZoneEl.style.background = "rgba(24, 36, 20, 0.85)";
-      this.safeZoneEl.style.border = `1px solid ${SAF.olive}`;
-      this.safeZoneEl.style.opacity = "1";
+      setText(this.safeZoneEl, "SAFE ZONE");
+      setStyle(this.safeZoneEl, "color", SAF.sage);
+      setStyle(this.safeZoneEl, "background", "rgba(24, 36, 20, 0.85)");
+      setStyle(this.safeZoneEl, "border", `1px solid ${SAF.olive}`);
+      setStyle(this.safeZoneEl, "opacity", "1");
     } else if (this.player.spawnProtected) {
-      this.safeZoneEl.textContent = "SPAWN PROTECTED";
-      this.safeZoneEl.style.color = SAF.amber;
-      this.safeZoneEl.style.background = "rgba(42, 34, 12, 0.85)";
-      this.safeZoneEl.style.border = "1px solid #6d5a1b";
-      this.safeZoneEl.style.opacity = "1";
+      setText(this.safeZoneEl, "SPAWN PROTECTED");
+      setStyle(this.safeZoneEl, "color", SAF.amber);
+      setStyle(this.safeZoneEl, "background", "rgba(42, 34, 12, 0.85)");
+      setStyle(this.safeZoneEl, "border", "1px solid #6d5a1b");
+      setStyle(this.safeZoneEl, "opacity", "1");
     } else {
-      this.safeZoneEl.style.opacity = "0";
+      setStyle(this.safeZoneEl, "opacity", "0");
     }
 
-    this.hitmarker.style.opacity = now < this.hitmarkerUntil ? "1" : "0";
+    setStyle(this.hitmarker, "opacity", now < this.hitmarkerUntil ? "1" : "0");
 
     this.killFeed = this.killFeed.filter((k) => k.expiresAt > now);
     const killHtml = this.killFeed.map((k) => `<div>${k.text}</div>`).join("");
@@ -602,7 +634,7 @@ export class HUD {
       this.flashOverlay.style.opacity = String(this.flashIntensity);
       this.flashIntensity = Math.max(0, this.flashIntensity - 0.02);
     } else {
-      this.flashOverlay.style.opacity = "0";
+      setStyle(this.flashOverlay, "opacity", "0");
     }
 
     if (this.hurtFlashIntensity > 0.005) {
@@ -621,8 +653,8 @@ export class HUD {
       this.bloodOverlay.style.opacity = "0";
     }
 
-    this.centerMessageEl.style.opacity = now < this.centerMessageUntil ? "1" : "0";
-    this.lockHintEl.style.display = isPointerLocked ? "none" : "block";
+    setStyle(this.centerMessageEl, "opacity", now < this.centerMessageUntil ? "1" : "0");
+    setStyle(this.lockHintEl, "display", isPointerLocked ? "none" : "block");
 
     // Radar repaint at ~15Hz — a full canvas redraw with every building
     // footprint per frame was pure waste for a minimap.
