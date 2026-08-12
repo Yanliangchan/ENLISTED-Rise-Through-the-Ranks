@@ -16,18 +16,29 @@ import { buildTerminalFoliage, type FoliagePatch } from "@/world/TerminalFoliage
  *
  * ---------------------------------------------------------------------------
  * NAV CONTRACT (Nav.ts drops a ray from y=200 and inspects the first mesh that
- * is enabled, `isPickable` and `checkCollisions`). Every mesh here picks one of
- * five roles, and the whole map's AI navigability follows from that choice:
+ * is enabled, `isPickable` and `checkCollisions`) — and, not coincidentally,
+ * `WeaponController.raycastShot` uses the same `isPickable` test to decide
+ * what a bullet can hit. Every mesh here picks one of four roles, and both the
+ * map's AI navigability AND what a shot can stop on follow from that choice:
  *
- *   solid cover      pickable + collides                  → blocks nav (containers, walls, tanks)
- *   walkable surface pickable + collides + walkable tag    → navigable at any height (floors, ramps, decks)
+ *   solid cover      pickable + collides                  → blocks nav AND stops bullets
+ *                                                            (containers, walls, tanks, sandbags)
+ *   walkable surface pickable + collides + walkable tag    → navigable at any height, and — being
+ *                                                            solid — also stops bullets (floors, decks)
  *   roof over interior  NOT pickable + collides            → ray passes through to the floor below, so
  *                                                            the interior stays navigable; still stops
- *                                                            anyone walking in from above
- *   thin decoration  pickable + NO collision               → bullets stop on it, nav and movement ignore it
- *                                                            (handrails, pipes, cables, signage)
- *   ground decal     NOT pickable + NO collision           → wholly invisible to nav and gunfire; the
- *                                                            surface painting layer (wear, puddles, mud)
+ *                                                            anyone walking in from above, but a bullet
+ *                                                            passes through it same as the nav ray does
+ *   visual only      NOT pickable + NO collision           → wholly invisible to nav, movement, AND
+ *                                                            gunfire (handrails, pipes, cables, signage,
+ *                                                            and the ground-decal surface painting layer)
+ *
+ * Nothing here is pickable-but-non-colliding: that combination used to mean
+ * "stops bullets but not movement", and at the density this map places thin
+ * dressing (a cable span or wire obstacle across nearly every sightline) that
+ * silently ate rounds aimed at whatever was standing behind them. Real cover
+ * you can hide behind should also be cover a bullet can't pass through, and
+ * vice versa — the two properties are deliberately no longer independent.
  *
  * The one rule with no workaround: a walkable roof and a navigable interior
  * cannot share an (x,z) column, because the ray stops at whichever is on top.
@@ -275,11 +286,21 @@ function roofPanel(root: TransformNode, scene: Scene, name: string, w: number, h
 }
 
 /**
- * Thin dressing — stops bullets, but never blocks movement or pathing.
+ * Thin visual dressing — cables, pipes, rails, wire, sign posts, lamp arms.
+ * Never blocks movement, pathing, OR gunfire: `WeaponController.raycastShot`
+ * stops on the first `isPickable` mesh it hits with no requirement that the
+ * mesh actually collides, so a pickable prop with no hitbox would otherwise
+ * silently eat rounds aimed at whatever is standing behind it. At the density
+ * this map places dressing (a cable span or wire obstacle across nearly every
+ * sightline), that turned into shots that visibly missed nothing but still
+ * failed to register — real cover (`solid()`) still stops bullets exactly as
+ * before; this is detail the eye reads but a bullet passes straight through.
  *
- * Tagged mergeable: dressing has no collision and no navigation role, so the
- * optimisation pass at the end of the build is free to weld it all into one
- * mesh per material without changing any behaviour (see optimiseTerminal).
+ * Tagged mergeable: with no collision, no navigation role and no pick role,
+ * the optimisation pass at the end of the build is free to weld it all into
+ * one mesh per material without changing any behaviour (see optimiseTerminal)
+ * — and because it's non-pickable, weapon raycasts skip the whole merged mesh
+ * for free rather than testing every shot against it.
  */
 function decor(root: TransformNode, scene: Scene, name: string, w: number, h: number, d: number, x: number, y: number, z: number, mat: unknown, rotY = 0): Mesh {
   const m = MeshBuilder.CreateBox(`pp_${name}_${uid++}`, { width: w, height: h, depth: d }, scene);
@@ -287,6 +308,7 @@ function decor(root: TransformNode, scene: Scene, name: string, w: number, h: nu
   m.rotation.y = rotY;
   m.material = mat as Mesh["material"];
   m.checkCollisions = false;
+  m.isPickable = false;
   m.parent = root;
   m.metadata = { mergeable: true };
   scaleUV(m, Math.max(0.5, Math.max(w, d, h) / 4));
@@ -765,12 +787,13 @@ export function buildPasirPanjang(scene: Scene): PasirPanjangHandles {
  * Post-build optimisation. The terminal is entirely static once built, which
  * makes two things safe that would not be in a dynamic scene:
  *
- *  1. Weld the dressing. Every `decor` mesh is non-colliding and invisible to
- *     the navigation raycast, so merging the lot into one mesh per material
- *     cannot change collision, pathing or gunplay — it only trades hundreds of
- *     draw calls for a handful. Anything with a collision or nav role
- *     (containers, walls, floors, ramps, decks) is deliberately left alone, so
- *     per-object collision granularity is untouched.
+ *  1. Weld the dressing. Every `decor` mesh is non-colliding and non-pickable
+ *     (invisible to both the navigation raycast and weapon fire — see the nav
+ *     contract at the top of this file), so merging the lot into one mesh per
+ *     material cannot change collision, pathing or gunplay: it only trades
+ *     hundreds of draw calls for a handful. Anything with a collision, nav or
+ *     pick role (containers, walls, floors, ramps, decks) is deliberately left
+ *     alone, so per-object granularity there is untouched.
  *  2. Freeze world matrices. Nothing here ever moves, so Babylon can stop
  *     recomputing transforms and bounding info for ~2,500 meshes every frame.
  */
@@ -794,7 +817,7 @@ function optimiseTerminal(root: TransformNode, scene: Scene): void {
     merged.name = `pp_merged_${key}`;
     merged.parent = root;
     merged.checkCollisions = false;
-    merged.isPickable = true; // dressing still stops bullets
+    merged.isPickable = false; // pure visual dressing — never intercepts nav rays or gunfire
     // One welded mesh spans most of the map, so per-mesh frustum culling would
     // only ever cull it when the player looks at the sky. Keeping it always
     // active skips the pointless test.

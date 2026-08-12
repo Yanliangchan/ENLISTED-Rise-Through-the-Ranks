@@ -1363,6 +1363,25 @@ async function boot(): Promise<void> {
       },
       /** Test helper: is a world point reachable from the deploy point? */
       navAt: (x: number, z: number) => isNavigable(game.scene, new Vector3(x, 0, z)),
+      /**
+       * Test helper: replicates WeaponController.raycastShot's exact hit-test
+       * (same predicate, same pickWithRay call) from an arbitrary origin/target,
+       * without touching ammo, cooldowns or damage. Used to verify a shot from
+       * a given standoff point actually reaches an enemy instead of being eaten
+       * by non-colliding dressing along the way.
+       */
+      weaponRaycastTest: (ox: number, oy: number, oz: number, tx: number, ty: number, tz: number) => {
+        const origin = new Vector3(ox, oy, oz);
+        const dir = new Vector3(tx, ty, tz).subtract(origin).normalize();
+        const ray = new Ray(origin, dir, 1000);
+        const pick = game.scene.pickWithRay(ray, (mesh) => mesh.isPickable && !mesh.metadata?.isSmoke);
+        return {
+          hit: !!pick?.hit,
+          hitMesh: pick?.pickedMesh?.name ?? null,
+          hitEnemy: !!pick?.pickedMesh?.metadata?.damageable,
+          distance: pick?.distance ?? null,
+        };
+      },
       /** Test helper: spawn soldier avatars near a world point to verify netplay rendering. */
       spawnTestSoldiers: (x: number, y: number, z: number) => {
         const mk = (team: "blue" | "red", num: number, dx: number) => {
