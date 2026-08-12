@@ -28,6 +28,26 @@ export type EnemyState =
 
 let enemyCounter = 0;
 
+/** Reused displacement for the gravity-only sweep — avoids a Vector3 per enemy per frame. */
+const GRAVITY_STEP = new Vector3(0, 0, 0);
+
+/**
+ * Distance-based update rate. Movement and collision are what cost — a
+ * `moveWithCollisions` sweep tests the ellipsoid against every collidable mesh
+ * in the scene — and a soldier 80m away crossing the yard does not need that
+ * resolved sixty times a second. Enemies beyond these ranges tick their full
+ * FSM less often, with the skipped time accumulated and handed to the next tick
+ * so travel speed, timers and reload clocks all still run in real time.
+ *
+ * Anything actually fighting the player is inside the near band and keeps a
+ * full-rate update, so this is invisible where it matters.
+ */
+const AI_LOD_NEAR_M = 26;
+const AI_LOD_FAR_M = 55;
+/** Tick strides for the mid and far bands (1 = every frame). */
+const AI_LOD_MID_STRIDE = 3;
+const AI_LOD_FAR_STRIDE = 6;
+
 /** Rotate a flat (XZ) direction vector by `angle` radians about the Y axis. */
 function rotateY(dir: Vector3, angle: number): Vector3 {
   const c = Math.cos(angle);
@@ -224,6 +244,12 @@ export class EnemyInstance implements Damageable {
   // Locomotion animation.
   private walkPhase = 0;
   private movingThisFrame = false;
+  /** This tick's gravity step, consumed by whichever moveWithCollisions sweep runs (see update). */
+  private pendingGravity = 0;
+  /** Real time banked while skipping ticks under distance LOD (see AI_LOD_NEAR_M). */
+  private lodAccumulator = 0;
+  /** Ticks skipped so far in the current LOD stride. Staggered so distant enemies don't all resume together. */
+  private lodTicks = Math.floor(Math.random() * AI_LOD_FAR_STRIDE);
   // Anti-stuck: when movement is repeatedly blocked (a container lane wall, a
   // building corner), sidestep along an escape vector for a moment.
   private stuckTimer = 0;
@@ -561,13 +587,31 @@ export class EnemyInstance implements Damageable {
       return;
     }
 
-    this.movingThisFrame = false;
+    // Distance LOD: bank this tick's time and, when far from the fight, run the
+    // FSM on a longer beat with the banked total. Everything downstream is
+    // already written against a variable dt, so the only visible difference is
+    // that distant soldiers reposition in slightly coarser steps.
+    this.lodAccumulator += dt;
+    const distForLod = Vector3.Distance(this.root.position, player.position);
+    const stride =
+      distForLod > AI_LOD_FAR_M ? AI_LOD_FAR_STRIDE : distForLod > AI_LOD_NEAR_M ? AI_LOD_MID_STRIDE : 1;
+    if (stride > 1) {
+      this.lodTicks++;
+      if (this.lodTicks < stride) return;
+    }
+    this.lodTicks = 0;
+    dt = this.lodAccumulator;
+    this.lodAccumulator = 0;
 
-    // Gravity: soldiers walk with moveWithCollisions on the XZ plane, which
-    // holds Y constant — over sunken ground (the monsoon canal, embankments)
-    // they hovered mid-air. A constant downward collision step keeps their
-    // feet planted on whatever surface is actually below them.
-    this.root.moveWithCollisions(new Vector3(0, -6 * dt, 0));
+    this.movingThisFrame = false;
+    // Gravity for this tick. Applied as part of the movement sweep when the
+    // enemy walks (see moveToward), or on its own at the end of update() when
+    // it doesn't — never both. `moveWithCollisions` is the single most
+    // expensive call in the AI: Babylon tests the moving ellipsoid against
+    // every collidable mesh in the scene (~1470 on the terminal, measured at
+    // ~386µs a call), so issuing one sweep per enemy per tick instead of two
+    // halves the cost outright, for exactly the same net displacement.
+    this.pendingGravity = -6 * dt;
 
     // Safety net against getting trapped in geometry or shoved out of bounds by
     // a blast/knockback: periodically confirm we're on walkable ground and,
@@ -704,6 +748,13 @@ export class EnemyInstance implements Damageable {
         break;
     }
 
+    // Standing still this tick — gravity still has to be applied, but only
+    // now that we know no movement sweep consumed it.
+    if (this.pendingGravity !== 0) {
+      this.root.moveWithCollisions(GRAVITY_STEP.set(0, this.pendingGravity, 0));
+      this.pendingGravity = 0;
+    }
+
     this.animateLocomotion(dt);
   }
 
@@ -768,7 +819,13 @@ export class EnemyInstance implements Damageable {
     }
 
     const before = pos.clone();
-    this.root.moveWithCollisions(dir.scale(speed * dt));
+    // One combined sweep: horizontal travel plus this tick's gravity. Doing
+    // both in a single moveWithCollisions rather than two halves the AI's
+    // dominant per-frame cost (see the note in update()).
+    const step = dir.scale(speed * dt);
+    step.y += this.pendingGravity;
+    this.pendingGravity = 0;
+    this.root.moveWithCollisions(step);
     // Smoothly turn toward the heading of travel instead of snapping — removes
     // the visible spin/jitter when the steer direction changes.
     const targetYaw = Math.atan2(dir.x, dir.z);

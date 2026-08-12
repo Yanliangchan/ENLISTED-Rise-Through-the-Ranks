@@ -224,9 +224,17 @@ export class WeaponController {
     // Bright enough to genuinely light dark corners, buildings, and dynamic
     // actors; much stronger at night where it actually matters tactically,
     // gated by the F toggle so players use it deliberately rather than always-on.
-    this.flashlight.intensity = this.effective.hasFlashlight && this.flashlightOn
+    const beam = this.effective.hasFlashlight && this.flashlightOn
       ? (isNightMode() ? WeaponController.FLASHLIGHT_INTENSITY_NIGHT : WeaponController.FLASHLIGHT_INTENSITY_DAY)
       : 0;
+    this.flashlight.intensity = beam;
+    // Zero intensity is not free: Babylon still compiles the spotlight into
+    // every material and evaluates it per fragment, and it still counts toward
+    // the 8-light budget that decides whether a mesh needs a second render
+    // pass. Most players run without a flashlight fitted at all, so switching
+    // the light off entirely (rather than dimming it) drops a whole light from
+    // every shader on the map for them.
+    this.flashlight.setEnabled(beam > 0);
     // The LAD's visible beam cuts hip spread (stat delta) but also makes the
     // player easier for OPFOR to spot — EnemyAI reads this flag.
     this.player.laserOn = this.effective.hasLaser;

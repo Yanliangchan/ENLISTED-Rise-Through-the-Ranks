@@ -37,10 +37,21 @@ export class GameEngine {
     this.updateCallbacks.push(callback);
   }
 
+  /**
+   * Milliseconds the last frame spent in game logic (every update callback),
+   * excluding `scene.render()`. One timer pair per frame is far too cheap to
+   * matter, and it's the only way to tell a CPU-bound frame from a GPU-bound
+   * one without attaching a profiler — which is exactly the question that
+   * decides whether an optimisation belongs in the simulation or the renderer.
+   */
+  lastUpdateMs = 0;
+
   start(): void {
     this.engine.runRenderLoop(() => {
       const deltaSeconds = this.engine.getDeltaTime() / 1000;
+      const t0 = performance.now();
       for (const cb of this.updateCallbacks) cb(deltaSeconds);
+      this.lastUpdateMs = performance.now() - t0;
       if (!this.renderingPaused) this.scene.render();
     });
   }

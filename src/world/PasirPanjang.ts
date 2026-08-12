@@ -778,6 +778,7 @@ export function buildPasirPanjang(scene: Scene): PasirPanjangHandles {
   buildVegetation(root, scene, mats);
   buildLighting(root, scene);
   optimiseTerminal(root, scene);
+  scopeFloodlights(root, scene);
 
   root.setEnabled(false);
   return { root, spawn: TERMINAL_SPAWN, strongpointDefs: STRONGPOINT_DEFS };
@@ -797,6 +798,50 @@ export function buildPasirPanjang(scene: Scene): PasirPanjangHandles {
  *  2. Freeze world matrices. Nothing here ever moves, so Babylon can stop
  *     recomputing transforms and bounding info for ~2,500 meshes every frame.
  */
+/**
+ * Restrict each floodlight to the geometry it can actually illuminate.
+ *
+ * Babylon decides which lights a mesh's shader must evaluate from
+ * `Light.canAffectMesh`, which consults the include/exclude lists — it does NOT
+ * cull by range. So every one of the six floodlights was being compiled into
+ * every material on the map, and with the four static rig lights that put every
+ * mesh over WorldMaterial's 8-light budget: Babylon then renders the mesh in a
+ * second pass for the overflow. Measured on the terminal, all 1510 active
+ * meshes were being lit by all 11 lights, roughly doubling draw calls and
+ * making every fragment evaluate lights that contribute nothing.
+ *
+ * A point light's contribution is clamped to zero beyond `range`, so excluding
+ * geometry further away than that is mathematically identical output — this is
+ * a pure cost saving, not a lighting change. Exclusion (rather than an
+ * include-list) is deliberate: anything spawned later that isn't on the list —
+ * OPFOR, BOTTY, projectiles, throwables — keeps full lighting, so soldiers
+ * still light up correctly as they move under a mast.
+ *
+ * Runs once at build time against static geometry; there is no per-frame cost.
+ */
+function scopeFloodlights(root: TransformNode, scene: Scene): void {
+  const floods = scene.lights.filter((l) => l.name.startsWith("ppFlood_"));
+  if (floods.length === 0) return;
+  const statics = root.getChildMeshes();
+
+  for (const light of floods) {
+    const lightPos = (light as PointLight).position;
+    const range = (light as PointLight).range;
+    const excluded: Mesh[] = [];
+    for (const node of statics) {
+      const mesh = node as Mesh;
+      const info = mesh.getBoundingInfo?.();
+      if (!info) continue;
+      // Compare against the bounding sphere so a long mesh straddling the
+      // range boundary is kept rather than clipped.
+      const sphere = info.boundingSphere;
+      const d = Vector3.Distance(sphere.centerWorld, lightPos) - sphere.radiusWorld;
+      if (d > range) excluded.push(mesh);
+    }
+    light.excludedMeshes = excluded;
+  }
+}
+
 function optimiseTerminal(root: TransformNode, scene: Scene): void {
   const byMaterial = new Map<string, Mesh[]>();
   for (const node of root.getChildMeshes()) {

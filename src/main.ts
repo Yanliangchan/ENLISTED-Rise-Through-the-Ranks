@@ -123,8 +123,19 @@ async function boot(): Promise<void> {
   // Keep the infinite-distance skybox enabled always — the sealed complex's
   // skylights and glazing still read the sky through it.
   const survivalWorldMeshes = game.scene.meshes.filter((m) => !m.infiniteDistance);
+  // Point/spot lights belonging to the city. The global rig (hemisphere, sun,
+  // fill) is deliberately excluded — every map is lit by it.
+  const survivalWorldLights = game.scene.lights.filter(
+    (l) => l.getClassName() === "PointLight" || l.getClassName() === "SpotLight"
+  );
   function setSurvivalWorldEnabled(on: boolean): void {
     for (const m of survivalWorldMeshes) if (!m.isDisposed()) m.setEnabled(on);
+    // The city's own point lights go with it. A disabled mesh costs nothing,
+    // but an enabled light is compiled into every material in the scene and
+    // evaluated per fragment wherever you are — the camp's tent lamp was
+    // lighting nothing but still taking a slot in the 8-light budget on the
+    // terminal, pushing meshes into a second render pass.
+    for (const l of survivalWorldLights) if (!l.isDisposed()) l.setEnabled(on);
     // Wholesale enable/disable of the city is exactly the kind of change the
     // static broadphase is built from — rebuild it, or the AI keeps pathing
     // and sighting against whichever world was live when it was last built.
