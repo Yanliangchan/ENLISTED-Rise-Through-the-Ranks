@@ -262,9 +262,9 @@ export class LandingPage {
       ["MULTIPLAYER", () => this.onMultiplayer?.()],
       // OPERATIONS — Pasir Panjang Terminal: long-form objective missions, no
       // resupply and no friendly AI, and the only route to the Guards and
-      // Ranger tabs.
-      ["OPERATION: STRONGPOINT ASSAULT", () => this.onStrongpointAssault?.()],
-      ["OPERATION: RANGER GAUNTLET", () => this.onRangerGauntlet?.()],
+      // Ranger tabs. One nav slot, not two — picking the actual mission
+      // happens in showOperationsModal() below.
+      ["OPERATIONS", () => this.showOperationsModal()],
       ["PROFILE", () => this.onProfile?.()],
       ["LEADERBOARDS", () => this.onLeaderboards?.()],
       ["SETTINGS", () => this.showSettingsModal()],
@@ -353,6 +353,62 @@ export class LandingPage {
       close.textContent = "CLOSE";
       close.addEventListener("click", () => body.closest(".lp-modal-backdrop")?.remove());
       actions.appendChild(close);
+      body.appendChild(actions);
+    });
+  }
+
+  /**
+   * OPERATIONS picker — the single nav entry for both Pasir Panjang Terminal
+   * missions. Each option is a full-width button (so it reads as a real
+   * choice, not a cramped list) with a one-line brief under it; picking one
+   * closes the modal and hands off to the same onStrongpointAssault /
+   * onRangerGauntlet callbacks the two separate nav buttons used to call
+   * directly.
+   */
+  private showOperationsModal(): void {
+    this.showModal("OPERATIONS — PASIR PANJANG TERMINAL", (body) => {
+      const option = (title: string, brief: string, onSelect: () => void): HTMLDivElement => {
+        const wrap = document.createElement("div");
+        wrap.className = "lp-modal-row";
+        wrap.style.marginBottom = "14px";
+        const btn = document.createElement("button");
+        btn.className = "lp-nav-btn lp-interactive";
+        btn.style.cssText = "width:100%; text-align:left;";
+        btn.textContent = title;
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.audio.uiHover();
+          body.closest(".lp-modal-backdrop")?.remove();
+          onSelect();
+        });
+        const desc = document.createElement("p");
+        desc.style.cssText = "font-size:11px; line-height:1.5; color:#8a9a84; margin:6px 2px 0;";
+        desc.textContent = brief;
+        wrap.append(btn, desc);
+        return wrap;
+      };
+
+      body.appendChild(
+        option(
+          "STRONGPOINT ASSAULT",
+          "Take four layered objectives across the terminal, ending at Bukit Chandu. Unlocks the Guards tab.",
+          () => this.onStrongpointAssault?.()
+        )
+      );
+      body.appendChild(
+        option(
+          "RANGER GAUNTLET",
+          "18 escalating waves. No resupply, no armour, no support. Unlocks the Ranger tab.",
+          () => this.onRangerGauntlet?.()
+        )
+      );
+
+      const actions = document.createElement("div");
+      actions.className = "lp-modal-actions";
+      const cancel = document.createElement("button");
+      cancel.textContent = "CANCEL";
+      cancel.addEventListener("click", () => body.closest(".lp-modal-backdrop")?.remove());
+      actions.appendChild(cancel);
       body.appendChild(actions);
     });
   }
