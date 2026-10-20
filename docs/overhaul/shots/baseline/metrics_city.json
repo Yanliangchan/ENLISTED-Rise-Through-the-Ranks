@@ -1,0 +1,94 @@
+{
+  "label": "baseline",
+  "date": "2026-10-20T22:51:48.550Z",
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "shots": {
+    "10_city_spawn": {
+      "frameMsAvg": 1468.2,
+      "frameMsP95": 1969.6,
+      "framesSampled": 2,
+      "activeMeshes": 1504,
+      "enabledMeshes": 1635,
+      "totalMeshes": 1637,
+      "totalVertices": 298446,
+      "materials": 274,
+      "textures": 56,
+      "lightsEnabled": 4,
+      "drawCalls": 19414,
+      "jsHeapMB": 133
+    },
+    "11_city_spawn_ads": {
+      "frameMsAvg": 3861.8,
+      "frameMsP95": 5251.6,
+      "framesSampled": 2,
+      "activeMeshes": 1422,
+      "enabledMeshes": 1610,
+      "totalMeshes": 1637,
+      "totalVertices": 298446,
+      "materials": 274,
+      "textures": 56,
+      "lightsEnabled": 4,
+      "drawCalls": 37441,
+      "jsHeapMB": 133
+    },
+    "12_city_street": {
+      "frameMsAvg": 3325.4,
+      "frameMsP95": 5115.1,
+      "framesSampled": 2,
+      "activeMeshes": 888,
+      "enabledMeshes": 1635,
+      "totalMeshes": 1637,
+      "totalVertices": 298446,
+      "materials": 274,
+      "textures": 56,
+      "lightsEnabled": 4,
+      "drawCalls": 51678,
+      "jsHeapMB": 133
+    },
+    "13_city_overlook": {
+      "frameMsAvg": 1959.8,
+      "frameMsP95": 2822.3,
+      "framesSampled": 2,
+      "activeMeshes": 707,
+      "enabledMeshes": 1635,
+      "totalMeshes": 1637,
+      "totalVertices": 298446,
+      "materials": 274,
+      "textures": 56,
+      "lightsEnabled": 4,
+      "drawCalls": 63612,
+      "jsHeapMB": 133
+    },
+    "14_city_soldiers": {
+      "frameMsAvg": 4110,
+      "frameMsP95": 4852.4,
+      "framesSampled": 2,
+      "activeMeshes": 317,
+      "enabledMeshes": 1687,
+      "totalMeshes": 1689,
+      "totalVertices": 304850,
+      "materials": 290,
+      "textures": 60,
+      "lightsEnabled": 4,
+      "drawCalls": 73647,
+      "jsHeapMB": 133
+    },
+    "15_city_weapon_close": {
+      "frameMsAvg": 4209.3,
+      "frameMsP95": 4298.1,
+      "framesSampled": 2,
+      "activeMeshes": 1409,
+      "enabledMeshes": 1688,
+      "totalMeshes": 1689,
+      "totalVertices": 304850,
+      "materials": 290,
+      "textures": 60,
+      "lightsEnabled": 4,
+      "drawCalls": 82020,
+      "jsHeapMB": 133
+    }
+  },
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ]
+}

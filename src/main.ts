@@ -1470,4 +1470,10 @@ async function boot(): Promise<void> {
   }
 }
 
-void boot();
+// `?lookdev=<asset>` opens the overhaul's asset review scene instead of the
+// game (dynamic import: it costs nothing in normal play).
+if (new URLSearchParams(location.search).has("lookdev")) {
+  void import("@/lookdev").then((m) => m.runLookdev(canvas));
+} else {
+  void boot();
+}

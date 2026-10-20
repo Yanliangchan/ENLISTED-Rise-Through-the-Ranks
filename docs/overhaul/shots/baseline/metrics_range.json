@@ -1,0 +1,38 @@
+{
+  "label": "baseline",
+  "date": "2026-10-20T23:00:29.689Z",
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "shots": {
+    "20_range_firingline": {
+      "frameMsAvg": 704.1,
+      "frameMsP95": 898.7,
+      "framesSampled": 2,
+      "activeMeshes": 329,
+      "enabledMeshes": 1636,
+      "totalMeshes": 1637,
+      "totalVertices": 298446,
+      "materials": 274,
+      "textures": 56,
+      "lightsEnabled": 4,
+      "drawCalls": 9361,
+      "jsHeapMB": 111
+    },
+    "21_range_ads": {
+      "frameMsAvg": 8949.3,
+      "frameMsP95": 12797.3,
+      "framesSampled": 2,
+      "activeMeshes": 294,
+      "enabledMeshes": 1611,
+      "totalMeshes": 1637,
+      "totalVertices": 298446,
+      "materials": 274,
+      "textures": 56,
+      "lightsEnabled": 4,
+      "drawCalls": 16908,
+      "jsHeapMB": 111
+    }
+  },
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "label": "baseline",
+  "date": "2026-10-20T22:56:22.052Z",
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "shots": {
+    "30_terminal_spawn": {
+      "frameMsAvg": 2181.6,
+      "frameMsP95": 4161.4,
+      "framesSampled": 2,
+      "activeMeshes": 1513,
+      "enabledMeshes": 1889,
+      "totalMeshes": 3466,
+      "totalVertices": 358389,
+      "materials": 303,
+      "textures": 76,
+      "lightsEnabled": 9,
+      "drawCalls": 6357,
+      "jsHeapMB": 141
+    },
+    "31_terminal_yard": {
+      "frameMsAvg": 803.1,
+      "frameMsP95": 1185.8,
+      "framesSampled": 2,
+      "activeMeshes": 1069,
+      "enabledMeshes": 1889,
+      "totalMeshes": 3466,
+      "totalVertices": 358389,
+      "materials": 303,
+      "textures": 76,
+      "lightsEnabled": 9,
+      "drawCalls": 21422,
+      "jsHeapMB": 141
+    },
+    "32_terminal_cranes": {
+      "frameMsAvg": 2578.4,
+      "frameMsP95": 2730.1,
+      "framesSampled": 2,
+      "activeMeshes": 855,
+      "enabledMeshes": 1889,
+      "totalMeshes": 3466,
+      "totalVertices": 358389,
+      "materials": 303,
+      "textures": 76,
+      "lightsEnabled": 9,
+      "drawCalls": 34478,
+      "jsHeapMB": 141
+    },
+    "33_terminal_enemies": {
+      "frameMsAvg": 4563,
+      "frameMsP95": 4869.6,
+      "framesSampled": 2,
+      "activeMeshes": 827,
+      "enabledMeshes": 1941,
+      "totalMeshes": 3518,
+      "totalVertices": 364793,
+      "materials": 319,
+      "textures": 80,
+      "lightsEnabled": 9,
+      "drawCalls": 44836,
+      "jsHeapMB": 141
+    }
+  },
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ]
+}
