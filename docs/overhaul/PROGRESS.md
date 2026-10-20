@@ -17,6 +17,26 @@ Branch: `claude/game-creation-hbdyq5`
 | 7 | Polish | not started | |
 | 8 | Acceptance gate | not started | `docs/overhaul/FINAL_REPORT.md` |
 
+## Workstreams and file ownership
+
+One owner per file per phase. Agents work in isolated git worktrees; the
+integration owner (lead session, Agent J role) merges, resolves conflicts and
+runs the review gates. Shared files (`ViewmodelFactory.ts` MODELS map,
+`lookdevAssets.ts`, `main.ts`) take additive one-line changes only.
+
+| WS | Scope | Owns | Status |
+|---|---|---|---|
+| D | Shared materials/textures/geometry | `src/render/*` | Foundation done (lead) |
+| B | Weapons + hands | `src/weapons/models/*`, ViewmodelFactory MODELS | SAR 21 benchmark done; rest pending |
+| C | Characters | `src/characters/*`, model sections of `EnemyAI.ts`, `Botty.ts`, `NetMatch.ts` | pending |
+| E | Lighting/sky/atmosphere | lighting+sky sections of `Level.ts`, `Postprocess.ts`, map lighting | sky shader done (lead); integration pending |
+| F | Combat VFX | `src/fx/*`, FX parts of `WeaponController.ts`, `Projectile.ts`, `ThrowableController.ts` | pending |
+| G | UI | `src/ui/*`, `index.html` | pending |
+| H | Game feel | viewmodel motion in `WeaponController.ts` (after F) | pending |
+| A | Environment art | map builders (after E) | pending |
+| I | Performance | measurement + fixes across | ongoing |
+| J | Integration/QA/authenticity review | `docs/overhaul/CATALOGUE.md`, `QA.md` | lead |
+
 ## Resume instructions
 
 1. `npm ci && npm run build`
