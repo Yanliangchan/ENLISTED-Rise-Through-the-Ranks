@@ -86,3 +86,10 @@ Next:
   re-dispatch from the briefs if a branch is missing.
 - Next for lead: review the in-game SAR 21; dispatch B (remaining weapons)
   and F (VFX) once the SAR 21 passes in game.
+- In-game SAR 21 (`shots/p2_sar21/`): hip framing and ADS scope path work;
+  rendered too dark due to a linear-vs-sRGB albedo mismatch, fixed in
+  c77546d (library follows the world convention). Re-capture after E merges.
+- Dispatched **B1** (BR18, Colt IAR, Ultimax 100, FN MAG, stretch:
+  SAR 21 P-Rail/red dot/M203 attachments) and **B2** (P30, MP5K, P90,
+  M110, TRG-22, MATADOR). Holding F (VFX) and H (feel) until C/E/G report
+  (CPU contention).
