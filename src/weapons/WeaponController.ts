@@ -5,6 +5,7 @@ import { WEAPONS } from "@/data/weapons";
 import { MATADOR_BLAST, M203_BLAST, M203_BALLISTICS } from "@/data/gamedata";
 import { computeEffectiveStats, damageAtRange, type EffectiveStats } from "@/weapons/ballistics";
 import { buildViewmodel, VIEWMODEL_RENDER_GROUP, type Viewmodel } from "@/weapons/ViewmodelFactory";
+import { ViewmodelMotion } from "@/weapons/ViewmodelMotion";
 import { fireProjectile } from "@/weapons/Projectile";
 import type { PlayerController } from "@/player/PlayerController";
 import type { InputManager } from "@/core/InputManager";
@@ -78,6 +79,12 @@ export class WeaponController {
   private fireCooldown = 0;
   private recoilKickPitch = 0; // accumulated upward kick still to recover
   private swayTime = 0;
+  /** Procedural sway/bob/kick/sprint/reload motion layered over the hip/ADS pose (visual only). */
+  private readonly motion = new ViewmodelMotion();
+  /** True while Loadout has the throwable slot up: no gun on screen, no gun firing. */
+  private holstered = false;
+  private readonly hipScratch = new Vector3();
+  private readonly adsScratch = new Vector3();
   bipodDeployed = false;
   /** True while the fitted M203 is toggled into firing mode — H switches, LMB then lobs a grenade instead of firing the rifle. */
   m203Active = false;
@@ -250,11 +257,14 @@ export class WeaponController {
       this.viewmodelCache.set(weapon.id, vm);
     }
     vm.root.setEnabled(true);
+    if (vm !== this.activeViewmodel) this.motion.equip();
     this.activeViewmodel = vm;
   }
 
   setViewmodelVisible(visible: boolean): void {
+    this.holstered = !visible;
     this.activeViewmodel?.root.setEnabled(visible);
+    if (visible) this.motion.equip();
   }
 
   update(dt: number): void {
@@ -264,6 +274,20 @@ export class WeaponController {
       // and let the ADS blend ease back to hip so the viewmodel settles.
       this.isAiming = false;
       this.updateAds(dt);
+      this.applyViewmodelMotion(dt);
+      this.updateRecoilRecovery(dt);
+      if (this.fireCooldown > 0) this.fireCooldown -= dt;
+      return;
+    }
+    if (this.holstered) {
+      // Throwable slot: the rifle is put away. Previously updateAds re-enabled
+      // the hidden viewmodel every frame and the trigger still fired it.
+      this.isAiming = false;
+      this.adsBlend = 0;
+      this.activeViewmodel?.root.setEnabled(false);
+      this.scopeOverlay?.update("none", 0, 1, this.effective.reticle);
+      this.player.camera.fov = BASE_FOV;
+      this.player.aimSensitivityMult = 1;
       this.updateRecoilRecovery(dt);
       if (this.fireCooldown > 0) this.fireCooldown -= dt;
       return;
@@ -275,6 +299,7 @@ export class WeaponController {
     }
     this.updateAds(dt);
     this.updateReload(dt);
+    this.applyViewmodelMotion(dt);
     this.updateRecoilRecovery(dt);
     this.updateM203Toggle(dt);
     if (this.m203Active) {
@@ -387,15 +412,16 @@ export class WeaponController {
       // rises into the centre reticle. Tall/bulky guns (LMG) and the ones the
       // reticle was getting buried behind (BR18/rifle, pistol) sit further
       // down-right so the crosshair and whatever's under it stay clear.
-      const hip = (this.activeViewmodel.hipRest ?? HIP_REST[this.weapon.class] ?? DEFAULT_HIP_REST).clone();
+      const hip = this.hipScratch.copyFrom(this.activeViewmodel.hipRest ?? HIP_REST[this.weapon.class] ?? DEFAULT_HIP_REST);
       // Solve for the root position that puts the sight/optic at screen centre.
       const sight = this.activeViewmodel.sightOffset;
-      const ads = new Vector3(-sight.x + swayX, -sight.y + swayY, 0.28 - sight.z);
-      this.activeViewmodel.root.position = Vector3.Lerp(hip, ads, this.adsBlend);
+      const ads = this.adsScratch.set(-sight.x + swayX, -sight.y + swayY, 0.28 - sight.z);
+      Vector3.LerpToRef(hip, ads, this.adsBlend, this.activeViewmodel.root.position);
       // Hip cant/yaw (if the model defines one) unwinds to zero as the sight
       // comes up, so the ADS solve above stays exact at full aim.
       const hipRot = this.activeViewmodel.hipRot;
       if (hipRot) this.activeViewmodel.root.rotation.copyFrom(hipRot).scaleInPlace(1 - this.adsBlend);
+      else this.activeViewmodel.root.rotation.setAll(0);
 
       if (isScope) {
         // The lens disc takes over the view once mostly aimed in, so the whole
@@ -429,15 +455,6 @@ export class WeaponController {
     }
     this.reloadTimer -= dt;
 
-    // Simple reload "animation": dip the weapon down and bring it back up over the
-    // reload duration (no skeleton/rig to work with, so this is a stand-in for a
-    // real lower-mag-insert-raise sequence).
-    if (this.activeViewmodel) {
-      const progress = 1 - Math.max(0, this.reloadTimer) / Math.max(0.01, this.effective.reloadTimeSec);
-      const dip = Math.sin(Math.min(1, progress) * Math.PI) * 0.09;
-      this.activeViewmodel.root.position.y -= dip;
-    }
-
     if (this.reloadTimer <= 0) {
       const needed = this.effective.magSize - this.ammo.mag;
       const loaded = Math.min(needed, this.ammo.reserve);
@@ -453,6 +470,26 @@ export class WeaponController {
     this.reloadTimer = this.effective.reloadTimeSec;
     this.audio.reload();
     this.callbacks.onReloadStart?.(this.weapon);
+  }
+
+  /** Layer the procedural motion over the hip/ADS pose set by updateAds (runs after it every frame). */
+  private applyViewmodelMotion(dt: number): void {
+    this.motion.update(dt, {
+      mouseDX: this.input.mouseDeltaX,
+      mouseDY: this.input.mouseDeltaY,
+      moving: this.player.isMoving,
+      sprinting: this.player.sprinting,
+      crouching: this.player.crouching,
+      grounded: this.player.grounded,
+      adsBlend: this.adsBlend,
+      sprintBlend: this.sprintBlend,
+      reloadProgress: this.isReloading
+        ? 1 - Math.max(0, this.reloadTimer) / Math.max(0.01, this.effective.reloadTimeSec)
+        : -1,
+    });
+    if (!this.activeViewmodel) return;
+    this.activeViewmodel.root.position.addInPlace(this.motion.pos);
+    this.activeViewmodel.root.rotation.addInPlace(this.motion.rot);
   }
 
   private updateRecoilRecovery(dt: number): void {
@@ -562,6 +599,7 @@ export class WeaponController {
     const kick = this.effective.recoilVertical * 0.0045 * bipodMult;
     this.player.camera.rotation.x -= kick;
     this.recoilKickPitch += kick;
+    this.motion.kick(this.effective.recoilVertical * bipodMult, this.isAiming);
 
     const jitter = (Math.random() * 2 - 1) * this.effective.recoilHorizontal * 0.0035 * bipodMult;
     this.player.addYaw(jitter);
