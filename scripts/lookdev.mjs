@@ -20,15 +20,16 @@ await new Promise((resolve) => server.stdout.on("data", (d) => String(d).include
 const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 const W = Number(process.env.W ?? 960), H = Number(process.env.H ?? 540);
 for (const spec of specs) {
-  const [asset, view = "three", time = "day"] = spec.split(":");
+  const [asset, view = "three", time = "day", extra = ""] = spec.split(":");
   const page = await browser.newPage({ viewport: { width: W, height: H } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   try {
-    await page.goto(`http://localhost:${PORT}/?lookdev=${asset}&view=${view}&time=${time}&fixedquality`);
-    await page.waitForFunction(() => window.__lookdevReady === true, null, { timeout: 240000 });
-    const file = path.join(outDir, `${asset}_${view}${time === "night" ? "_night" : ""}.png`);
+    await page.goto(`http://localhost:${PORT}/?lookdev=${asset}&view=${view}&time=${time}&fixedquality${extra ? "&" + extra : ""}`);
+    await page.waitForFunction(() => window.__lookdevReady === true, null, { timeout: 150000 });
+    const tag = extra ? "_" + extra.replace(/[^a-z0-9.,-]/gi, "") : "";
+    const file = path.join(outDir, `${asset}_${view}${time === "night" ? "_night" : ""}${tag}.png`);
     await page.screenshot({ path: file, timeout: 120000 });
     console.log("ok", file, errors.length ? errors.slice(0, 3) : "");
   } catch (e) {

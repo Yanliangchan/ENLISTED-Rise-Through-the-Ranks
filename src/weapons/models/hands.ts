@@ -1,5 +1,5 @@
 import { Mesh, Scene, Vector3 } from "@babylonjs/core";
-import { blob, boxProjectUVs, limb, mergeParts } from "@/render/geom";
+import { blob, limb, mergeParts } from "@/render/geom";
 import { materialLibrary } from "@/render/materials";
 
 /**
@@ -62,13 +62,9 @@ function sleeve(scene: Scene, name: string, wrist: Vector3, elbow: Vector3, glov
   const cuffEnd = wrist.add(dir.scale(0.05));
   gloveParts.push(limb(`${name}_cuff`, scene, wrist, cuffEnd, 0.026, 0.031, 12));
   const sleeveStart = wrist.add(dir.scale(0.035));
-  const fore = limb(`${name}_sleeve`, scene, sleeveStart, elbow, 0.036, 0.048, 14);
-  boxProjectUVs(fore, 0.5);
-  fabricParts.push(fore);
+  fabricParts.push(limb(`${name}_sleeve`, scene, sleeveStart, elbow, 0.036, 0.048, 14, 0.5));
   // Loose fabric at the cuff hem so the sleeve doesn't read as a pipe.
-  const hem = limb(`${name}_hem`, scene, sleeveStart, sleeveStart.add(dir.scale(0.025)), 0.039, 0.04, 14);
-  boxProjectUVs(hem, 0.5);
-  fabricParts.push(hem);
+  fabricParts.push(limb(`${name}_hem`, scene, sleeveStart, sleeveStart.add(dir.scale(0.025)), 0.039, 0.04, 14, 0.5));
 }
 
 export interface HandsResult {

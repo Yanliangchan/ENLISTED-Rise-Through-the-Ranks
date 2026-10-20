@@ -85,7 +85,7 @@ function rankField(field: Float32Array): Float32Array {
 }
 
 export const NO4_COLORS = {
-  brown: "#6b5a40",
+  brown: "#5e5240",
   moss: "#7d8a55",
   foliage: "#4f6236",
   dark: "#2f3d24",
@@ -237,7 +237,10 @@ function heightToNormal(scene: Scene, name: string, size: number, height: (x: nu
 export function fabricNormal(scene: Scene): Texture {
   return cached(scene, "fabricN", () => {
     const r = mulberry32(0xfab1);
-    return heightToNormal(scene, "fabricNormal", 128, (x, y) => (((x + y) % 6) < 3 ? 1 : 0) * 0.6 + r() * 0.4, 1.4);
+    const t = heightToNormal(scene, "fabricNormal", 128, (x, y) => (((x + y) % 6) < 3 ? 1 : 0) * 0.6 + r() * 0.4, 1.4);
+    t.level = 0.5;
+    t.uScale = t.vScale = 3; // ~2 cm twill on 0.5 m camo tiles
+    return t;
   });
 }
 
@@ -245,7 +248,10 @@ export function fabricNormal(scene: Scene): Texture {
 export function polymerNormal(scene: Scene): Texture {
   return cached(scene, "polyN", () => {
     const n = fbm(32, 2, mulberry32(0xb01));
-    return heightToNormal(scene, "polymerNormal", 128, (x, y) => n(x / 128, y / 128), 2.2);
+    const t = heightToNormal(scene, "polymerNormal", 128, (x, y) => n(x / 128, y / 128), 2.2);
+    t.level = 0.15;
+    t.uScale = t.vScale = 20; // UVs in metres: 10 cm tile of fine stipple
+    return t;
   });
 }
 
@@ -253,7 +259,10 @@ export function polymerNormal(scene: Scene): Texture {
 export function metalNormal(scene: Scene): Texture {
   return cached(scene, "metalN", () => {
     const n = fbm(8, 3, mulberry32(0xe7a1));
-    return heightToNormal(scene, "metalNormal", 128, (x, y) => n(x / 128, y / 128), 0.9);
+    const t = heightToNormal(scene, "metalNormal", 128, (x, y) => n(x / 128, y / 128), 0.9);
+    t.level = 0.25;
+    t.uScale = t.vScale = 6;
+    return t;
   });
 }
 
@@ -280,6 +289,8 @@ export function grainTexture(scene: Scene, seed = 0x6a1e, contrast = 0.12): Text
     ctx.putImageData(img, 0, 0);
     tex.update(false);
     tex.wrapU = tex.wrapV = Texture.WRAP_ADDRESSMODE;
+    // UVs are in metres: ~8 tiles/m keeps the breakup at a few-cm scale.
+    tex.uScale = tex.vScale = 8;
     return tex;
   });
 }

@@ -32,7 +32,7 @@ import { buildViewmodel } from "@/weapons/ViewmodelFactory";
  *   time:  day | night
  */
 
-type AssetBuilder = (scene: Scene) => { root: TransformNode; sightOffset?: Vector3 };
+type AssetBuilder = (scene: Scene) => { root: TransformNode; sightOffset?: Vector3; hipRest?: Vector3; hipRot?: Vector3 };
 
 const ASSETS: Record<string, AssetBuilder> = {};
 
@@ -90,9 +90,13 @@ export async function runLookdev(canvas: HTMLCanvasElement): Promise<void> {
   let root: TransformNode;
   let sightOffset = new Vector3(0, 0.1, 0);
   let weaponClass = "rifle";
+  let hipRest: Vector3 | undefined;
+  let hipRot: Vector3 | undefined;
   if (ASSETS[assetId]) {
     const a = ASSETS[assetId](scene);
     root = a.root;
+    hipRest = a.hipRest;
+    hipRot = a.hipRot;
     if (a.sightOffset) sightOffset = a.sightOffset;
   } else {
     const w = WEAPONS[assetId.replace(/_old$/, "")];
@@ -101,7 +105,13 @@ export async function runLookdev(canvas: HTMLCanvasElement): Promise<void> {
     const vm = buildViewmodel(w, scene);
     root = vm.root;
     sightOffset = vm.sightOffset;
+    hipRest = vm.hipRest;
+    hipRot = vm.hipRot;
   }
+  // Framing overrides for tuning: &hip=x,y,z&rot=x,y,z
+  const vec = (k: string) => (q.get(k) ? Vector3.FromArray(q.get(k)!.split(",").map(Number)) : undefined);
+  hipRest = vec("hip") ?? hipRest;
+  hipRot = vec("rot") ?? hipRot;
   const meshes: AbstractMesh[] = root.getChildMeshes(false);
   for (const m of meshes) {
     shadows.addShadowCaster(m);
@@ -118,7 +128,10 @@ export async function runLookdev(canvas: HTMLCanvasElement): Promise<void> {
     camera = cam;
     root.parent = cam;
     if (view === "ads") root.position.set(-sightOffset.x, -sightOffset.y, 0.28 - sightOffset.z);
-    else root.position.copyFrom(HIP[weaponClass] ?? new Vector3(0.18, -0.16, 0.35));
+    else {
+      root.position.copyFrom(hipRest ?? HIP[weaponClass] ?? new Vector3(0.18, -0.16, 0.35));
+      if (hipRot) root.rotation.copyFrom(hipRot);
+    }
     // Viewmodel draws over the world, as in game.
     for (const m of meshes) m.renderingGroupId = 1;
     scene.setRenderingAutoClearDepthStencil(1, true, true, false);
@@ -138,7 +151,15 @@ export async function runLookdev(canvas: HTMLCanvasElement): Promise<void> {
 
   engine.runRenderLoop(() => scene.render());
   window.addEventListener("resize", () => engine.resize());
-  await scene.whenReadyAsync();
+  // Never hang silently: after 60 s, report what isn't ready and render anyway.
+  const timeout = new Promise<void>((resolve) =>
+    setTimeout(() => {
+      const notReady = scene.meshes.filter((m) => !m.isReady(true)).map((m) => `${m.name}:${m.material?.name}`);
+      console.error("lookdev: not ready after 60s", notReady.slice(0, 12).join(", "));
+      resolve();
+    }, 60000)
+  );
+  await Promise.race([scene.whenReadyAsync(), timeout]);
   // A few frames for the reflection probe, shadow map and post stack to settle.
   let frames = 0;
   scene.onAfterRenderObservable.add(() => {

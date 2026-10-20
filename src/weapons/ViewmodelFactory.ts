@@ -8,6 +8,7 @@ import {
   Mesh,
 } from "@babylonjs/core";
 import type { Weapon } from "@/data/weapons";
+import { buildSar21Model } from "@/weapons/models/sar21";
 
 const DARK_METAL = new Color3(0.18, 0.18, 0.2);
 const TAN_POLYMER = new Color3(0.25, 0.23, 0.18);
@@ -23,6 +24,14 @@ export interface Viewmodel {
   bodyMeshes: Mesh[];
   /** Iron-sight / optic-housing meshes — hidden on ADS for red-dot/holo optics so the housing doesn't occlude the reticle. */
   sightMeshes: Mesh[];
+  /**
+   * Hip-fire rest position for this specific model (camera-local). True-scale
+   * models need their own framing — a bullpup's optic sits much further back
+   * than a conventional rifle's — so it overrides the per-class default.
+   */
+  hipRest?: Vector3;
+  /** Hip-fire Euler rotation (yaw the muzzle in, cant the gun) — blended to zero on ADS. */
+  hipRot?: Vector3;
 }
 
 /** Muzzle tip offset (local, metres forward/up) per weapon class. */
@@ -52,7 +61,29 @@ function lensMaterial(scene: Scene, name: string, color: Color3): StandardMateri
  * scope) so aiming actually reads as "looking down the sights". Placeholder
  * until real `.glb` models are swapped in via GLTFLoader.
  */
+/** Rendering group the first-person weapon draws in: depth is cleared first, so the gun never clips into walls. */
+export const VIEWMODEL_RENDER_GROUP = 1;
+
+/**
+ * Per-weapon true-scale models from the overhaul (src/weapons/models). Any
+ * weapon listed here uses its dedicated model; the rest fall back to the
+ * legacy per-class builder below until their rebuild lands.
+ */
+const MODELS: Partial<Record<string, (scene: Scene) => Viewmodel>> = {
+  sar21: (scene) => buildSar21Model(scene, "sar21"),
+};
+
 export function buildViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
+  const vm = MODELS[weapon.id]?.(scene) ?? buildLegacyViewmodel(weapon, scene);
+  scene.setRenderingAutoClearDepthStencil(VIEWMODEL_RENDER_GROUP, true, true, false);
+  for (const m of [...vm.bodyMeshes, ...vm.sightMeshes]) {
+    m.renderingGroupId = VIEWMODEL_RENDER_GROUP;
+    m.isPickable = false;
+  }
+  return vm;
+}
+
+function buildLegacyViewmodel(weapon: Weapon, scene: Scene): Viewmodel {
   const root = new TransformNode(`viewmodel_${weapon.id}`, scene);
   // Gunmetal: tight glossy highlight so the receiver/barrel catch light and
   // read as machined steel rather than matte grey blocks.

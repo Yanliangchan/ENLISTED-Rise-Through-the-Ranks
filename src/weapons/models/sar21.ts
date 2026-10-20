@@ -20,6 +20,8 @@ export interface WeaponModel {
   sightOffset: Vector3;
   bodyMeshes: Mesh[];
   sightMeshes: Mesh[];
+  hipRest?: Vector3;
+  hipRot?: Vector3;
 }
 
 const OPTIC_AXIS_Y = 0.095;
@@ -48,8 +50,6 @@ export function buildSar21Model(scene: Scene, id = "sar21", withHands = true): W
   steel.push(chamferBox(`${id}_ejport`, scene, { w: 0.003, h: 0.02, d: 0.058 }, new Vector3(0.0315, 0.004, -0.13), 0.001));
   // Fire selector at the butt (R-01: rear selector).
   black.push(chamferBox(`${id}_selector`, scene, { w: 0.008, h: 0.012, d: 0.022 }, new Vector3(0.032, -0.062, -0.31), 0.002));
-  // Moulding seam ribs along the butt so the large flat flank isn't a single plane.
-  olive.push(extrudeProfile(`${id}_ribL`, scene, stroke([[-0.37, -0.05], [-0.2, -0.045]], 0.004), 0.064, { bevel: 0.001 }));
 
   // ---- Pistol grip (raked) with finger grooves ------------------------------
   const grip: P2[] = fillet([
@@ -98,7 +98,7 @@ export function buildSar21Model(scene: Scene, id = "sar21", withHands = true): W
   // Objective bell and eyepiece with rubber eyecup.
   sightMetal.push(latheZ(`${id}_objective`, scene, [[0.0001, 0.12], [0.0175, 0.12], [0.019, 0.128], [0.019, 0.134], [0.0001, 0.134]], 22, new Vector3(0, OPTIC_AXIS_Y, 0)));
   lenses.push(latheZ(`${id}_objLens`, scene, [[0.0001, 0.1345], [0.0158, 0.1345], [0.0158, 0.135], [0.0001, 0.1352]], 22, new Vector3(0, OPTIC_AXIS_Y, 0)));
-  sightMetal.push(latheZ(`${id}_eyepiece`, scene, [[0.0001, -0.208], [0.0185, -0.208], [0.0175, -0.198], [0.016, -0.186], [0.0001, -0.186]], 22, new Vector3(0, OPTIC_AXIS_Y, 0)));
+  black.push(latheZ(`${id}_eyepiece`, scene, [[0.0001, -0.208], [0.0185, -0.208], [0.0175, -0.198], [0.016, -0.186], [0.0001, -0.186]], 22, new Vector3(0, OPTIC_AXIS_Y, 0)));
   lenses.push(latheZ(`${id}_eyeLens`, scene, [[0.0001, -0.2092], [0.0128, -0.2092], [0.0128, -0.2085], [0.0001, -0.2085]], 22, new Vector3(0, OPTIC_AXIS_Y, 0)));
   // Backup iron sights on top of the handle (R-01).
   sightMetal.push(chamferBox(`${id}_ironRearL`, scene, { w: 0.004, h: 0.01, d: 0.008 }, new Vector3(-0.005, 0.127, -0.16), 0.001));
@@ -108,11 +108,15 @@ export function buildSar21Model(scene: Scene, id = "sar21", withHands = true): W
   steel.push(chamferBox(`${id}_cocking`, scene, { w: 0.014, h: 0.011, d: 0.03 }, new Vector3(-0.036, 0.019, 0.022), 0.002, 0.003));
 
   // ---- Translucent curved magazine behind the grip -------------------------
-  const mag: P2[] = fillet([[-0.166, -0.066], [-0.093, -0.066], [-0.074, -0.17], [-0.052, -0.252], [-0.128, -0.27], [-0.148, -0.18]], [0.002, 0.002, 0.03, 0.006, 0.006, 0.03], 4);
+  // STANAG-style curve: the front edge sweeps forward as the stack deepens.
+  const mag: P2[] = fillet([
+    [-0.166, -0.066], [-0.093, -0.066], [-0.084, -0.12], [-0.066, -0.17], [-0.04, -0.222],
+    [-0.106, -0.25], [-0.13, -0.2], [-0.15, -0.14],
+  ], [0.002, 0.002, 0.02, 0.02, 0.006, 0.006, 0.02, 0.02], 4);
   const magMesh = extrudeProfile(`${id}_mag`, scene, mag, 0.025, { bevel: 0.0025 });
-  black.push(extrudeProfile(`${id}_magBase`, scene, fillet([[-0.056, -0.248], [-0.13, -0.266], [-0.133, -0.28], [-0.052, -0.262]], 0.004, 2), 0.029, { bevel: 0.002 }));
+  black.push(extrudeProfile(`${id}_magBase`, scene, fillet([[-0.044, -0.218], [-0.108, -0.246], [-0.114, -0.259], [-0.038, -0.229]], 0.004, 2), 0.029, { bevel: 0.002 }));
   // Rounds stacked inside, visible through the translucent body.
-  const rounds = extrudeProfile(`${id}_rounds`, scene, fillet([[-0.16, -0.07], [-0.1, -0.07], [-0.086, -0.15], [-0.15, -0.16]], 0.01, 3), 0.012, { bevel: 0.002 });
+  const rounds = extrudeProfile(`${id}_rounds`, scene, fillet([[-0.16, -0.07], [-0.1, -0.07], [-0.083, -0.14], [-0.138, -0.16]], 0.01, 3), 0.012, { bevel: 0.002 });
 
   // ---- Hands ----------------------------------------------------------------
   const hands = withHands
@@ -150,5 +154,12 @@ export function buildSar21Model(scene: Scene, id = "sar21", withHands = true): W
   muzzle.parent = root;
   muzzle.position.set(0, 0, 0.378);
 
-  return { root, muzzle, sightOffset: new Vector3(0, OPTIC_AXIS_Y, -0.21), bodyMeshes, sightMeshes };
+    // Shoulder-ready hold: butt at the shoulder (~0.17 right, ~0.15 below the
+  // eye), muzzle yawed slightly in and the gun canted so its left flank and
+  // the support hand face the camera. Both unwind to zero on ADS.
+  return {
+    root, muzzle, sightOffset: new Vector3(0, OPTIC_AXIS_Y, -0.21), bodyMeshes, sightMeshes,
+    hipRest: new Vector3(0.16, -0.15, 0.45),
+    hipRot: new Vector3(-0.04, -0.09, -0.3),
+  };
 }

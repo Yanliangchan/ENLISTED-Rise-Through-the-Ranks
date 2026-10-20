@@ -4,7 +4,7 @@ import type { Weapon } from "@/data/weapons";
 import { WEAPONS } from "@/data/weapons";
 import { MATADOR_BLAST, M203_BLAST, M203_BALLISTICS } from "@/data/gamedata";
 import { computeEffectiveStats, damageAtRange, type EffectiveStats } from "@/weapons/ballistics";
-import { buildViewmodel, type Viewmodel } from "@/weapons/ViewmodelFactory";
+import { buildViewmodel, VIEWMODEL_RENDER_GROUP, type Viewmodel } from "@/weapons/ViewmodelFactory";
 import { fireProjectile } from "@/weapons/Projectile";
 import type { PlayerController } from "@/player/PlayerController";
 import type { InputManager } from "@/core/InputManager";
@@ -387,11 +387,15 @@ export class WeaponController {
       // rises into the centre reticle. Tall/bulky guns (LMG) and the ones the
       // reticle was getting buried behind (BR18/rifle, pistol) sit further
       // down-right so the crosshair and whatever's under it stay clear.
-      const hip = (HIP_REST[this.weapon.class] ?? DEFAULT_HIP_REST).clone();
+      const hip = (this.activeViewmodel.hipRest ?? HIP_REST[this.weapon.class] ?? DEFAULT_HIP_REST).clone();
       // Solve for the root position that puts the sight/optic at screen centre.
       const sight = this.activeViewmodel.sightOffset;
       const ads = new Vector3(-sight.x + swayX, -sight.y + swayY, 0.28 - sight.z);
       this.activeViewmodel.root.position = Vector3.Lerp(hip, ads, this.adsBlend);
+      // Hip cant/yaw (if the model defines one) unwinds to zero as the sight
+      // comes up, so the ADS solve above stays exact at full aim.
+      const hipRot = this.activeViewmodel.hipRot;
+      if (hipRot) this.activeViewmodel.root.rotation.copyFrom(hipRot).scaleInPlace(1 - this.adsBlend);
 
       if (isScope) {
         // The lens disc takes over the view once mostly aimed in, so the whole
@@ -783,6 +787,7 @@ export class WeaponController {
     flash.position = new Vector3(0, -0.01 * this.adsBlend, 0.01);
     flash.billboardMode = 7; // BILLBOARDMODE_ALL
     flash.isPickable = false;
+    flash.renderingGroupId = VIEWMODEL_RENDER_GROUP; // draws with the gun, not under it
     flash.material = this.fxMat("flash");
     setTimeout(() => flash.dispose(), 28);
     // NOTE: no per-shot dynamic PointLight here. Creating/disposing a real light

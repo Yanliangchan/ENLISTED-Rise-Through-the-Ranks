@@ -291,11 +291,24 @@ export function latheZ(name: string, scene: Scene, profile: P2[], tess = 18, at:
   return m;
 }
 
-/** A tapered cylinder strung between two points — limbs, fingers, straps, rods. */
-export function limb(name: string, scene: Scene, a: Vector3, b: Vector3, rA: number, rB: number, tess = 10): Mesh {
+/**
+ * A tapered cylinder strung between two points — limbs, fingers, straps, rods.
+ * With `metresPerTile`, UVs wrap around the circumference and run along the
+ * length at true scale, so fabric prints keep their size on sleeves and legs.
+ */
+export function limb(name: string, scene: Scene, a: Vector3, b: Vector3, rA: number, rB: number, tess = 10, metresPerTile = 0): Mesh {
   const dir = b.subtract(a);
   const len = dir.length();
   const m = MeshBuilder.CreateCylinder(name, { height: len, diameterBottom: rA * 2, diameterTop: rB * 2, tessellation: tess, cap: Mesh.CAP_ALL }, scene);
+  if (metresPerTile > 0) {
+    const uv = m.getVerticesData("uv")!;
+    const circ = Math.PI * (rA + rB);
+    for (let i = 0; i < uv.length; i += 2) {
+      uv[i] *= circ / metresPerTile;
+      uv[i + 1] *= len / metresPerTile;
+    }
+    m.setVerticesData("uv", uv);
+  }
   const up = new Vector3(0, 1, 0);
   const d = dir.normalizeToNew();
   const axis = Vector3.Cross(up, d);
