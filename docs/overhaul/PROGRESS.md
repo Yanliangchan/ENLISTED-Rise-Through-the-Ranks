@@ -72,3 +72,17 @@ Next:
 - Review SAR 21 lookdev renders, revise, then wire into ViewmodelFactory.
 - Benchmarks still to build: OPFOR soldier, friendly soldier, combat VFX,
   environment (sky/lighting fixes in the game), HUD/menu pass.
+
+### 2026-10-20: session 1 (cont.)
+
+- SAR 21 benchmark wired into the game (`ViewmodelFactory` MODELS map);
+  in-game capture `shots/p2_sar21/` running.
+- Dispatched in isolated worktrees: **C** (characters: shared soldier
+  builder, OPFOR/BOTTY/NetAvatar), **E** (sky integration, night-arc fix,
+  leaked wrecks/crates, per-map lighting presets), **G** (fonts, design
+  system unification, placeholders, UI bugs). Briefs follow
+  `AGENT_BRIEF.md`. If a session dies before they report, their worktree
+  branches (`git worktree list`, `git branch -a`) hold their commits;
+  re-dispatch from the briefs if a branch is missing.
+- Next for lead: review the in-game SAR 21; dispatch B (remaining weapons)
+  and F (VFX) once the SAR 21 passes in game.
