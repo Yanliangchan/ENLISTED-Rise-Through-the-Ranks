@@ -41,8 +41,15 @@ export interface MaterialLibrary {
 
 const libs = new WeakMap<Scene, MaterialLibrary>();
 
+/**
+ * Hex colours are used as-authored, NOT converted to linear: the existing
+ * world (WorldMaterial) feeds its sRGB-authored colours straight into albedo
+ * and the light rig is tuned for that. Converting here made library assets
+ * ~3x darker than the world under the same lights, so the library follows
+ * the world's convention to keep one consistent response across the game.
+ */
 function hex(h: string): Color3 {
-  return Color3.FromHexString(h).toLinearSpace();
+  return Color3.FromHexString(h);
 }
 
 interface Spec {

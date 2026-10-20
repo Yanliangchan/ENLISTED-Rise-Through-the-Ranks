@@ -59,14 +59,20 @@ export async function runLookdev(canvas: HTMLCanvasElement): Promise<void> {
   const scene = new Scene(engine);
   scene.clearColor.set(0.5, 0.55, 0.6, 1);
 
-  const sunDir = new Vector3(-0.5, -0.9, 0.35).normalize();
+  // Mirrors the game's rig (Level.ts buildLevel) so lookdev judges assets
+  // under the light they'll actually get.
+  const sunDir = new Vector3(-0.5, -1, 0.3).normalize();
   const hemi = new HemisphericLight("hemiLight", new Vector3(0, 1, 0), scene);
-  hemi.intensity = night ? 0.12 : 0.55;
-  hemi.groundColor = night ? new Color3(0.02, 0.03, 0.03) : new Color3(0.32, 0.28, 0.22);
+  hemi.intensity = night ? 0.16 : 0.85;
+  hemi.diffuse = night ? new Color3(0.36, 0.4, 0.44) : new Color3(0.84, 0.85, 0.82);
+  hemi.groundColor = night ? new Color3(0.05, 0.05, 0.05) : new Color3(0.3, 0.25, 0.19);
   const sun = new DirectionalLight("sunLight", sunDir, scene);
-  sun.intensity = night ? 0.25 : 2.4;
-  sun.diffuse = night ? Color3.FromHexString("#9fb3d6") : Color3.FromHexString("#fff3dc");
+  sun.intensity = night ? 0.26 : 1.15;
+  sun.diffuse = night ? new Color3(0.56, 0.6, 0.66) : Color3.FromHexString("#fff3dc");
   sun.position = sunDir.scale(-20);
+  const fill = new DirectionalLight("fillLight", new Vector3(0.45, -0.35, -0.35), scene);
+  fill.intensity = night ? 0.07 : 0.28;
+  fill.specular = Color3.Black();
   buildSky(scene, sunDir, night ? SKY_NIGHT : SKY_DAY);
 
   const ground = MeshBuilder.CreateGround("ground", { width: 40, height: 40 }, scene);
