@@ -107,6 +107,9 @@ function attachAdaptiveQuality(
   pipeline: DefaultRenderingPipeline,
   ssao: SSAO2RenderingPipeline | null
 ): void {
+  // `?fixedquality` pins the full effect stack: the overhaul's capture harness
+  // renders on a software rasteriser and must screenshot the real look.
+  if (new URLSearchParams(location.search).has("fixedquality")) return;
   const engine = scene.getEngine();
   const TARGET_FPS = 45;
   let tier = 0;

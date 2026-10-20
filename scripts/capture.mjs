@@ -43,7 +43,7 @@ page.on("console", (m) => {
 });
 page.on("pageerror", (e) => consoleErrors.push(String(e)));
 
-await page.goto(`http://localhost:${PORT}/?debug`);
+await page.goto(`http://localhost:${PORT}/?debug&fixedquality`);
 await page.waitForFunction(() => !!window.__debug, null, { timeout: 120000 });
 await page.waitForTimeout(3000);
 
@@ -64,13 +64,13 @@ async function sample() {
     let last = performance.now();
     await new Promise((resolve) => {
       // Menus pause rendering; don't wait on frames that never come.
-      setTimeout(resolve, 8000);
+      setTimeout(resolve, 45000);
       let n = 0;
       const obs = scene.onAfterRenderObservable.add(() => {
         const now = performance.now();
         times.push(now - last);
         last = now;
-        if (++n >= 30) {
+        if (++n >= 6) {
           scene.onAfterRenderObservable.remove(obs);
           resolve();
         }
@@ -100,9 +100,9 @@ async function shot(name, setup) {
   if (filter && !filter.test(name)) return;
   try {
     if (setup) await page.evaluate(setup);
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(12000);
     metrics.shots[name] = await sample();
-    await page.screenshot({ path: path.join(outDir, `${name}.png`) });
+    await page.screenshot({ path: path.join(outDir, `${name}.png`), timeout: 180000 });
     console.log("captured", name, JSON.stringify(metrics.shots[name]));
   } catch (e) {
     metrics.shots[name] = { error: String(e) };
