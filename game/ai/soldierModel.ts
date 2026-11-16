@@ -103,7 +103,7 @@ export function opforCamo(): THREE.CanvasTexture {
     256,
     (c) => {
       const img = c.createImageData(256, 256);
-      const cols = [[146, 132, 98], [112, 104, 72], [84, 74, 52], [60, 62, 44]];
+      const cols = [[104, 96, 70], [82, 80, 54], [62, 56, 40], [44, 48, 34]];
       for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
         const v = fbm(x / 256, y / 256, 4, 4, 51) * 0.7 + fbm(x / 256, y / 256, 11, 2, 77) * 0.3;
         const k = v < 0.42 ? 0 : v < 0.52 ? 1 : v < 0.6 ? 2 : v < 0.66 ? 0 : 3;
@@ -176,17 +176,27 @@ function buildGeometry(): THREE.BufferGeometry {
   rigid(a, 1, new THREE.SphereGeometry(0.128, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.56).scale(1, 0.92, 1.12), B.head, [0.25, 0, 0], 0, 1.7, -0.005);
   rigid(a, 1, new THREE.BoxGeometry(0.03, 0.05, 0.16), B.head, [0.5, 0, 0], 0.125, 1.69, 0);
   rigid(a, 1, new THREE.BoxGeometry(0.03, 0.05, 0.16), B.head, [0.5, 0, 0], -0.125, 1.69, 0);
-  // Plate carrier, pouches, pack, belt.
-  rigid(a, 1, new THREE.BoxGeometry(0.33, 0.34, 0.06), B.chest, [0.5, 0, 0], 0, 1.3, 0.128);
-  rigid(a, 1, new THREE.BoxGeometry(0.32, 0.36, 0.06), B.chest, [0.5, 0, 0], 0, 1.3, -0.124);
-  rigid(a, 1, new THREE.BoxGeometry(0.06, 0.16, 0.24), B.chest, [0.5, 0, 0], 0.175, 1.24, 0);
-  rigid(a, 1, new THREE.BoxGeometry(0.06, 0.16, 0.24), B.chest, [0.5, 0, 0], -0.175, 1.24, 0);
-  for (const sx of [-0.1, 0, 0.1]) rigid(a, 1, new THREE.BoxGeometry(0.08, 0.14, 0.055), B.chest, [0.75, 0, 0], sx, 1.2, 0.18);
-  rigid(a, 1, new THREE.BoxGeometry(0.1, 0.09, 0.05), B.chest, [0.75, 0, 0], 0.09, 1.38, 0.17);
-  rigid(a, 1, new THREE.BoxGeometry(0.26, 0.3, 0.12), B.chest, [0.75, 0, 0], 0, 1.32, -0.21);
-  rigid(a, 1, new THREE.BoxGeometry(0.36, 0.06, 0.26), B.hips, [0.5, 0, 0], 0, 1.0, 0);
-  rigid(a, 1, new THREE.BoxGeometry(0.07, 0.16, 0.12), B.hips, [0.75, 0, 0], -0.19, 0.95, 0.02);
-  rigid(a, 1, new THREE.BoxGeometry(0.1, 0.12, 0.07), B.hips, [0.75, 0, 0], 0.17, 0.97, -0.1);
+  // Plate carrier: a shell lofted just outside the torso so it wraps the body, then pouches, pack, belt.
+  const G: [number, number, number] = [0.5, 0, 0];
+  loft(a, 1, 0, [
+    [1.07, 0.168, 0.124, B.spine, 0.6, B.chest, 0.4],
+    [1.1, 0.186, 0.146, B.spine, 0.5, B.chest, 0.5],
+    [1.2, 0.196, 0.156, B.chest, 1, 0, 0],
+    [1.36, 0.204, 0.158, B.chest, 1, 0, 0],
+    [1.44, 0.198, 0.146, B.chest, 1, 0, 0],
+    [1.47, 0.15, 0.116, B.chest, 1, 0, 0],
+  ], 14, G);
+  for (const sx of [-0.105, 0, 0.105]) rigid(a, 1, new THREE.BoxGeometry(0.085, 0.15, 0.05), B.chest, [0.75, 0, 0], sx, 1.19, 0.17);
+  rigid(a, 1, new THREE.BoxGeometry(0.11, 0.08, 0.04), B.chest, [0.75, 0, 0], 0.08, 1.37, 0.165);
+  rigid(a, 1, new THREE.SphereGeometry(0.13, 10, 8).scale(1, 1.2, 0.62), B.chest, [0.75, 0, 0], 0, 1.3, -0.19);
+  rigid(a, 1, new THREE.BoxGeometry(0.16, 0.07, 0.07), B.chest, [0.5, 0, 0], 0, 1.16, -0.2);
+  loft(a, 1, 0, [
+    [0.985, 0.18, 0.13, B.hips, 1, 0, 0],
+    [1.0, 0.184, 0.134, B.hips, 1, 0, 0],
+    [1.035, 0.18, 0.13, B.hips, 1, 0, 0],
+  ], 12, G);
+  rigid(a, 1, new THREE.BoxGeometry(0.06, 0.15, 0.11), B.hips, [0.75, 0, 0], -0.2, 0.95, 0.02);
+  rigid(a, 1, new THREE.BoxGeometry(0.1, 0.11, 0.06), B.hips, [0.75, 0, 0], 0.16, 0.97, -0.11);
 
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(a.pos, 3));

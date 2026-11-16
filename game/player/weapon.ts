@@ -66,7 +66,6 @@ export const SAR21: WeaponDef = {
   sound: "rifle",
 };
 
-const HIP_FOV = 74;
 const sm = (t: number): number => {
   const x = Math.max(0, Math.min(1, t));
   return x * x * (3 - 2 * x);
@@ -124,6 +123,7 @@ export class WeaponSystem {
   shotsFired = 0;
   shotsHit = 0;
   enabled = true;
+  hipFov = 74;
   onHit?: (part: BodyPart, killed: boolean) => void;
   onShot?: (origin: THREE.Vector3, dir: THREE.Vector3) => void;
   private readonly rig = new THREE.Group();
@@ -333,7 +333,7 @@ export class WeaponSystem {
 
     this.flashT -= dt;
     this.flash.visible = this.flashT > 0;
-    this.engine.setFov(THREE.MathUtils.lerp(HIP_FOV + this.sprintBlend * 5, d.adsFov, e));
+    this.engine.setFov(THREE.MathUtils.lerp(this.hipFov + this.sprintBlend * 5, d.adsFov, e));
   }
 
   /** Look sensitivity scale for the current zoom. */
