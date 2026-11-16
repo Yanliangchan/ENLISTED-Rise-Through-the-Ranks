@@ -232,6 +232,9 @@ export function hawkerCentre(ctx: WorldCtx, o: { x: number; z: number; yaw: numb
       const e = F0 + eave, rd = F0 + ridge;
       b.prism("rooftile", [[-HZ - 1.6, e - 0.1], [-HZ - 1.6, e - 0.3], [-1.6, rd - 0.5], [-1.6, rd - 0.3]], -HX - 1.2, HX + 1.2, { tint: 0xa8553a });
       b.prism("rooftile", [[1.6, rd - 0.3], [1.6, rd - 0.5], [HZ + 1.6, e - 0.3], [HZ + 1.6, e - 0.1]], -HX - 1.2, HX + 1.2, { tint: 0xa8553a });
+      // Light metal soffit under both planes, so the underside bounces light like a real hawker roof.
+      b.prism("ribmetal", [[-HZ - 1.5, e - 0.36], [-HZ - 1.5, e - 0.4], [-1.6, rd - 0.6], [-1.6, rd - 0.56]], -HX - 1.1, HX + 1.1, { tint: 0xf2eee2, collide: "none" });
+      b.prism("ribmetal", [[1.6, rd - 0.56], [1.6, rd - 0.6], [HZ + 1.5, e - 0.4], [HZ + 1.5, e - 0.36]], -HX - 1.1, HX + 1.1, { tint: 0xf2eee2, collide: "none" });
       b.prism("rooftile", [[-2.6, rd + 0.55], [-2.6, rd + 0.4], [0, rd + 1.05], [2.6, rd + 0.4], [2.6, rd + 0.55], [0, rd + 1.25]], -HX - 0.6, HX + 0.6, { tint: 0x98492f });
       for (const s of [-1, 1]) b.slab("ribmetal", s > 0 ? 1.55 : -1.65, rd - 0.35, -HX, 0.1, 0.85, HX * 2, { tint: 0xd8d4c4, collide: "none" });
     });

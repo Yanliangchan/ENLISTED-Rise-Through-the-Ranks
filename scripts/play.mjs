@@ -8,7 +8,7 @@ const page = await browser.newPage({ viewport: { width: +w, height: +h } });
 const errs = [];
 page.on("pageerror", (e) => errs.push("PAGEERROR " + e.message + "\n" + (e.stack ?? "").split("\n").slice(0, 4).join("\n")));
 page.on("console", (m) => { if (m.type() === "error") errs.push("error: " + m.text().slice(0, 400)); });
-await page.goto(`http://localhost:5173/play.html?${query}`, { waitUntil: "load" });
+await page.goto(`http://localhost:5173/?${query}`, { waitUntil: "load" });
 try {
   await page.waitForFunction(() => (window.__frames ?? 0) >= 3, null, { timeout: 240000 });
   const body = readFileSync(script, "utf8");

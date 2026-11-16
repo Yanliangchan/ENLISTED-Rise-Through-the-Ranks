@@ -468,6 +468,13 @@ export class Game implements MissionHost {
     this.hud.fade.style.opacity = String(1 - edge);
   }
 
+  /** Advance the simulation without rendering (automated play tests). */
+  simulate(dt: number): void {
+    if (this.state === "playing") this.play(dt);
+    this.vfx.update(dt, this.engine.camera);
+    this.input.endFrame();
+  }
+
   frame = (): void => {
     const now = performance.now();
     const dt = Math.min(0.05, (now - this.last) / 1000);

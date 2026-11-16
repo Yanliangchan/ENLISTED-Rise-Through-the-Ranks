@@ -4,7 +4,7 @@ const page = await browser.newPage({ viewport: { width: 640, height: 360 } });
 const t0 = Date.now();
 page.on("pageerror", (e) => console.log(((Date.now()-t0)/1000).toFixed(1), "PAGEERROR", e.message, (e.stack ?? "").split("\n").slice(0,5).join(" | ")));
 page.on("console", (m) => console.log(((Date.now()-t0)/1000).toFixed(1), m.type(), m.text().slice(0, 300)));
-await page.goto(`http://localhost:5173/play.html?${process.argv[2] ?? ""}`, { waitUntil: "load" });
+await page.goto(`http://localhost:5173/?${process.argv[2] ?? ""}`, { waitUntil: "load" });
 await new Promise((r) => setTimeout(r, +(process.argv[3] ?? 90000)));
 console.log("frames", await Promise.race([page.evaluate(() => window.__frames), new Promise((r) => setTimeout(() => r("busy"), 3000))]));
 await browser.close();

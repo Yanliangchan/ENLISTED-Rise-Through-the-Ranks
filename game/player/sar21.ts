@@ -72,7 +72,7 @@ export function buildGunMats(engine: Engine): GunMats {
   const vm = { viewmodel: true };
   // Glass-filled polymer: fine stipple, slight sheen on worn edges.
   const poly = new Paint(256, "#3e4042", { rough: 0.56, seed: 3 });
-  poly.grain(0.2, 24, 3, 5).speckle(0.14, 7);
+  poly.grain(0.06, 24, 3, 5).speckle(0.04, 7);
   const r = rng(9);
   for (let i = 0; i < 140; i++) {
     poly.all(`rgba(120,122,124,${0.15 + r() * 0.25})`, 0.52, 0.4, (c) => {

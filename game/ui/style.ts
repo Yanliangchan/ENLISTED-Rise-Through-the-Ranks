@@ -106,7 +106,7 @@ const CSS = `
 .brand p { margin:14px 0 0; font-size:17px; color:var(--dim); line-height:1.35; max-width:360px; letter-spacing:.02em; }
 .nav { margin-top:38px; display:flex; flex-direction:column; align-items:flex-start; }
 .nav button, .btn { all:unset; cursor:pointer; font-family:inherit; font-size:25px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); padding:7px 0 7px 0; position:relative; transition:color .12s, padding .12s; }
-.nav button small { display:block; font-size:13px; letter-spacing:.06em; font-weight:400; text-transform:none; color:var(--faint); transition:color .12s; margin-top:-2px; }
+.nav button small { display:block; font-size:14px; letter-spacing:.05em; font-weight:400; text-transform:none; color:rgba(233,230,220,.42); transition:color .12s; margin-top:-2px; }
 .nav button:hover, .nav button:focus-visible { color:var(--bone); padding-left:18px; }
 .nav button:hover small { color:var(--dim); }
 .nav button:before { content:""; position:absolute; left:0; top:20px; width:0; height:2px; background:var(--amber); transition:width .12s; }

@@ -1,7 +1,7 @@
 # ENLISTED rebuild (Three.js) — status and resume notes
 
 Supersedes the incremental Babylon overhaul in PROGRESS.md. The new client is
-in `game/`, served at `/play.html` beside the old game until cutover.
+in `game/`, now the only client (the Babylon build was removed at cutover).
 
 ## Run / verify
 - `npm ci && npx vite --port 5173`
@@ -26,4 +26,3 @@ in `game/`, served at `/play.html` beside the old game until cutover.
 ## Next
 1. Baked light volume (interiors currently lit by sky/hemisphere only)
 2. Viewmodel polish, surface tuning (grass tiling, asphalt normal)
-3. Cutover: new game becomes index.html; remove src/ (Babylon)

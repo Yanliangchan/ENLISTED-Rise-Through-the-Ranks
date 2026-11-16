@@ -206,7 +206,7 @@ export class Engine {
     this.csm.setupMaterial(mat);
     const csmHook = mat.onBeforeCompile.bind(mat);
     const macro = opts.macro ?? 0;
-    const key = `enl:${macro > 0 ? macro.toFixed(2) : 0}:${opts.wind ? 1 : 0}:${opts.viewmodel ? 1 : 0}:${opts.noVis ? 1 : 0}`;
+    const key = `enl3:${macro > 0 ? macro.toFixed(2) : 0}:${opts.wind ? 1 : 0}:${opts.viewmodel ? 1 : 0}:${opts.noVis ? 1 : 0}`;
     mat.customProgramCacheKey = () => key;
     mat.onBeforeCompile = (shader, renderer) => {
       csmHook(shader, renderer);
@@ -277,9 +277,27 @@ uniform sampler2D uMacro;`
     vec3 vp = (vFogWorld + wN * 0.5 - uVisMin) * uVisInv;
     vec4 vis = texture(uVisTex, clamp(vp, 0.0, 1.0));
     float skyV = vis.r;
-    reflectedLight.indirectDiffuse *= skyV;
+    // Under cover the fill is bounce light off the ground and walls, not blue sky.
+    float lumI = dot(reflectedLight.indirectDiffuse, vec3(0.3, 0.5, 0.2));
+    reflectedLight.indirectDiffuse = mix(vec3(lumI) * vec3(1.1, 1.0, 0.86), reflectedLight.indirectDiffuse, smoothstep(0.3, 0.95, skyV)) * skyV;
     reflectedLight.indirectSpecular *= mix(0.18, 1.0, skyV);
     reflectedLight.indirectDiffuse += vis.g * 2.4 * uLamp * BRDF_Lambert(material.diffuseColor);
+    ${
+      opts.viewmodel
+        ? /* glsl */ `
+    // First-person lighting rig: a soft key from over the left shoulder, a rim and a broad
+    // highlight, all in view space and scaled by how bright the surroundings are. Without it
+    // a dark rifle in shade is a silhouette.
+    float vmAmb = 0.3 + 0.7 * skyV + vis.g * 0.8;
+    vec3 vmV = normalize(vViewPosition);
+    vec3 vmL = normalize(vec3(-0.5, 0.72, 0.48));
+    float vmNd = max(dot(normal, vmL), 0.0);
+    float vmSp = pow(max(dot(normal, normalize(vmL + vmV)), 0.0), mix(70.0, 5.0, material.roughness));
+    float vmRim = pow(1.0 - max(dot(normal, vmV), 0.0), 3.0);
+    reflectedLight.directDiffuse += material.diffuseColor * (vmNd * 1.25 + vmRim * 0.55 + 0.22) * vmAmb;
+    reflectedLight.directSpecular += vec3(1.0, 0.97, 0.92) * vmSp * (1.0 - material.roughness) * 0.55 * vmAmb;`
+        : ""
+    }
   }`
         );
       }

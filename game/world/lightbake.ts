@@ -22,8 +22,10 @@ export function bakeLight(world: CollisionWorld, lamps: Lamp[], bounds: Rect): v
   const o = new THREE.Vector3();
   const d = new THREE.Vector3();
   // One zenith ray and four at ~50° give a decent estimate of the visible sky dome.
-  const dirs = [[0, 1, 0], [0.74, 0.67, 0.05], [-0.74, 0.67, -0.05], [0.05, 0.67, 0.74], [-0.05, 0.67, -0.74]];
-  const weight = [0.32, 0.17, 0.17, 0.17, 0.17];
+  // Plus four low rays: light that comes in sideways through open walls and shopfronts.
+  const dirs = [[0, 1, 0], [0.74, 0.67, 0.05], [-0.74, 0.67, -0.05], [0.05, 0.67, 0.74], [-0.05, 0.67, -0.74], [0.68, 0.26, 0.68], [-0.68, 0.26, 0.68], [0.68, 0.26, -0.68], [-0.68, 0.26, -0.68]];
+  const weight = [0.2, 0.12, 0.12, 0.12, 0.12, 0.08, 0.08, 0.08, 0.08];
+  const NR = dirs.length;
   const idx = (i: number, j: number, k: number): number => ((k * ny + j) * nx + i) * 4;
   for (let k = 0; k < nz; k++) {
     for (let i = 0; i < nx; i++) {
@@ -40,12 +42,12 @@ export function bakeLight(world: CollisionWorld, lamps: Lamp[], bounds: Rect): v
           // Above everything here; only neighbours can shade it.
           v = weight[0];
           o.set(x, y, z);
-          for (let r = 1; r < 5; r++) if (!world.raycast(o, d.set(dirs[r][0], dirs[r][1], dirs[r][2]), 45)) v += weight[r];
+          for (let r = 1; r < NR; r++) if (!world.raycast(o, d.set(dirs[r][0], dirs[r][1], dirs[r][2]), 45)) v += weight[r];
         } else {
           o.set(x, y, z);
-          for (let r = 0; r < 5; r++) if (!world.raycast(o, d.set(dirs[r][0], dirs[r][1], dirs[r][2]), 45)) v += weight[r];
+          for (let r = 0; r < NR; r++) if (!world.raycast(o, d.set(dirs[r][0], dirs[r][1], dirs[r][2]), 45)) v += weight[r];
         }
-        data[idx(i, j, k)] = Math.round((0.13 + 0.87 * v) * 255);
+        data[idx(i, j, k)] = Math.round((0.26 + 0.74 * v) * 255);
         data[idx(i, j, k) + 3] = 255;
       }
     }
@@ -78,7 +80,7 @@ export function bakeLight(world: CollisionWorld, lamps: Lamp[], bounds: Rect): v
       acc[(k * ny + j) * nx + i] += (l.power * f * f) / (1 + dist * dist * 0.05);
     }
   }
-  for (let n = 0; n < acc.length; n++) data[n * 4 + 1] = Math.min(255, acc[n] * 150);
+  for (let n = 0; n < acc.length; n++) data[n * 4 + 1] = Math.min(255, acc[n] * 400);
 
   const tex = new THREE.Data3DTexture(data, nx, ny, nz);
   tex.format = THREE.RGBAFormat;

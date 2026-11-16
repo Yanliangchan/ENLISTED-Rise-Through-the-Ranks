@@ -7,7 +7,7 @@ const errs = [];
 page.on("pageerror", (e) => errs.push("PAGEERROR " + e.message));
 page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") errs.push(m.type() + ": " + m.text().slice(0, 400)); });
 const t0 = Date.now();
-await page.goto(`http://localhost:5173/play.html?${query}`, { waitUntil: "load" });
+await page.goto(`http://localhost:5173/?${query}`, { waitUntil: "load" });
 try {
   await page.waitForFunction((n) => (window.__frames ?? 0) >= n, +frames, { timeout: 240000 });
 } catch (e) { errs.push("TIMEOUT waiting for frames"); }

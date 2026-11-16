@@ -317,7 +317,7 @@ export class WeaponSystem {
     const reloadTilt = kf(rp, [[0, 0], [0.1, 1], [0.84, 1], [1, 0]]);
     const draw = 1 - sm(this.drawT);
 
-    const hx = 0.088, hy = -0.186, hz = -0.118;
+    const hx = 0.135, hy = -0.2, hz = -0.36;
     const ax = 0, ay = -this.gun.sight.y, az = this.gun.sight.x + 0.012;
     this.rig.position.set(
       THREE.MathUtils.lerp(hx, ax, e) + bobX + this.swayX * sway * 0.6 - s * 0.055 + reloadTilt * 0.012 + p.lean * 0.012,
