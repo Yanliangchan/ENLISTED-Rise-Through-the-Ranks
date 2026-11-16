@@ -5,6 +5,7 @@ import { rr } from "~/gfx/noise";
 import { WorldCtx, decal } from "./ctx";
 import { GroundPlan, type Rect } from "./ground";
 import * as St from "./kit/street";
+import { hdbBlock } from "./kit/hdb";
 
 /**
  * NEE SOON ESTATE — the one map.
@@ -45,7 +46,6 @@ export function buildEstate(engine: Engine, lib: MatLib): Estate {
   }
 
   const g = ctx.builder("ground");
-  plan.build(g, BOUNDS);
 
   // ---- road markings -------------------------------------------------------
   const m = ctx.builder("markings");
@@ -124,6 +124,13 @@ export function buildEstate(engine: Engine, lib: MatLib): Estate {
   St.hydrant(f, AVE + 3.6, 58);
   St.hydrant(f, -AVE - 3.6, -64);
 
+  // ---- HDB precinct (south-west) -------------------------------------------
+  plan.add("screed", -99, 83.5, -19, 96.5);
+  plan.add("screed", -102, 14, -89, 78);
+  hdbBlock(ctx, { x: -59, z: 90.2, yaw: Math.PI, bays: 20, storeys: 12, number: "411", accent: 0xa8553a, accent2: 0xd9b382, room: [2, 6, "YISHUN ZONE 4 RESIDENTS' COMMITTEE CENTRE"] });
+  hdbBlock(ctx, { x: -95.4, z: 46, yaw: Math.PI / 2, bays: 15, storeys: 10, number: "413", accent: 0x3f7a78, accent2: 0xb8d0c4 });
+
+  plan.build(g, BOUNDS);
   ctx.commit(g);
   ctx.commit(m);
   ctx.commit(f);

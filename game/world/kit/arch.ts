@@ -58,8 +58,8 @@ export function win(b: Builder, x: number, y: number, z: number, w: number, h: n
   const zg = z - dir * inset;
   const cy = y + h / 2;
   // Glazing.
-  if (dir > 0) b.quad("glass", [x - w / 2, y, zg], [x + w / 2, y, zg], [x + w / 2, y + h, zg], [x - w / 2, y + h, zg], { tint: o.glass, collide: "none" });
-  else b.quad("glass", [x + w / 2, y, zg], [x - w / 2, y, zg], [x - w / 2, y + h, zg], [x + w / 2, y + h, zg], { tint: o.glass, collide: "none" });
+  if (dir > 0) b.quad("glass", [x - w / 2, y, zg], [x + w / 2, y, zg], [x + w / 2, y + h, zg], [x - w / 2, y + h, zg], { tint: o.glass ?? 0x18262a, collide: "none" });
+  else b.quad("glass", [x + w / 2, y, zg], [x - w / 2, y, zg], [x - w / 2, y + h, zg], [x + w / 2, y + h, zg], { tint: o.glass ?? 0x18262a, collide: "none" });
   if (detail === 0) return;
   const ft = 0.05;
   const fz = zg + dir * 0.025;

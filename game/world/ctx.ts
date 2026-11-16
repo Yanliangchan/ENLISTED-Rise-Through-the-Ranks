@@ -37,7 +37,7 @@ export class WorldCtx {
       "none",
       { castShadow: false }
     );
-    lib.add("sign", flat(this.signs.texture, { roughness: 0.6, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), 1, Surf.Metal, "none", { castShadow: false });
+    lib.add("sign", flat(this.signs.texture, { roughness: 0.6, alphaTest: 0.5, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), 1, Surf.Metal, "none", { castShadow: false });
     lib.add("signlit", new THREE.MeshStandardMaterial({ map: this.signs.texture, emissiveMap: this.signs.texture, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.5, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), 1, Surf.Glass, "none", { castShadow: false, noVis: true });
   }
 

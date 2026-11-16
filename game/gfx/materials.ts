@@ -65,7 +65,7 @@ export function buildMaterials(engine: Engine): MatLib {
   add("rail", std(tex.paintmetal), 1.4, Surf.Metal, "soft", { macro: 0.2 });
   add(
     "glass",
-    std(null, { color: 0x1c2a2e, roughness: 0.06, metalness: 0.0, envMapIntensity: 2.2, vertexColors: true }),
+    std(null, { color: 0xffffff, roughness: 0.06, metalness: 0.0, envMapIntensity: 2.2, vertexColors: true }),
     1,
     Surf.Glass,
     "solid",
