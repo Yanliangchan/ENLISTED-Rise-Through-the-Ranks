@@ -11,6 +11,7 @@ import { Surf } from "~/gfx/builder";
 import * as P from "./kit/props";
 import * as B from "./kit/buildings";
 import { Vegetation } from "./kit/vegetation";
+import * as Camp from "./kit/camp";
 
 /**
  * NEE SOON ESTATE — the one map.
@@ -27,11 +28,17 @@ export const BOUNDS: Rect = [-150, -170, 150, 160];
 export const AVE = 8;
 export const ST = 7;
 
+export interface Fire {
+  pos: THREE.Vector3;
+  size: number;
+}
+
 export interface Estate {
   ctx: WorldCtx;
   plan: GroundPlan;
   /** Burning wrecks: the game feeds these with smoke. */
-  fires: THREE.Vector3[];
+  fires: Fire[];
+  anim: Array<(t: number, dt: number) => void>;
 }
 
 /** The area soldiers and the player can actually reach. */
@@ -148,7 +155,11 @@ export function buildEstate(engine: Engine, lib: MatLib): Estate {
   const veg = new Vegetation(ctx);
   const d = ctx.builder("dressing");
   const v = ctx.builder("vehicles");
-  const fires: THREE.Vector3[] = [];
+  const fires: Fire[] = [];
+  const burn = (x: number, y: number, z: number, size = 1): void => {
+    fires.push({ pos: new THREE.Vector3(x, y, z), size });
+    decal(m, DECAL.oil, x, z, 3.2 * size, r() * 6.3, 0.016, 0x050505);
+  };
 
   // ---- south-west: more of the HDB precinct -------------------------------------------
   plan.add("path", -40.5, 10, -37.5, 84);
@@ -244,9 +255,9 @@ export function buildEstate(engine: Engine, lib: MatLib): Estate {
   P.tyreStack(d, 13.6, -9.4, 3, 0.15);
   // Shot-up traffic caught at the lights.
   P.car(v, r, 4.6, 6.2, 0.5, { color: 0x2a2420, wreck: true });
-  fires.push(new THREE.Vector3(4.6, 1.2, 6.2));
+  burn(4.6, 1.2, 6.2);
   P.car(v, r, -3.2, -7.5, 2.4, { color: 0x2a2420, kind: "van", wreck: true });
-  fires.push(new THREE.Vector3(-3.2, 1.6, -7.5));
+  burn(-3.2, 1.6, -7.5);
   P.car(v, r, 6.2, 32, Math.PI + 0.06, { color: 0x1f3a6a, kind: "taxi" });
   P.car(v, r, 2.9, 41, Math.PI - 0.3, { color: 0xb8b0a0, kind: "suv" });
   P.car(v, r, -6.1, 30, 0.04, { color: 0x9a9da0 });
@@ -257,7 +268,7 @@ export function buildEstate(engine: Engine, lib: MatLib): Estate {
   P.car(v, r, -6, -36, 0, { color: 0x2a2c30, kind: "suv" });
   P.car(v, r, 6.3, -52, Math.PI, { color: 0x8a8f94 });
   P.car(v, r, -2.9, -60, 0.2, { color: 0x2a2420, wreck: true });
-  fires.push(new THREE.Vector3(-2.9, 1.2, -60));
+  burn(-2.9, 1.2, -60);
   P.car(v, r, 36, -3.4, -Math.PI / 2, { color: 0xd8d8d4 });
   P.car(v, r, 62, 3.6, Math.PI / 2, { color: 0x1f3a6a, kind: "hatch" });
   P.car(v, r, 88, -3.5, -Math.PI / 2 + 0.3, { color: 0x2a2420, kind: "suv", wreck: true });
@@ -274,6 +285,91 @@ export function buildEstate(engine: Engine, lib: MatLib): Estate {
   P.ammoBox(d, 9.3, 0.85, 131, 0.5);
   P.ammoBox(d, 9.9, 0.15, 132.2, 1.2);
   P.sandbags(d, r, -9.6, 124, Math.PI / 2, 4.4, 4, 0.15);
+
+  // ---- patrol base (south-east corner by the insertion road) -----------------------------------
+  plan.add("dirt", Camp.CAMP[0] - 0.6, Camp.CAMP[1] - 0.6, Camp.CAMP[2] + 0.6, Camp.CAMP[3] + 0.6);
+  plan.add("path", 11, 133.4, Camp.CAMP[0] - 0.6, 140.6);
+  const camp = ctx.builder("camp");
+  Camp.patrolBase(ctx, camp);
+  ctx.commit(camp);
+  for (const [fx, fz] of [[50, -28.5], [66, -28.5], [47, -28.5]]) Camp.flag(ctx, d, fx, fz, 8.5, 0.15);
+  // Hazard lamps still blinking on the abandoned taxi and van.
+  for (const [hx, hz] of [[5.45, 34.2], [6.95, 34.3], [5.4, 76.4], [7.0, 76.4]]) Camp.beacon(ctx, hx, 0.72, hz, 0xff8a10, 1.1, 0.055, hz > 50 ? 0.4 : 0);
+
+  // ---- wreckage and debris: cover on every approach ------------------------------------------
+  const k = ctx.builder("debris");
+  // Overturned trucks, burning.
+  P.fiveTonner(k, 3.6, 60, 0.9, { roll: -Math.PI / 2, burnt: true, tilt: false });
+  burn(4.6, 2.5, 61.2, 1.6);
+  burn(2.2, 2.3, 58.6, 1.1);
+  P.fiveTonner(k, 74, -1.5, 1.9, { roll: -Math.PI / 2, burnt: true });
+  burn(74.5, 2.5, -1.8, 1.6);
+  burn(72.6, 2.2, -0.6, 1.0);
+  P.fiveTonner(k, -98, 1.2, -1.2, { roll: Math.PI / 2, burnt: true, tilt: false });
+  burn(-98, 2.5, 1, 1.5);
+  P.car(k, r, -46, 16, 0.7, { color: 0x2a2420, kind: "van", wreck: true });
+  burn(-46, 1.3, 16, 1);
+  P.car(k, r, 30, -18, 2.2, { color: 0x2a2420, wreck: true });
+  P.car(k, r, 92, 20, 1.1, { color: 0x2a2420, kind: "suv", wreck: true });
+  burn(92, 1.2, 20, 0.9);
+  P.car(k, r, -5.5, 104, 0.3, { color: 0x2a2420, kind: "hatch", wreck: true });
+  P.fallenLamp(k, 3.5, 88, 0.35);
+  P.fallenLamp(k, -50, -2, 1.75);
+  P.fallenLamp(k, 46, 2, 1.4);
+  // Hand-placed cover along the two roads.
+  const roadCover: Array<[string, number, number, number]> = [
+    ["rubble", -4.5, 44, 0], ["jersey", 5, 48, 0.2], ["jersey", -6.4, 70, -0.1], ["rubble", 5.6, 68, 0], ["crates", -6.2, 96, 0], ["jersey", 2.2, 108, 0.1], ["rubble", -5, 116, 0],
+    ["rubble", 4.8, -34, 0], ["jersey", -4.4, -44, 0.15], ["crates", 5.6, -66, 0], ["rubble", -5.4, -72, 0], ["jersey", 3, -88, 0],
+    ["rubble", 32, 3.4, 0], ["jersey", 46, -3.8, 1.5], ["crates", 58, -3, 0], ["rubble", 104, 2.6, 0], ["jersey", 116, -2, 1.7], ["rubble", 124, 4, 0],
+    ["rubble", -30, -3.6, 0], ["jersey", -36, 3.4, 1.6], ["crates", -66, 3.8, 0], ["rubble", -84, 2.2, 0], ["jersey", -112, -3, 1.5], ["rubble", -124, 3, 0],
+    ["wall", 14.5, 44, 1.57], ["wall", -14.5, -50, 1.57], ["pipes", 13.6, 100, 0], ["pipes", -13.4, -28, 0.2], ["container", 15.5, 84, 1.57], ["container", -15, 26, 1.5],
+    ["wall", 40, 11.6, 0], ["wall", -70, 11.4, 0], ["wall", 96, -11.4, 0], ["wall", -30, -11.2, 0], ["container", 112, 12.6, 0.1], ["container", -122, -12.4, 0],
+    ["rubble", 44, 40, 0], ["crates", 66, 42, 0], ["rubble", 56, 88, 0], ["crates", 84, 60, 0], ["wall", 86.6, 90, 1.57],
+  ];
+  const tints = [0x8a3a2a, 0x2f5f8a, 0x3f6a4a, 0xb07a2a, 0x6a6d70];
+  let ti = 0;
+  const place = (kind: string, x: number, z: number, yaw: number): void => {
+    if (kind === "rubble") P.rubble(k, r, x, z, rr(r, 1.3, 2.2), rr(r, 0.8, 1.2), z > -7 && z < 7 || Math.abs(x) < 8 ? 0 : 0.1);
+    else if (kind === "jersey") {
+      P.jersey(k, x, z, yaw);
+      P.jersey(k, x + Math.cos(yaw) * 3.1, z - Math.sin(yaw) * 3.1, yaw + rr(r, -0.2, 0.2));
+    } else if (kind === "crates") {
+      P.pallet(k, x, 0.1, z, yaw);
+      P.crate(k, x - 0.2, 0.24, z, yaw + 0.1, 0.95, 0.9);
+      P.crate(k, x + 0.9, 0.1, z + 0.3, yaw - 0.3, 0.8, 0.7, 0x7a6a4c);
+      if (r() < 0.6) P.crate(k, x - 0.15, 1.14, z, yaw + 0.5, 0.7, 0.55);
+      P.drum(k, x - 1.1, 0.1, z - 0.5, tints[ti++ % tints.length]);
+    } else if (kind === "wall") P.brokenWall(k, r, x, z, yaw, rr(r, 4, 6.5));
+    else if (kind === "pipes") P.pipes(k, x, z, yaw);
+    else if (kind === "container") P.container(k, x, z, yaw, tints[ti++ % tints.length], r() < 0.5);
+    else if (kind === "sandbags") P.sandbags(k, r, x, z, yaw, rr(r, 3, 4.6), 4, 0.1);
+    else if (kind === "wreck") P.car(k, r, x, z, yaw, { color: 0x2a2420, kind: r() < 0.5 ? "sedan" : "van", wreck: true }, 0.1);
+    else if (kind === "tyres") {
+      P.tyreStack(k, x, z, 4, 0.1);
+      P.tyreStack(k, x + 0.72, z + 0.2, 3, 0.1);
+      P.tyreStack(k, x + 0.3, z - 0.7, 4, 0.1);
+    }
+  };
+  for (const [kind, x, z, yaw] of roadCover) place(kind, x, z, yaw);
+  // Scattered across the open ground between the districts, spaced so there is always a next bound.
+  const zones: Rect[] = [
+    [-86, 12, -64, 56], [-36, 14, -14, 56], [98, 14, 138, 110], [80, -92, 138, -14], [14, -92, 80, -66], [14, -34, 36, -12],
+    [-138, -92, -90, -12], [-28, -92, -14, -34], [-138, 12, -106, 150], [-100, 100, -16, 118], [60, 114, 138, 150], [-90, 122, -14, 150],
+  ];
+  const kinds = ["rubble", "rubble", "wall", "crates", "pipes", "container", "sandbags", "wreck", "tyres", "wall", "rubble", "sandbags"];
+  const placed: Array<[number, number]> = roadCover.map(([, x, z]) => [x, z]);
+  for (const zr of zones) {
+    const want = Math.max(2, Math.round(((zr[2] - zr[0]) * (zr[3] - zr[1])) / 420));
+    let made = 0;
+    for (let tries = 0; tries < want * 12 && made < want; tries++) {
+      const x = rr(r, zr[0] + 3, zr[2] - 3), z = rr(r, zr[1] + 3, zr[3] - 3);
+      if (placed.some(([px, pz]) => Math.hypot(px - x, pz - z) < 11)) continue;
+      placed.push([x, z]);
+      place(kinds[Math.floor(r() * kinds.length)], x, z, r() * 6.3);
+      made++;
+    }
+  }
+  ctx.commit(k);
 
   // ---- road ends and the edge of the area of operations ------------------------------------------
   for (const s of [-1, 1]) {
@@ -303,7 +399,7 @@ export function buildEstate(engine: Engine, lib: MatLib): Estate {
   // ---- planting ------------------------------------------------------------------------------------
   const t = ctx.builder("trees");
   for (const s of [-1, 1]) {
-    for (const tz of [32, 58, 84, 110, 136, -30, -56, -84]) if (!(s > 0 && tz === 58) && !(s < 0 && tz === 58)) veg.rainTree(t, s * 13.6 + rr(r, -0.5, 0.5), tz + rr(r, -2, 2), rr(r, 0.85, 1.1));
+    for (const tz of [32, 58, 84, 110, 136, -30, -56, -84]) if (tz !== 58 && !(s > 0 && tz === 136)) veg.rainTree(t, s * 13.6 + rr(r, -0.5, 0.5), tz + rr(r, -2, 2), rr(r, 0.85, 1.1));
     for (const tx of [30, 52, 74, 98, 122]) {
       veg.streetTree(t, s * tx + rr(r, -1, 1), s * 12.4, rr(r, 0.9, 1.2));
       veg.streetTree(t, -s * tx + rr(r, -1, 1), s * 12.2, rr(r, 0.9, 1.2));
@@ -335,5 +431,5 @@ export function buildEstate(engine: Engine, lib: MatLib): Estate {
   ctx.commit(m);
   ctx.commit(f);
   engine.scene.add(ctx.root);
-  return { ctx, plan, fires };
+  return { ctx, plan, fires, anim: ctx.anim };
 }

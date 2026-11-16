@@ -49,6 +49,8 @@ export interface LitOpts {
   viewmodel?: boolean;
   /** Skip the baked light volume (emissive / unlit-ish things). */
   noVis?: boolean;
+  /** Sky-coloured rim light strength: lifts characters off dark backgrounds. */
+  rim?: number;
 }
 
 /** Final colour grade + screen-space combat feedback, applied after tone mapping. */
@@ -206,7 +208,7 @@ export class Engine {
     this.csm.setupMaterial(mat);
     const csmHook = mat.onBeforeCompile.bind(mat);
     const macro = opts.macro ?? 0;
-    const key = `enl3:${macro > 0 ? macro.toFixed(2) : 0}:${opts.wind ? 1 : 0}:${opts.viewmodel ? 1 : 0}:${opts.noVis ? 1 : 0}`;
+    const key = `enl4:${macro > 0 ? macro.toFixed(2) : 0}:${opts.wind ? 1 : 0}:${opts.viewmodel ? 1 : 0}:${opts.noVis ? 1 : 0}:${opts.rim ?? 0}`;
     mat.customProgramCacheKey = () => key;
     mat.onBeforeCompile = (shader, renderer) => {
       csmHook(shader, renderer);
@@ -282,6 +284,13 @@ uniform sampler2D uMacro;`
     reflectedLight.indirectDiffuse = mix(vec3(lumI) * vec3(1.1, 1.0, 0.86), reflectedLight.indirectDiffuse, smoothstep(0.3, 0.95, skyV)) * skyV;
     reflectedLight.indirectSpecular *= mix(0.18, 1.0, skyV);
     reflectedLight.indirectDiffuse += vis.g * 2.4 * uLamp * BRDF_Lambert(material.diffuseColor);
+    ${
+      opts.rim
+        ? /* glsl */ `
+    float chRim = pow(1.0 - max(dot(normal, normalize(vViewPosition)), 0.0), 3.0) * smoothstep(-0.3, 0.6, wN.y + 0.4);
+    reflectedLight.directDiffuse += (material.diffuseColor * 0.9 + 0.03) * vec3(0.78, 0.86, 1.0) * chRim * ${opts.rim.toFixed(2)} * (0.3 + 0.7 * skyV) * 2.2;`
+        : ""
+    }
     ${
       opts.viewmodel
         ? /* glsl */ `

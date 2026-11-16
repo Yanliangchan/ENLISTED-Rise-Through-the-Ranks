@@ -50,6 +50,14 @@ export class NavGrid {
     }
   }
 
+  /** Make a rectangle off-limits (the patrol base): no paths, cover or spawns inside it. */
+  block(x0: number, z0: number, x1: number, z1: number): void {
+    for (let j = 0; j < this.h; j++) for (let i = 0; i < this.w; i++) {
+      const x = this.x0 + (i + 0.5) * this.cell, z = this.z0 + (j + 0.5) * this.cell;
+      if (x > x0 && x < x1 && z > z0 && z < z1) this.height[j * this.w + i] = NaN;
+    }
+  }
+
   index(x: number, z: number): number {
     const i = Math.floor((x - this.x0) / this.cell);
     const j = Math.floor((z - this.z0) / this.cell);

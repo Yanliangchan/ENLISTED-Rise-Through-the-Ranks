@@ -255,9 +255,11 @@ export function car(b: Builder, r: Rand, x: number, z: number, yaw: number, o: C
 }
 
 /** SAF 5-tonne cargo truck (MAN pattern): cab-over, canvas tilt on the bed. Nose toward local +Z. */
-export function fiveTonner(b: Builder, x: number, z: number, yaw: number, o: { tilt?: boolean; tint?: number } = {}): void {
-  const g = o.tint ?? 0x4a5338;
+export function fiveTonner(b: Builder, x: number, z: number, yaw: number, o: { tilt?: boolean; tint?: number; roll?: number; burnt?: boolean } = {}): void {
+  const g = o.burnt ? 0x5c4636 : o.tint ?? 0x4a5338;
   b.at(x, 0, z, yaw - Math.PI / 2, () => {
+    // Overturned: roll about the long axis and lift so the truck rests on its side.
+    if (o.roll) b.push(new THREE.Matrix4().makeRotationX(o.roll).setPosition(0, Math.abs(Math.sin(o.roll)) * 1.24, 0));
     // Chassis.
     b.box("paintmetal", -0.2, 0.92, 0, 7.0, 0.22, 0.9, { tint: 0x1e2019 });
     // Cab (local +X is forward).
@@ -297,6 +299,7 @@ export function fiveTonner(b: Builder, x: number, z: number, yaw: number, o: { t
     b.box("paintmetal", 0.6, 0.75, 1.0, 1.1, 0.5, 0.4, { tint: 0x1e2019 });
     b.cyl("paintmetal", 0.4, 0.78, -0.95, 0.27, 1.0, 10, { axis: "x", tint: 0x23261d });
     b.collisionBox(Surf.Metal, "solid", 0.2, 0.6, 0, 7.4, 1.0, 2.2);
+    if (o.roll) b.pop();
   });
 }
 
@@ -408,6 +411,121 @@ export function weaponsCache(b: Builder, r: Rand, x: number, y: number, z: numbe
       b.cyl("paintmetal", 0, 0, 0, 0.022, 0.9, 6, { tint: 0x55452c, collide: "none" });
       b.cyl("paintmetal", 0, 0.5, 0, 0.045, 0.34, 8, { rTop: 0.008, tint: 0x4a5338, collide: "none" });
       b.pop();
+    }
+  });
+}
+
+
+// ---- battle debris ------------------------------------------------------------------
+
+const _e = new THREE.Euler();
+const _q4 = new THREE.Quaternion();
+
+/** A heap of broken concrete and brick with rebar sticking out. Solid up to about `h`. */
+export function rubble(b: Builder, r: Rand, x: number, z: number, radius = 1.6, h = 0.9, y = 0.1): void {
+  b.at(x, y, z, r() * 6.3, () => {
+    const n = Math.round(14 + radius * 9);
+    for (let i = 0; i < n; i++) {
+      const a = r() * 6.3, d = Math.sqrt(r()) * radius;
+      const k = 1 - d / radius;
+      const s = 0.25 + r() * 0.55;
+      const m = new THREE.Matrix4().compose(
+        new THREE.Vector3(Math.cos(a) * d, k * h * (0.3 + r() * 0.6) + 0.08, Math.sin(a) * d * 0.8),
+        _q4.setFromEuler(_e.set(r() * 3, r() * 3, r() * 3)),
+        new THREE.Vector3(s * (0.6 + r()), s * (0.3 + r() * 0.5), s * (0.6 + r()))
+      );
+      b.push(m);
+      const t = r();
+      b.box(t < 0.6 ? "concrete" : t < 0.85 ? "brick" : "plaster", 0, 0, 0, 1, 1, 1, { collide: "none", tint: t < 0.6 ? 0xb4b0a6 : t < 0.85 ? 0xa86a50 : 0xd8d2c4 });
+      b.pop();
+    }
+    // Core mound and dust skirt.
+    b.geo("dirt", RUBBLE_MOUND, new THREE.Matrix4().makeScale(radius * 1.15, h * 0.75, radius * 0.95), { collide: "none", tint: 0x8f8a80 });
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.Matrix4().compose(new THREE.Vector3((r() - 0.5) * radius, h * 0.5, (r() - 0.5) * radius), _q4.setFromEuler(_e.set((r() - 0.5) * 1.6, 0, (r() - 0.5) * 1.6)), new THREE.Vector3(1, 1, 1));
+      b.push(m);
+      b.cyl("rust", 0, 0.3, 0, 0.012, 0.9 + r() * 0.6, 4, { collide: "none" });
+      b.pop();
+    }
+    b.collisionBox(Surf.Concrete, "solid", 0, h * 0.42, 0, radius * 1.5, h * 0.84, radius * 1.25);
+  });
+}
+const RUBBLE_MOUND = new THREE.SphereGeometry(1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+
+/** What is left of a brick wall: a ragged run about chest high, taller at one end. */
+export function brokenWall(b: Builder, r: Rand, x: number, z: number, yaw: number, len = 5, y = 0.1): void {
+  b.at(x, y, z, yaw, () => {
+    const cols = Math.round(len / 0.5);
+    for (let i = 0; i < cols; i++) {
+      const t = i / (cols - 1);
+      const h = 0.7 + Math.max(0, Math.sin(t * 3.1 + 0.4)) * 1.2 * (0.6 + r() * 0.5) + (i < 2 ? 0.9 : 0);
+      b.box("brick", -len / 2 + i * 0.5 + 0.25, h / 2, 0, 0.5, h, 0.24, { tint: 0xb07a60, collide: "none" });
+      if (r() < 0.5) b.box("plaster", -len / 2 + i * 0.5 + 0.25, h * 0.4, 0.125, 0.5, h * 0.7, 0.02, { tint: 0xd8d0be, collide: "none" });
+    }
+    b.collisionBox(Surf.Concrete, "solid", 0, 0.6, 0, len, 1.2, 0.26);
+    b.collisionBox(Surf.Concrete, "solid", -len / 2 + 0.5, 1.2, 0, 1, 2.2, 0.26);
+  });
+  rubble(b, r, x + Math.sin(yaw) * 0.9, z + Math.cos(yaw) * 0.9, 1.3, 0.45, y);
+}
+
+/** 20-foot shipping container. Doors at local +X; `open` swings them out. */
+export function container(b: Builder, x: number, z: number, yaw: number, tint: number, open = false, y = 0.1): void {
+  const L = 6.06, W = 2.44, H = 2.59;
+  b.at(x, y, z, yaw, () => {
+    b.box("ribmetal", 0, H / 2, -W / 2 + 0.03, L, H, 0.06, { tint, tile: 0.6 });
+    b.box("ribmetal", 0, H / 2, W / 2 - 0.03, L, H, 0.06, { tint, tile: 0.6 });
+    b.box("ribmetal", -L / 2 + 0.03, H / 2, 0, 0.06, H, W, { tint, tile: 0.6 });
+    b.box("ribmetal", 0, H - 0.03, 0, L, 0.06, W, { tint, tile: 0.6, uvRot: true });
+    b.box("wood", 0, 0.08, 0, L - 0.1, 0.08, W - 0.1, { tint: 0x6a5a48 });
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      b.box("paintmetal", (sx * (L - 0.14)) / 2, H / 2, (sz * (W - 0.14)) / 2, 0.14, H, 0.14, { tint, collide: "none" });
+      b.box("steel", (sx * (L - 0.16)) / 2, 0.06, (sz * (W - 0.16)) / 2, 0.18, 0.12, 0.18, { tint: 0x3a3c3d, collide: "none" });
+    }
+    for (const yy of [0.07, H - 0.07]) for (const sz of [-1, 1]) b.box("paintmetal", 0, yy, (sz * (W - 0.1)) / 2, L, 0.14, 0.1, { tint, collide: "none" });
+    for (const s of [-1, 1]) {
+      // Each leaf hangs from its corner post; an open one swings out past ninety degrees.
+      b.at(L / 2, 0, (s * W) / 2, open ? -s * (s > 0 ? 1.9 : 1.4) : 0, () => {
+        b.box("paintmetal", 0, H / 2, -s * 0.6, 0.05, H - 0.2, 1.18, { tint });
+        for (const zz of [0.3, 0.9]) b.cyl("steel", 0.04, H / 2, -s * zz, 0.016, H - 0.25, 5, { tint: 0x9a9da0, collide: "none" });
+      });
+    }
+  });
+}
+
+/** Stack of concrete culvert sections, big enough to crouch behind. */
+export function pipes(b: Builder, x: number, z: number, yaw: number, y = 0.1): void {
+  b.at(x, y, z, yaw, () => {
+    const R = 0.62, L = 2.4;
+    for (const [px, py] of [[-R, R], [R, R], [0, R * 2.72]]) {
+      b.cyl("concrete", 0, py, px, R, L, 16, { axis: "x", tint: 0xbab6aa, collide: "none", caps: false });
+      b.cyl("concrete", 0, py, px, R - 0.09, L, 16, { axis: "x", tint: 0x8a877e, collide: "none", caps: false });
+      for (const e of [-1, 1]) b.geo("concrete", PIPE_RIM, new THREE.Matrix4().makeRotationY(Math.PI / 2).setPosition((e * L) / 2, py, px), { tint: 0xa8a49a, collide: "none" });
+    }
+    b.collisionBox(Surf.Concrete, "solid", 0, R, 0, L, R * 2, R * 4);
+    b.collisionBox(Surf.Concrete, "solid", 0, R * 2.7, 0, L, R * 1.9, R * 2);
+    for (const e of [-0.8, 0.8]) b.box("wood", e, 0.04, 0, 0.12, 0.08, R * 4.4, { tint: 0x8a7458, collide: "none" });
+  });
+}
+const PIPE_RIM = new THREE.RingGeometry(0.53, 0.62, 16);
+
+/** A street lamp brought down across the road. */
+export function fallenLamp(b: Builder, x: number, z: number, yaw: number, y = 0): void {
+  b.at(x, y, z, yaw, () => {
+    b.push(new THREE.Matrix4().makeRotationZ(Math.PI / 2 - 0.05).setPosition(0, 0.3, 0));
+    b.cyl("steel", 0, 0, 0, 0.1, 9, 8, { rTop: 0.06, tint: 0x8a8e90, collide: "none" });
+    b.pop();
+    b.box("paintmetal", -4.6, 0.12, 0.5, 0.75, 0.1, 0.3, { tint: 0x55595c, collide: "none" });
+    b.box("concrete", 4.5, 0.2, 0, 0.7, 0.4, 0.7, { tint: 0xbdbab0 });
+    b.collisionBox(Surf.Metal, "solid", 0, 0.25, 0, 9, 0.5, 0.3);
+  });
+}
+
+/** Jerrycans in a row. */
+export function jerrycans(b: Builder, x: number, y: number, z: number, yaw: number, n = 3, tint = 0x4a5338): void {
+  b.at(x, y, z, yaw, () => {
+    for (let i = 0; i < n; i++) {
+      b.box("paintmetal", i * 0.2, 0.22, 0, 0.16, 0.44, 0.34, { tint, collide: i === 0 ? "solid" : "none" });
+      b.box("paintmetal", i * 0.2, 0.47, 0.06, 0.05, 0.06, 0.14, { tint: 0x2a2e22, collide: "none" });
     }
   });
 }

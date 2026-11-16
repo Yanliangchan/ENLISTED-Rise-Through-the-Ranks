@@ -4,7 +4,10 @@ import { Input } from "~/core/input";
 import { Audio } from "~/core/audio";
 import { buildMaterials } from "~/gfx/materials";
 import { Vfx } from "~/gfx/vfx";
-import { buildEstate, PLAY } from "~/world/estate";
+import { buildEstate, PLAY, type Fire } from "~/world/estate";
+import { CAMP, CAMP_AMMO, CAMP_SENTRIES, CAMP_SPAWN } from "~/world/kit/camp";
+import { SoldierModel, soldierMaterials, type Pose } from "~/ai/soldierModel";
+import { camoTexture } from "~/player/sar21";
 import { CollisionWorld } from "~/world/collision";
 import { bakeLight } from "~/world/lightbake";
 import { PlayerController } from "~/player/controller";
@@ -72,8 +75,16 @@ export class Game implements MissionHost {
   private menuShot = 0;
   private moteT = 0;
   private readonly grenades: Grenade[] = [];
-  private readonly fires: THREE.Vector3[];
+  private readonly fires: Fire[];
   private fireT = 0;
+  private smokeT = 0;
+  private readonly fireLights: THREE.PointLight[] = [];
+  private readonly anim: Array<(t: number, dt: number) => void>;
+  private readonly sentries: Array<{ model: SoldierModel; pose: Pose; yaw: number }> = [];
+  private worldT = 0;
+  /** True while the player is inside the patrol base. */
+  inCamp = false;
+  private grace = 0;
   private readonly nadeGeo = new THREE.SphereGeometry(0.045, 10, 8);
   private readonly nadeMat: THREE.Material;
   private last = performance.now();
@@ -97,7 +108,24 @@ export class Game implements MissionHost {
     const t1 = performance.now();
     this.nav = new NavGrid(this.world, PLAY);
     console.info(`light bake ${(t1 - t0).toFixed(0)} ms, nav ${(performance.now() - t1).toFixed(0)} ms, ${this.world.triangles} collision tris`);
+    this.nav.block(CAMP[0] - 3, CAMP[1] - 3, CAMP[2] + 3, CAMP[3] + 3);
     this.fires = estate.fires;
+    this.anim = estate.anim;
+    for (let i = 0; i < 3; i++) {
+      const l = new THREE.PointLight(0xff8a3a, 0, 18, 1.6);
+      this.engine.scene.add(l);
+      this.fireLights.push(l);
+    }
+    // The rest of the section, standing to in the patrol base.
+    const safMats = soldierMaterials(this.engine, { variant: "saf", uniform: camoTexture(), cloth: 0xffffff, dark: 0x15140f, helmet: 0x4a5236, gear: 0x444b32, pouch: 0x525a3c, skin: 0xa07a5a, mask: 0xa07a5a });
+    CAMP_SENTRIES.forEach(([sx, sz, yaw], i) => {
+      const model = new SoldierModel(safMats);
+      const fl = this.world.floor(sx, sz, 3, 6);
+      model.root.position.set(sx, fl ? fl.y : 0.06, sz);
+      model.root.rotation.y = yaw;
+      this.engine.scene.add(model.root);
+      this.sentries.push({ model, yaw, pose: { phase: 0, speed: 0, crouch: 0, aimYaw: 0, aimPitch: 0, aim: i === 2 ? 0.15 : 0, kick: 0, flinch: 0, dead: 0, deadKind: 0, time: i * 3.1, headYaw: 0 } });
+    });
     this.vfx = new Vfx(this.engine);
     this.player = new PlayerController(this.world, this.input);
     const self = this;
@@ -110,7 +138,7 @@ export class Game implements MissionHost {
         return self.player.speed;
       },
       get alive() {
-        return self.hp > 0 && self.state === "playing";
+        return self.hp > 0 && self.state === "playing" && !self.inCamp;
       },
       damage: (n, from) => this.hurt(n, from),
       whiz: (at) => {
@@ -243,6 +271,8 @@ export class Game implements MissionHost {
     this.weapon.setVisible(true);
     this.mission = mode === "holdout" ? new Holdout(this) : new Operation(this);
     const sp = this.mission.spawn;
+    this.inCamp = false;
+    this.grace = 0;
     const fl = this.world.floor(sp.x, sp.z, 3, 6);
     this.player.spawn(sp.x, fl ? fl.y : 0, sp.z, sp.yaw);
     this.mission.start();
@@ -284,7 +314,7 @@ export class Game implements MissionHost {
   }
 
   private hurt(amount: number, from: THREE.Vector3): void {
-    if (this.state !== "playing" || this.hp <= 0) return;
+    if (this.state !== "playing" || this.hp <= 0 || this.inCamp || this.grace > 0) return;
     this.hp -= amount;
     this.sinceHit = 0;
     this.flash = Math.min(1, this.flash + 0.35 + amount / 60);
@@ -391,7 +421,21 @@ export class Game implements MissionHost {
     cam.rotation.set(p.pitch + (Math.random() - 0.5) * sh, p.yaw + (Math.random() - 0.5) * sh, -p.lean * 0.13 + (Math.random() - 0.5) * sh, "YXZ");
     cam.updateMatrixWorld();
     this.weapon.update(dt);
-    if (this.input.hit("KeyG")) this.throwGrenade();
+    // Patrol base: weapons safe, nothing can touch you, and you mend quickly.
+    const inCamp = p.pos.x > CAMP[0] && p.pos.x < CAMP[2] && p.pos.z > CAMP[1] && p.pos.z < CAMP[3];
+    if (inCamp !== this.inCamp) {
+      this.inCamp = inCamp;
+      this.weapon.enabled = !inCamp;
+      if (inCamp) this.hud.banner("PATROL BASE LION", "Safe zone · weapons safe");
+      else {
+        this.grace = 2.5;
+        this.hud.banner("LEAVING PATROL BASE", "Weapons free");
+      }
+      this.audio.ui("radio");
+    }
+    this.grace = Math.max(0, this.grace - dt);
+    if (inCamp && this.hp < 100) this.hp = Math.min(100, this.hp + dt * 30);
+    if (this.input.hit("KeyG") && !inCamp) this.throwGrenade();
     this.stepGrenades(dt);
     this.soldiers.update(dt);
     m.update(dt);
@@ -418,6 +462,20 @@ export class Game implements MissionHost {
         }
       } else this.holdT = 0;
       this.hud.prompt(it.label, "F", this.holdT / it.seconds);
+    } else if (inCamp && Math.hypot(CAMP_AMMO.x - p.pos.x, CAMP_AMMO.z - p.pos.z) < 3.2) {
+      const full = this.weapon.reserve >= this.weapon.def.reserve && this.weapon.ammo >= this.weapon.def.magSize && this.nades >= 3;
+      if (!full && this.input.held("KeyF")) {
+        this.holdT += dt;
+        if (this.holdT >= 1) {
+          this.holdT = 0;
+          this.weapon.ammo = this.weapon.def.magSize;
+          this.weapon.reserve = this.weapon.def.reserve;
+          this.nades = 3;
+          this.audio.foley("magIn");
+          this.hud.feed("Ammunition and grenades drawn");
+        }
+      } else this.holdT = 0;
+      this.hud.prompt(full ? "Fully stocked" : "Draw ammunition", "F", full ? -1 : this.holdT);
     } else {
       this.holdT = 0;
       this.hud.prompt(null);
@@ -506,13 +564,39 @@ export class Game implements MissionHost {
         const c = this.engine.camera.position;
         this.vfx.mote(_v.set(c.x + (Math.random() - 0.5) * 14, c.y + (Math.random() - 0.3) * 4, c.z + (Math.random() - 0.5) * 14));
       }
+      this.worldT += dt;
+      for (const f of this.anim) f(this.worldT, dt);
+      // Fires: flames every tick near the camera, smoke on a slower beat, and a flickering
+      // light on the three nearest so they throw moving orange onto the wreckage around them.
+      const cp = this.engine.camera.position;
       this.fireT -= dt;
-      if (this.fireT <= 0) {
-        this.fireT = 0.22;
-        for (const f of this.fires) {
-          this.vfx.smokePuff(f, 1.3, 0.1);
-          if (Math.random() < 0.6) this.vfx.firePuff(f, 0.7);
+      this.smokeT -= dt;
+      const flame = this.fireT <= 0;
+      const smoke = this.smokeT <= 0;
+      if (flame) this.fireT = 0.055;
+      if (smoke) this.smokeT = 0.3;
+      const near: Array<[number, Fire]> = [];
+      for (const f of this.fires) {
+        const d = f.pos.distanceTo(cp);
+        near.push([d, f]);
+        if (d < 130 && (flame || smoke)) this.vfx.fire(f.pos, f.size, flame ? (d < 60 ? 2 : 1) : 0, smoke);
+      }
+      near.sort((a, b) => a[0] - b[0]);
+      this.fireLights.forEach((l, i) => {
+        const n = near[i];
+        if (!n || n[0] > 70) {
+          l.intensity = 0;
+          return;
         }
+        const t = this.worldT * 9 + i * 17;
+        const flick = 0.72 + 0.16 * Math.sin(t) + 0.12 * Math.sin(t * 2.7 + 1.3) + (Math.random() - 0.5) * 0.12;
+        l.position.set(n[1].pos.x, n[1].pos.y + 0.6, n[1].pos.z);
+        l.intensity = 34 * n[1].size * flick;
+      });
+      for (const st of this.sentries) {
+        st.pose.time = (st.pose.time ?? 0) + dt;
+        st.pose.headYaw = Math.sin(st.pose.time * 0.23 + st.yaw) * 0.6;
+        if (st.model.root.position.distanceToSquared(cp) < 90 * 90) st.model.pose(st.pose);
       }
       this.vfx.update(dt, this.engine.camera);
     }

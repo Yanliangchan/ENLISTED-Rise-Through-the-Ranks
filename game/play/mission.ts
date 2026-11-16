@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Soldiers, SpawnOpts } from "~/ai/soldiers";
+import { CAMP_SPAWN } from "~/world/kit/camp";
 
 /** What a mission script can do to the game. */
 export interface MissionHost {
@@ -51,7 +52,7 @@ export const LOC = {
 };
 
 /** Edges of the map that reinforcements walk in from. */
-const ENTRIES: Array<[number, number]> = [[0, -92], [5, -92], [128, 2], [128, -3], [-128, 2], [-128, -3], [-4, 150], [100, 100], [-110, -80], [110, -90]];
+const ENTRIES: Array<[number, number]> = [[0, -92], [5, -92], [128, 2], [128, -3], [-128, 2], [-128, -3], [-110, 140], [120, 60], [-110, -80], [110, -90]];
 
 function spawnGroup(h: MissionHost, tag: string, pts: Array<[number, number, number?]>, o: SpawnOpts = {}): void {
   for (const [x, z, yaw] of pts) h.soldiers.spawn(x, z, { tag, yaw, ...o });
@@ -80,7 +81,7 @@ interface Stage {
 
 /** OPERATION SWIFT LION: four objectives across the estate, then hold for the relief column. */
 export class Operation implements Mission {
-  readonly spawn = { x: LOC.insert.x, z: LOC.insert.z, yaw: 0 };
+  readonly spawn = CAMP_SPAWN;
   op = "OPERATION SWIFT LION";
   title = "";
   detail = "";
@@ -106,13 +107,13 @@ export class Operation implements Mission {
     this.stages = [
       {
         title: "Clear the junction",
-        detail: () => (this.flag ? left("junction") : "Advance north up Avenue 4"),
+        detail: () => (this.flag ? left("junction") : "Leave the patrol base and advance north"),
         marker: LOC.junction,
         complete: "JUNCTION SECURE",
         enter: () => {
           spawnGroup(h, "junction", [[-10.5, 12, 0], [10.5, 10.5, 0.2], [-11, -11, 0.4], [11.5, -12, -0.3], [3, -24, 0], [-22, -9.5, 1.2]], { leash: 13 });
           spawnGroup(h, "junction", [[0.5, 34, 0]], { patrol: [[0.5, 34], [0.5, 12], [9.5, 20]] });
-          h.say("SECT COMD", "Two-One Charlie, dismount complete. Enemy holds the junction ahead. Stay off the centre line and move up.", 6);
+          h.say("SECT COMD", "Two-One Charlie, you are clear to leave the patrol base. Out the gate, turn north up the avenue. Enemy holds the junction.", 6);
         },
         tick: () => {
           if (!this.flag && (h.playerPos.z < 70 || s.inCombat)) {

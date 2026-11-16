@@ -22,6 +22,8 @@ export class WorldCtx {
   readonly rand: Rand = rng(20240);
   /** Rectangles (x0, z0, x1, z1) the lawn must not cover. */
   readonly noGrass: number[][] = [];
+  /** Per-frame animation callbacks for the few moving things in the world (flags, fans, beacons). */
+  readonly anim: Array<(t: number, dt: number) => void> = [];
 
   constructor(readonly engine: Engine, readonly lib: MatLib) {
     this.root.name = "world";

@@ -3,6 +3,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Engine } from "~/core/engine";
 import { canvasTex } from "~/gfx/textures";
 import { fbm } from "~/gfx/noise";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 /**
  * Soldier: one skinned mesh generated in code. The body is lofted from
@@ -34,21 +35,28 @@ interface Acc {
 }
 
 type Ring = [number, number, number, number, number, number, number]; // y, rx, rz, boneA, wA, boneB, wB
+type Sel = [number, number, number];
 
-function loft(a: Acc, group: number, cx: number, rings: Ring[], seg: number, color: [number, number, number]): void {
+/** Loft elliptical rings into a tube. `zc` shifts each ring fore/aft so limbs and torso can curve. */
+function loft(a: Acc, group: number, cx: number, rings: Ring[], seg: number, color: Sel, zc: number[] = []): void {
   const base = a.pos.length / 3;
   for (let r = 0; r < rings.length; r++) {
     const [y, rx, rz, b0, w0, b1, w1] = rings[r];
+    // Slope of the profile, so normals tilt where the tube flares or narrows.
+    const p = rings[Math.max(0, r - 1)], n = rings[Math.min(rings.length - 1, r + 1)];
+    const slope = ((n[1] + n[2]) / 2 - (p[1] + p[2]) / 2) / (n[0] - p[0] || 1);
     for (let s = 0; s <= seg; s++) {
       const t = (s / seg) * Math.PI * 2;
       const c = Math.cos(t);
       const sn = Math.sin(t);
-      a.pos.push(cx + c * rx, y, sn * rz);
+      a.pos.push(cx + c * rx, y, sn * rz + (zc[r] ?? 0));
       const nx = c / rx;
       const nz = sn / rz;
       const nl = Math.hypot(nx, nz);
-      a.nrm.push(nx / nl, 0, nz / nl);
-      a.uv.push((s / seg) * Math.max(1, Math.round((rx + rz) * Math.PI / 0.3)), y / 0.3);
+      const ny = -slope;
+      const l3 = Math.hypot(1, ny);
+      a.nrm.push(nx / nl / l3, ny / l3, nz / nl / l3);
+      a.uv.push((s / seg) * Math.max(1, Math.round(((rx + rz) * Math.PI) / 0.3)), y / 0.3);
       a.col.push(...color);
       a.si.push(b0, b1, 0, 0);
       a.sw.push(w0, w1, 0, 0);
@@ -58,14 +66,13 @@ function loft(a: Acc, group: number, cx: number, rings: Ring[], seg: number, col
     for (let s = 0; s < seg; s++) {
       const p = base + r * (seg + 1) + s;
       const q = p + seg + 1;
-      // Rings are listed bottom-to-top or top-to-bottom; pick the winding that faces outward.
       if (rings[r + 1][0] > rings[r][0]) a.idx[group].push(p, q, p + 1, p + 1, q, q + 1);
       else a.idx[group].push(p, p + 1, q, p + 1, q + 1, q);
     }
   }
 }
 
-function rigid(a: Acc, group: number, g: THREE.BufferGeometry, bone: number, color: [number, number, number], x = 0, y = 0, z = 0): void {
+function rigid(a: Acc, group: number, g: THREE.BufferGeometry, bone: number, color: Sel, x = 0, y = 0, z = 0): void {
   const gg = g.index ? g.toNonIndexed() : g;
   const base = a.pos.length / 3;
   const p = gg.getAttribute("position");
@@ -81,37 +88,43 @@ function rigid(a: Acc, group: number, g: THREE.BufferGeometry, bone: number, col
   }
 }
 
-const hex = (h: number): [number, number, number] => {
-  const c = new THREE.Color(h);
-  return [c.r, c.g, c.b];
-};
+const rbox = (w: number, h: number, d: number, r = 0.012): THREE.BufferGeometry => new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 2.2, h / 2.2, d / 2.2));
+
+/** Head and face covering: what makes each variant read differently at a glance. */
+export type SoldierVariant = "operator" | "raider" | "wrapped" | "saf";
 
 export interface SoldierLook {
+  variant: SoldierVariant;
   uniform: THREE.Texture;
-  gear: number;
+  /** Multiplies the uniform texture. */
+  cloth: number;
+  /** Boots and gloves. */
+  dark: number;
   helmet: number;
+  gear: number;
+  pouch: number;
   skin: number;
-  /** Lower-face cover colour, or null for a bare face. */
-  mask: number | null;
-  armband: number | null;
+  /** Balaclava / head wrap colour. */
+  mask: number;
 }
 
-/** OPFOR fatigues: broad tan/olive/brown woodland blotches (deliberately not the SAF pixel pattern). */
+/** Black multi-terrain camouflage: charcoal blotches, low contrast, for the OPFOR fatigues. */
 export function opforCamo(): THREE.CanvasTexture {
   return canvasTex(
     256,
     256,
     (c) => {
       const img = c.createImageData(256, 256);
-      const cols = [[104, 96, 70], [82, 80, 54], [62, 56, 40], [44, 48, 34]];
+      const cols = [[60, 62, 65], [48, 50, 53], [72, 73, 72], [38, 40, 43], [56, 55, 52]];
       for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
-        const v = fbm(x / 256, y / 256, 4, 4, 51) * 0.7 + fbm(x / 256, y / 256, 11, 2, 77) * 0.3;
-        const k = v < 0.42 ? 0 : v < 0.52 ? 1 : v < 0.6 ? 2 : v < 0.66 ? 0 : 3;
-        const n = 0.92 + fbm(x / 256, y / 256, 60, 2, 3) * 0.16;
+        const v = fbm(x / 256, y / 256, 5, 4, 51) * 0.65 + fbm(x / 256, y / 256, 14, 2, 77) * 0.35;
+        const k = v < 0.4 ? 0 : v < 0.5 ? 1 : v < 0.57 ? 2 : v < 0.64 ? 0 : v < 0.7 ? 4 : 3;
+        // Ripstop weave: a faint grid plus fibre noise.
+        const weave = (x % 4 === 0 || y % 4 === 0 ? 0.93 : 1) * (0.94 + fbm(x / 256, y / 256, 90, 2, 3) * 0.12);
         const i = (y * 256 + x) * 4;
-        img.data[i] = cols[k][0] * n;
-        img.data[i + 1] = cols[k][1] * n;
-        img.data[i + 2] = cols[k][2] * n;
+        img.data[i] = cols[k][0] * weave;
+        img.data[i + 1] = cols[k][1] * weave;
+        img.data[i + 2] = cols[k][2] * weave;
         img.data[i + 3] = 255;
       }
       c.putImageData(img, 0, 0);
@@ -120,23 +133,29 @@ export function opforCamo(): THREE.CanvasTexture {
   );
 }
 
-let sharedGeo: THREE.BufferGeometry | null = null;
+const geoCache = new Map<SoldierVariant, THREE.BufferGeometry>();
 
-function buildGeometry(): THREE.BufferGeometry {
+function buildGeometry(variant: SoldierVariant): THREE.BufferGeometry {
   const a: Acc = { pos: [], nrm: [], uv: [], col: [], si: [], sw: [], idx: [[], [], []] };
-  const W: [number, number, number] = [1, 1, 1];
-  // Torso.
+  const W: Sel = [1, 1, 1];
+  const DARK: Sel = [0, 0, 0], HELM: Sel = [0.25, 0, 0], GEAR: Sel = [0.5, 0, 0], POUCH: Sel = [0.75, 0, 0], SKIN: Sel = [0, 1, 0], MASK: Sel = [0, 0, 1];
+  const saf = variant === "saf";
+
+  // ---- torso: pelvis, waist, ribcage, shoulders, neck (group 0 = fatigues) ----
   loft(a, 0, 0, [
-    [0.84, 0.16, 0.112, B.hips, 1, 0, 0],
-    [0.96, 0.172, 0.122, B.hips, 1, 0, 0],
-    [1.06, 0.158, 0.112, B.hips, 0.5, B.spine, 0.5],
-    [1.16, 0.162, 0.116, B.spine, 0.6, B.chest, 0.4],
-    [1.3, 0.186, 0.13, B.chest, 1, 0, 0],
-    [1.42, 0.19, 0.124, B.chest, 1, 0, 0],
-    [1.49, 0.125, 0.1, B.chest, 0.6, B.neck, 0.4],
-    [1.53, 0.06, 0.064, B.neck, 1, 0, 0],
-    [1.6, 0.056, 0.06, B.neck, 0.5, B.head, 0.5],
-  ], 14, W);
+    [0.82, 0.15, 0.108, B.hips, 1, 0, 0],
+    [0.9, 0.168, 0.12, B.hips, 1, 0, 0],
+    [0.98, 0.17, 0.122, B.hips, 1, 0, 0],
+    [1.05, 0.156, 0.11, B.hips, 0.5, B.spine, 0.5],
+    [1.12, 0.154, 0.11, B.spine, 0.8, B.chest, 0.2],
+    [1.2, 0.166, 0.12, B.spine, 0.4, B.chest, 0.6],
+    [1.3, 0.184, 0.132, B.chest, 1, 0, 0],
+    [1.38, 0.19, 0.13, B.chest, 1, 0, 0],
+    [1.44, 0.18, 0.118, B.chest, 1, 0, 0],
+    [1.49, 0.12, 0.096, B.chest, 0.6, B.neck, 0.4],
+    [1.525, 0.064, 0.068, B.neck, 1, 0, 0],
+    [1.6, 0.058, 0.062, B.neck, 0.5, B.head, 0.5],
+  ], 20, W, [0, 0, -0.004, 0, 0.004, 0.008, 0.008, 0.004, 0, 0, 0.004, 0.006]);
   for (const s of [1, -1]) {
     const th = s > 0 ? B.lThigh : B.rThigh;
     const sh = s > 0 ? B.lShin : B.rShin;
@@ -144,65 +163,163 @@ function buildGeometry(): THREE.BufferGeometry {
     const fo = s > 0 ? B.lFore : B.rFore;
     const ha = s > 0 ? B.lHand : B.rHand;
     const ft = s > 0 ? B.lFoot : B.rFoot;
+    // Leg: seat, thigh, knee, calf, bloused cuff over the boot.
     loft(a, 0, s * 0.1, [
-      [0.97, 0.086, 0.096, B.hips, 0.6, th, 0.4],
-      [0.86, 0.09, 0.1, th, 1, 0, 0],
-      [0.68, 0.078, 0.088, th, 1, 0, 0],
-      [0.56, 0.066, 0.074, th, 0.75, sh, 0.25],
-      [0.5, 0.064, 0.07, th, 0.5, sh, 0.5],
-      [0.44, 0.062, 0.068, sh, 0.8, th, 0.2],
-      [0.3, 0.06, 0.066, sh, 1, 0, 0],
-      [0.15, 0.05, 0.054, sh, 1, 0, 0],
-    ], 10, W);
+      [0.98, 0.084, 0.098, B.hips, 0.7, th, 0.3],
+      [0.9, 0.092, 0.104, B.hips, 0.25, th, 0.75],
+      [0.8, 0.09, 0.1, th, 1, 0, 0],
+      [0.68, 0.08, 0.09, th, 1, 0, 0],
+      [0.58, 0.07, 0.078, th, 0.8, sh, 0.2],
+      [0.5, 0.066, 0.074, th, 0.5, sh, 0.5],
+      [0.44, 0.064, 0.07, sh, 0.85, th, 0.15],
+      [0.36, 0.066, 0.074, sh, 1, 0, 0],
+      [0.27, 0.058, 0.064, sh, 1, 0, 0],
+      [0.22, 0.064, 0.07, sh, 1, 0, 0],
+      [0.19, 0.056, 0.06, sh, 1, 0, 0],
+    ], 14, W, [0, 0, 0.004, 0.006, 0.006, 0.01, 0, -0.012, -0.008, -0.004, 0]);
+    // Boot: shaft, heel and a rounded toe box.
+    loft(a, 1, s * 0.1, [
+      [0.2, 0.052, 0.056, sh, 0.7, ft, 0.3],
+      [0.13, 0.05, 0.056, ft, 1, 0, 0],
+      [0.06, 0.052, 0.064, ft, 1, 0, 0],
+      [0.0, 0.054, 0.068, ft, 1, 0, 0],
+    ], 12, DARK, [0, 0, 0.004, 0.006]);
+    rigid(a, 1, rbox(0.104, 0.085, 0.2, 0.035), ft, DARK, s * 0.1, 0.045, 0.1);
+    rigid(a, 1, rbox(0.11, 0.022, 0.29, 0.01), ft, DARK, s * 0.1, 0.011, 0.055);
+    // Arm: deltoid, upper arm, elbow, forearm, glove cuff.
     loft(a, 0, s * 0.2, [
-      [1.48, 0.058, 0.064, B.chest, 0.5, up, 0.5],
-      [1.4, 0.06, 0.064, up, 1, 0, 0],
-      [1.26, 0.052, 0.056, up, 1, 0, 0],
-      [1.2, 0.048, 0.052, up, 0.65, fo, 0.35],
-      [1.15, 0.048, 0.052, up, 0.35, fo, 0.65],
-      [1.05, 0.046, 0.05, fo, 1, 0, 0],
-      [0.94, 0.038, 0.04, fo, 1, 0, 0],
-    ], 9, W);
-    // Shoulder cap, glove, boot, knee pad.
-    rigid(a, 0, new THREE.SphereGeometry(0.066, 10, 8), up, W, s * 0.2, 1.45, 0);
-    rigid(a, 1, new THREE.SphereGeometry(0.046, 8, 6).scale(0.85, 1.25, 1), ha, [0, 0, 0], s * 0.2, 0.87, 0);
-    rigid(a, 1, new THREE.BoxGeometry(0.105, 0.2, 0.13), ft, [1, 0, 0], s * 0.1, 0.11, -0.01);
-    rigid(a, 1, new THREE.BoxGeometry(0.1, 0.085, 0.2), ft, [1, 0, 0], s * 0.1, 0.045, 0.085);
-    rigid(a, 1, new THREE.BoxGeometry(0.11, 0.13, 0.05), sh, [0.5, 0, 0], s * 0.1, 0.47, 0.065);
+      [1.49, 0.054, 0.062, B.chest, 0.55, up, 0.45],
+      [1.44, 0.064, 0.07, up, 1, 0, 0],
+      [1.36, 0.06, 0.066, up, 1, 0, 0],
+      [1.26, 0.053, 0.058, up, 1, 0, 0],
+      [1.2, 0.049, 0.054, up, 0.65, fo, 0.35],
+      [1.15, 0.049, 0.054, up, 0.35, fo, 0.65],
+      [1.08, 0.05, 0.054, fo, 1, 0, 0],
+      [0.98, 0.042, 0.045, fo, 1, 0, 0],
+      [0.935, 0.037, 0.04, fo, 1, 0, 0],
+    ], 12, W);
+    // Glove: cuff, palm, curled fingers, thumb.
+    loft(a, 1, s * 0.2, [
+      [0.945, 0.041, 0.044, fo, 0.5, ha, 0.5],
+      [0.915, 0.04, 0.036, ha, 1, 0, 0],
+    ], 10, DARK);
+    rigid(a, 1, rbox(0.082, 0.095, 0.04, 0.016), ha, DARK, s * 0.2, 0.868, 0);
+    rigid(a, 1, rbox(0.078, 0.05, 0.05, 0.018), ha, DARK, s * 0.2, 0.812, 0.012);
+    rigid(a, 1, rbox(0.026, 0.06, 0.03, 0.012), ha, DARK, s * 0.2 - s * 0.048, 0.872, 0.02);
+    rigid(a, 1, rbox(0.07, 0.03, 0.012, 0.005), ha, GEAR, s * 0.2, 0.895, -0.024);
+    // Knee and elbow pads: hard caps on a fabric backing.
+    rigid(a, 1, new THREE.SphereGeometry(0.066, 12, 8).scale(0.95, 1.25, 0.6), sh, DARK, s * 0.1, 0.5, 0.058);
+    rigid(a, 1, rbox(0.15, 0.03, 0.14, 0.01), sh, GEAR, s * 0.1, 0.43, 0.004);
+    rigid(a, 1, new THREE.SphereGeometry(0.052, 10, 8).scale(1, 1.3, 0.6), fo, DARK, s * 0.2, 1.17, -0.046);
+    if (!saf) rigid(a, 1, rbox(0.125, 0.07, 0.125, 0.02), up, GEAR, s * 0.2, 1.36, 0); // shoulder pocket / patch panel
   }
-  // Head: face, mask, helmet with rim and rails.
-  rigid(a, 2, new THREE.SphereGeometry(0.1, 14, 12).scale(0.92, 1.16, 1.02), B.head, [0, 1, 0], 0, 1.67, 0.008);
-  rigid(a, 1, new THREE.SphereGeometry(0.104, 12, 8, 0, Math.PI * 2, Math.PI * 0.52, Math.PI * 0.48).scale(0.95, 1.15, 1.06), B.head, [0, 0, 1], 0, 1.675, 0.01);
-  rigid(a, 1, new THREE.SphereGeometry(0.128, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.56).scale(1, 0.92, 1.12), B.head, [0.25, 0, 0], 0, 1.7, -0.005);
-  rigid(a, 1, new THREE.BoxGeometry(0.03, 0.05, 0.16), B.head, [0.5, 0, 0], 0.125, 1.69, 0);
-  rigid(a, 1, new THREE.BoxGeometry(0.03, 0.05, 0.16), B.head, [0.5, 0, 0], -0.125, 1.69, 0);
-  // Plate carrier: a shell lofted just outside the torso so it wraps the body, then pouches, pack, belt.
-  const G: [number, number, number] = [0.5, 0, 0];
+
+  // ---- head ----
+  const HY = 1.672;
+  // Skull under a balaclava (or bare, for friendlies): slightly egg-shaped, jaw narrower than crown.
+  rigid(a, saf ? 2 : 1, new THREE.SphereGeometry(0.1, 20, 16).scale(0.9, 1.18, 1.0), B.head, saf ? SKIN : MASK, 0, HY, 0.006);
+  rigid(a, saf ? 2 : 1, new THREE.SphereGeometry(0.062, 12, 10).scale(1.05, 0.9, 0.9), B.head, saf ? SKIN : MASK, 0, HY - 0.07, 0.04); // jaw and chin
+  rigid(a, saf ? 2 : 1, new THREE.SphereGeometry(0.02, 8, 6).scale(0.9, 1.3, 1), B.head, saf ? SKIN : MASK, 0, HY - 0.012, 0.1); // nose
+  if (!saf) {
+    // The eye opening: a strip of skin sitting just proud of the knit, brow shadowed by a rolled edge.
+    rigid(a, 2, new THREE.SphereGeometry(0.1, 16, 4, Math.PI / 2 - 0.86, 1.72, 1.36, 0.3).scale(0.905, 1.18, 1.012), B.head, SKIN, 0, HY, 0.007);
+    rigid(a, 1, new THREE.TorusGeometry(0.066, 0.008, 5, 16, Math.PI).rotateZ(0).scale(1.18, 0.5, 1), B.head, MASK, 0, HY + 0.012, 0.074);
+    for (const s of [-1, 1]) rigid(a, 1, new THREE.SphereGeometry(0.009, 6, 5), B.head, DARK, s * 0.034, HY + 0.008, 0.098); // eyes
+  } else {
+    for (const s of [-1, 1]) rigid(a, 1, new THREE.SphereGeometry(0.009, 6, 5), B.head, DARK, s * 0.034, HY + 0.012, 0.094);
+  }
+  if (variant === "operator" || saf) {
+    // High-cut ballistic helmet: shell, brim roll, side rails, NVG shroud, rear counterweight pouch.
+    const shell = new THREE.SphereGeometry(0.127, 22, 12, 0, Math.PI * 2, 0, Math.PI * (saf ? 0.6 : 0.52)).scale(1, 0.96, 1.13);
+    rigid(a, 1, shell, B.head, HELM, 0, HY + 0.03, -0.004);
+    rigid(a, 1, new THREE.TorusGeometry(0.126, 0.007, 5, 22).rotateX(Math.PI / 2).scale(1, 1, 1.13), B.head, HELM, 0, HY + (saf ? -0.008 : 0.022), -0.004);
+    if (!saf) {
+      for (const s of [-1, 1]) {
+        rigid(a, 1, rbox(0.014, 0.026, 0.13, 0.005), B.head, DARK, s * 0.127, HY + 0.045, 0);
+        rigid(a, 1, new THREE.CylinderGeometry(0.043, 0.043, 0.036, 12).rotateZ(Math.PI / 2), B.head, DARK, s * 0.108, HY - 0.012, -0.005); // headset cup
+        rigid(a, 1, rbox(0.012, 0.07, 0.02, 0.004), B.head, DARK, s * 0.118, HY + 0.03, -0.005);
+      }
+      rigid(a, 1, rbox(0.05, 0.042, 0.022, 0.006), B.head, DARK, 0, HY + 0.095, 0.134);
+      rigid(a, 1, rbox(0.075, 0.055, 0.035, 0.012), B.head, GEAR, 0, HY + 0.06, -0.145);
+      rigid(a, 1, new THREE.CylinderGeometry(0.004, 0.004, 0.09, 5).rotateX(Math.PI / 2 - 0.5), B.head, DARK, -0.1, HY - 0.05, 0.05); // boom mic
+      // Chin strap.
+      for (const s of [-1, 1]) rigid(a, 1, rbox(0.006, 0.1, 0.014, 0.002).rotateZ(s * 0.18), B.head, DARK, s * 0.088, HY - 0.06, 0.03);
+    } else {
+      rigid(a, 1, rbox(0.03, 0.012, 0.02, 0.004), B.head, DARK, 0, HY + 0.06, 0.142);
+    }
+  } else if (variant === "raider") {
+    // Watch cap rolled above the eyes, ballistic goggles pushed up, earpiece.
+    rigid(a, 1, new THREE.SphereGeometry(0.104, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.46).scale(0.93, 1.16, 1.02), B.head, HELM, 0, HY + 0.008, 0.004);
+    rigid(a, 1, new THREE.TorusGeometry(0.094, 0.013, 6, 20).rotateX(Math.PI / 2).scale(0.93, 1, 1.02), B.head, HELM, 0, HY + 0.044, 0.004);
+    rigid(a, 1, rbox(0.15, 0.042, 0.03, 0.014), B.head, DARK, 0, HY + 0.062, 0.088);
+    rigid(a, 1, new THREE.TorusGeometry(0.098, 0.007, 4, 18).rotateX(Math.PI / 2 - 0.12).scale(0.93, 1, 1.02), B.head, DARK, 0, HY + 0.058, 0);
+  } else {
+    // Head wrap: cloth bound over the crown with a tail down the neck, scarf bunched at the throat.
+    rigid(a, 1, new THREE.SphereGeometry(0.108, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.5).scale(0.95, 1.14, 1.04), B.head, POUCH, 0, HY + 0.012, 0);
+    rigid(a, 1, new THREE.TorusGeometry(0.097, 0.016, 6, 20).rotateX(Math.PI / 2 + 0.16).scale(0.95, 1, 1.04), B.head, POUCH, 0, HY + 0.04, 0);
+    rigid(a, 1, rbox(0.1, 0.17, 0.03, 0.012).rotateX(0.18), B.head, POUCH, 0.02, HY - 0.07, -0.098);
+    rigid(a, 1, new THREE.TorusGeometry(0.078, 0.034, 8, 18).rotateX(Math.PI / 2).scale(1.1, 1, 1), B.neck, POUCH, 0, 1.535, 0.012);
+    rigid(a, 1, rbox(0.11, 0.12, 0.03, 0.014).rotateX(-0.25), B.chest, POUCH, 0.01, 1.46, 0.105);
+  }
+
+  // ---- load-bearing kit ----
+  // Plate carrier: a shell lofted just outside the ribcage, with plate bags front and back.
   loft(a, 1, 0, [
-    [1.07, 0.168, 0.124, B.spine, 0.6, B.chest, 0.4],
-    [1.1, 0.186, 0.146, B.spine, 0.5, B.chest, 0.5],
-    [1.2, 0.196, 0.156, B.chest, 1, 0, 0],
-    [1.36, 0.204, 0.158, B.chest, 1, 0, 0],
-    [1.44, 0.198, 0.146, B.chest, 1, 0, 0],
-    [1.47, 0.15, 0.116, B.chest, 1, 0, 0],
-  ], 14, G);
-  for (const sx of [-0.105, 0, 0.105]) rigid(a, 1, new THREE.BoxGeometry(0.085, 0.15, 0.05), B.chest, [0.75, 0, 0], sx, 1.19, 0.17);
-  rigid(a, 1, new THREE.BoxGeometry(0.11, 0.08, 0.04), B.chest, [0.75, 0, 0], 0.08, 1.37, 0.165);
-  rigid(a, 1, new THREE.SphereGeometry(0.13, 10, 8).scale(1, 1.2, 0.62), B.chest, [0.75, 0, 0], 0, 1.3, -0.19);
-  rigid(a, 1, new THREE.BoxGeometry(0.16, 0.07, 0.07), B.chest, [0.5, 0, 0], 0, 1.16, -0.2);
+    [1.08, 0.166, 0.124, B.spine, 0.6, B.chest, 0.4],
+    [1.1, 0.184, 0.144, B.spine, 0.5, B.chest, 0.5],
+    [1.2, 0.193, 0.152, B.chest, 1, 0, 0],
+    [1.34, 0.2, 0.154, B.chest, 1, 0, 0],
+    [1.42, 0.196, 0.144, B.chest, 1, 0, 0],
+    [1.455, 0.16, 0.12, B.chest, 1, 0, 0],
+  ], 20, GEAR, [0, 0.004, 0.008, 0.008, 0.004, 0]);
+  rigid(a, 1, rbox(0.25, 0.29, 0.04, 0.03), B.chest, GEAR, 0, 1.3, 0.146);
+  rigid(a, 1, rbox(0.26, 0.31, 0.04, 0.03), B.chest, GEAR, 0, 1.3, -0.14);
+  for (const s of [-1, 1]) {
+    // Shoulder straps over the top, with a comms cable guide on one.
+    rigid(a, 1, new THREE.TorusGeometry(0.09, 0.017, 5, 12, Math.PI).rotateY(Math.PI / 2).scale(0.9, 0.62, 1.5), B.chest, GEAR, s * 0.105, 1.445, 0.002);
+    // Cummerbund side panels with a pouch each.
+    rigid(a, 1, rbox(0.03, 0.15, 0.2, 0.012), B.chest, GEAR, s * 0.196, 1.2, 0.002);
+    rigid(a, 1, rbox(0.05, 0.1, 0.075, 0.018), B.chest, POUCH, s * 0.218, 1.2, s > 0 ? 0.03 : -0.02);
+  }
+  // Three rifle-magazine pouches with the magazines standing proud, and an admin pouch above.
+  for (const sx of [-0.088, 0, 0.088]) {
+    rigid(a, 1, rbox(0.078, 0.13, 0.044, 0.014), B.chest, POUCH, sx, 1.175, 0.184);
+    rigid(a, 1, rbox(0.056, 0.05, 0.024, 0.006).rotateX(0.08), B.chest, DARK, sx, 1.26, 0.186);
+    rigid(a, 1, rbox(0.03, 0.012, 0.05, 0.003), B.chest, DARK, sx, 1.238, 0.188);
+  }
+  rigid(a, 1, rbox(0.15, 0.075, 0.03, 0.012), B.chest, POUCH, 0.035, 1.375, 0.168);
+  if (!saf) {
+    // Radio on the back of the left shoulder with a whip antenna; push-to-talk on the chest.
+    rigid(a, 1, rbox(0.06, 0.13, 0.04, 0.01), B.chest, DARK, 0.125, 1.39, -0.17);
+    rigid(a, 1, new THREE.CylinderGeometry(0.004, 0.006, 0.3, 5), B.chest, DARK, 0.14, 1.6, -0.17);
+    rigid(a, 1, rbox(0.035, 0.045, 0.02, 0.006), B.chest, DARK, -0.11, 1.4, 0.166);
+    // Fragmentation grenades on the cummerbund.
+    rigid(a, 1, new THREE.SphereGeometry(0.03, 8, 6).scale(1, 1.25, 1), B.chest, DARK, -0.15, 1.13, 0.14);
+    rigid(a, 1, new THREE.SphereGeometry(0.03, 8, 6).scale(1, 1.25, 1), B.chest, DARK, 0.155, 1.13, 0.13);
+  }
+  // Assault pack: main bag, lid roll, compression straps.
+  rigid(a, 1, rbox(0.25, 0.3, 0.1, 0.045), B.chest, POUCH, 0, 1.31, -0.205);
+  rigid(a, 1, new THREE.CylinderGeometry(0.05, 0.05, 0.24, 10).rotateZ(Math.PI / 2), B.chest, POUCH, 0, 1.47, -0.19);
+  for (const sx of [-0.07, 0.07]) rigid(a, 1, rbox(0.022, 0.3, 0.012, 0.003), B.chest, DARK, sx, 1.31, -0.257);
+  // Battle belt: belt, buckle, pouches, dump pouch, drop-leg holster with the pistol's grip showing.
   loft(a, 1, 0, [
-    [0.985, 0.18, 0.13, B.hips, 1, 0, 0],
-    [1.0, 0.184, 0.134, B.hips, 1, 0, 0],
-    [1.035, 0.18, 0.13, B.hips, 1, 0, 0],
-  ], 12, G);
-  rigid(a, 1, new THREE.BoxGeometry(0.06, 0.15, 0.11), B.hips, [0.75, 0, 0], -0.2, 0.95, 0.02);
-  rigid(a, 1, new THREE.BoxGeometry(0.1, 0.11, 0.06), B.hips, [0.75, 0, 0], 0.16, 0.97, -0.11);
+    [0.975, 0.176, 0.128, B.hips, 1, 0, 0],
+    [0.99, 0.181, 0.133, B.hips, 1, 0, 0],
+    [1.03, 0.181, 0.133, B.hips, 1, 0, 0],
+    [1.045, 0.174, 0.126, B.hips, 1, 0, 0],
+  ], 18, GEAR);
+  rigid(a, 1, rbox(0.05, 0.04, 0.014, 0.004), B.hips, DARK, 0, 1.01, 0.134);
+  rigid(a, 1, rbox(0.06, 0.12, 0.09, 0.016), B.hips, POUCH, 0.19, 0.97, 0.03);
+  rigid(a, 1, rbox(0.13, 0.13, 0.07, 0.03), B.hips, POUCH, 0.1, 0.95, -0.14);
+  rigid(a, 1, rbox(0.075, 0.1, 0.05, 0.014), B.hips, POUCH, -0.11, 0.97, -0.135);
+  rigid(a, 1, rbox(0.05, 0.19, 0.11, 0.014), B.rThigh, DARK, -0.196, 0.79, 0.01);
+  rigid(a, 1, rbox(0.03, 0.07, 0.045, 0.008).rotateX(-0.3), B.rThigh, DARK, -0.205, 0.905, -0.012);
+  for (const yy of [0.84, 0.73]) rigid(a, 1, new THREE.TorusGeometry(0.094, 0.009, 4, 14).rotateX(Math.PI / 2), B.rThigh, DARK, -0.1, yy, 0);
 
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(a.pos, 3));
   g.setAttribute("normal", new THREE.Float32BufferAttribute(a.nrm, 3));
   g.setAttribute("uv", new THREE.Float32BufferAttribute(a.uv, 2));
-  // The colour channel carries palette selectors, resolved per soldier in the shader-free way: baked below.
   g.setAttribute("sel", new THREE.Float32BufferAttribute(a.col, 3));
   g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(a.si, 4));
   g.setAttribute("skinWeight", new THREE.Float32BufferAttribute(a.sw, 4));
@@ -218,11 +335,11 @@ function buildGeometry(): THREE.BufferGeometry {
   return g;
 }
 
-/** AK-pattern rifle for OPFOR, built along +Z with the grip at the origin. */
-function rifleGeometry(): THREE.BufferGeometry {
+/** Rifle built along +Z with the grip at the origin: a railed, suppressed AK for OPFOR, a bullpup for the SAF. */
+function rifleGeometry(bullpup: boolean): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const add = (g: THREE.BufferGeometry, col: number, x: number, y: number, z: number, rx = 0): void => {
-    const gg = g.toNonIndexed();
+    const gg = g.index ? g.toNonIndexed() : g.clone();
     if (rx) gg.rotateX(rx);
     gg.translate(x, y, z);
     const c = new THREE.Color(col);
@@ -233,19 +350,49 @@ function rifleGeometry(): THREE.BufferGeometry {
     gg.deleteAttribute("uv");
     parts.push(gg);
   };
-  const steel = 0x24262a;
-  const wood = 0x5a3a22;
-  add(new THREE.BoxGeometry(0.045, 0.06, 0.3), steel, 0, 0.05, 0.1);
-  add(new THREE.BoxGeometry(0.04, 0.05, 0.24), wood, 0, 0.035, -0.26);
-  add(new THREE.BoxGeometry(0.042, 0.1, 0.04), wood, 0, 0.0, -0.36);
-  add(new THREE.BoxGeometry(0.05, 0.05, 0.2), wood, 0, 0.045, 0.34);
-  add(new THREE.CylinderGeometry(0.011, 0.011, 0.36, 7), steel, 0, 0.055, 0.6, Math.PI / 2);
-  add(new THREE.CylinderGeometry(0.008, 0.008, 0.26, 6), steel, 0, 0.082, 0.46, Math.PI / 2);
-  add(new THREE.BoxGeometry(0.012, 0.045, 0.012), steel, 0, 0.09, 0.74);
-  add(new THREE.BoxGeometry(0.036, 0.1, 0.045), steel, 0, -0.035, -0.02, 0.25);
-  add(new THREE.BoxGeometry(0.03, 0.2, 0.06), steel, 0, -0.08, 0.14, -0.38);
+  const steel = 0x1d1f22, poly = 0x26282b, worn = 0x3a3c40;
+  const cyl = (r: number, l: number, seg = 10): THREE.BufferGeometry => new THREE.CylinderGeometry(r, r, l, seg);
+  if (bullpup) {
+    add(rbox(0.05, 0.085, 0.5, 0.014), poly, 0, 0.05, -0.08);
+    add(rbox(0.046, 0.06, 0.2, 0.012), poly, 0, 0.04, 0.27);
+    add(cyl(0.012, 0.2), steel, 0, 0.05, 0.45, Math.PI / 2);
+    add(cyl(0.016, 0.05), steel, 0, 0.05, 0.55, Math.PI / 2);
+    add(cyl(0.02, 0.2, 12), poly, 0, 0.135, 0.06, Math.PI / 2);
+    add(rbox(0.016, 0.03, 0.26, 0.004), poly, 0, 0.105, 0.06);
+    add(rbox(0.04, 0.11, 0.05, 0.012), poly, 0, -0.03, 0.02, 0.2);
+    add(rbox(0.034, 0.17, 0.065, 0.008), worn, 0, -0.07, -0.19, -0.12);
+  } else {
+    // Receiver, dust cover, rear trunnion.
+    add(rbox(0.044, 0.062, 0.27, 0.01), steel, 0, 0.05, 0.09);
+    add(rbox(0.04, 0.02, 0.2, 0.008), worn, 0, 0.088, 0.07);
+    // Railed handguard, gas tube, barrel, front sight block.
+    add(rbox(0.05, 0.052, 0.21, 0.008), poly, 0, 0.046, 0.33);
+    for (let i = 0; i < 7; i++) add(new THREE.BoxGeometry(0.022, 0.008, 0.016), steel, 0, 0.078, 0.245 + i * 0.027);
+    add(cyl(0.009, 0.2, 8), steel, 0, 0.084, 0.36, Math.PI / 2);
+    add(cyl(0.0105, 0.22, 8), steel, 0, 0.056, 0.53, Math.PI / 2);
+    add(new THREE.BoxGeometry(0.014, 0.05, 0.02), steel, 0, 0.082, 0.6);
+    // Suppressor.
+    add(cyl(0.021, 0.19, 12), steel, 0, 0.056, 0.72, Math.PI / 2);
+    add(cyl(0.0225, 0.012, 12), worn, 0, 0.056, 0.64, Math.PI / 2);
+    // Curved magazine in three steps.
+    add(rbox(0.03, 0.085, 0.062, 0.006), worn, 0, -0.03, 0.135, -0.22);
+    add(rbox(0.03, 0.085, 0.06, 0.006), worn, 0, -0.1, 0.16, -0.42);
+    add(rbox(0.03, 0.07, 0.058, 0.006), worn, 0, -0.158, 0.194, -0.62);
+    // Pistol grip, trigger guard, polymer stock with cheek riser and butt pad.
+    add(rbox(0.034, 0.105, 0.046, 0.01), poly, 0, -0.036, -0.03, 0.26);
+    add(new THREE.TorusGeometry(0.026, 0.004, 4, 10, Math.PI).rotateY(Math.PI / 2).rotateX(Math.PI), steel, 0, 0.012, 0.045);
+    add(rbox(0.034, 0.05, 0.22, 0.01), poly, 0, 0.04, -0.16);
+    add(rbox(0.036, 0.1, 0.045, 0.01), poly, 0, 0.012, -0.285);
+    add(rbox(0.03, 0.026, 0.14, 0.008), poly, 0, 0.074, -0.16);
+    // Red-dot sight on a riser, weapon light under the handguard.
+    add(rbox(0.036, 0.016, 0.07, 0.004), steel, 0, 0.104, 0.1);
+    add(rbox(0.04, 0.046, 0.058, 0.01), poly, 0, 0.134, 0.1);
+    add(cyl(0.014, 0.004, 10), 0x3a1410, 0, 0.136, 0.131, Math.PI / 2);
+    add(cyl(0.014, 0.075, 10), steel, 0.036, 0.046, 0.4, Math.PI / 2);
+    // Sling loop.
+    add(new THREE.TorusGeometry(0.012, 0.003, 4, 8), worn, 0.026, 0.05, -0.05);
+  }
   const g = mergeGeometries(parts)!;
-  g.computeVertexNormals();
   return g;
 }
 
@@ -265,6 +412,10 @@ export interface Pose {
   /** 0 = alive, 0..1 = collapsing. */
   dead: number;
   deadKind: number;
+  /** Seconds, for idle breathing and weight shift. */
+  time?: number;
+  /** Head turn relative to the chest, radians. */
+  headYaw?: number;
 }
 
 const _q = new THREE.Quaternion();
@@ -280,6 +431,7 @@ const Z = new THREE.Vector3(0, 0, 1);
 const _e = new THREE.Euler();
 
 export interface SoldierMats {
+  variant: SoldierVariant;
   uniform: THREE.MeshStandardMaterial;
   gear: THREE.MeshStandardMaterial;
   skin: THREE.MeshStandardMaterial;
@@ -287,12 +439,12 @@ export interface SoldierMats {
 }
 
 export function soldierMaterials(engine: Engine, look: SoldierLook): SoldierMats {
-  // Palette selectors (stored in the geometry) resolve to these colours per look.
+  // Palette selectors stored in the geometry resolve to this look's colours in the shader.
   const patch = (m: THREE.MeshStandardMaterial, palette: number[]): THREE.MeshStandardMaterial => {
-    engine.lit(m);
+    engine.lit(m, { rim: 0.5 });
     const lit = m.onBeforeCompile.bind(m);
     const cols = palette.map((h) => new THREE.Color(h));
-    m.customProgramCacheKey = () => `sold:${palette.join(",")}`;
+    m.customProgramCacheKey = () => `sold2:${palette.join(",")}`;
     m.onBeforeCompile = (sh, r) => {
       lit(sh, r);
       sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nattribute vec3 sel;\nvarying vec3 vSel;").replace("#include <begin_vertex>", "#include <begin_vertex>\n  vSel = sel;");
@@ -303,21 +455,17 @@ export function soldierMaterials(engine: Engine, look: SoldierLook): SoldierMats
     };
     return m;
   };
-  const maskCol = look.mask ?? look.skin;
-  // palette: [glove(r=0), helmet(.25), gear(.5), pouch(.75→lighter gear)], skin (g), mask (b)
-  const boot = 0x1d1a17;
-  const pal = [0x2a2b27, look.helmet, look.gear, new THREE.Color(look.gear).multiplyScalar(1.35).getHex(), look.skin, maskCol];
-  const gear = patch(new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 }), [pal[0], pal[1], pal[2], pal[3], pal[4], pal[5]]);
-  void boot;
+  const pal = [look.dark, look.helmet, look.gear, look.pouch, look.skin, look.mask];
   return {
-    uniform: engine.lit(new THREE.MeshStandardMaterial({ map: look.uniform, roughness: 0.92 })),
-    gear,
-    skin: patch(new THREE.MeshStandardMaterial({ roughness: 0.6 }), [pal[4], pal[4], pal[4], pal[4], pal[4], pal[5]]),
-    rifle: engine.lit(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.4 })),
+    variant: look.variant,
+    uniform: engine.lit(new THREE.MeshStandardMaterial({ map: look.uniform, color: look.cloth, roughness: 0.94 }), { rim: 0.5 }),
+    gear: patch(new THREE.MeshStandardMaterial({ roughness: 0.78, metalness: 0.05 }), pal),
+    skin: patch(new THREE.MeshStandardMaterial({ roughness: 0.62 }), [look.skin, look.skin, look.skin, look.skin, look.skin, look.mask]),
+    rifle: engine.lit(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.55 }), { rim: 0.5 }),
   };
 }
 
-let sharedRifle: THREE.BufferGeometry | null = null;
+const rifleCache = new Map<boolean, THREE.BufferGeometry>();
 
 export class SoldierModel {
   readonly root = new THREE.Group();
@@ -333,8 +481,11 @@ export class SoldierModel {
   private limp = [0, 0, 0, 0];
 
   constructor(mats: SoldierMats) {
-    sharedGeo ??= buildGeometry();
-    sharedRifle ??= rifleGeometry();
+    let sharedGeo = geoCache.get(mats.variant);
+    if (!sharedGeo) geoCache.set(mats.variant, (sharedGeo = buildGeometry(mats.variant)));
+    const bullpup = mats.variant === "saf";
+    let sharedRifle = rifleCache.get(bullpup);
+    if (!sharedRifle) rifleCache.set(bullpup, (sharedRifle = rifleGeometry(bullpup)));
     for (let i = 0; i < REST.length; i++) {
       const b = new THREE.Bone();
       const p = PARENT[i];
@@ -408,7 +559,12 @@ export class SoldierModel {
     bn[B.spine].rotation.set(lean * 0.6 - p.aimPitch * 0.25 - p.flinch * 0.3, p.aimYaw * 0.4, p.flinch * 0.15);
     bn[B.chest].rotation.set(lean * 0.4 - p.aimPitch * 0.3, p.aimYaw * 0.45, 0);
     bn[B.neck].rotation.set(-lean * 0.5, p.aimYaw * 0.1, 0);
-    bn[B.head].rotation.set(-lean * 0.45 - p.aimPitch * 0.35 + dying * 0.5, p.aimYaw * 0.05, dying * this.limp[0]);
+    const tt0 = p.time ?? 0;
+    const still = (1 - gait * moving) * (1 - dying);
+    const breath = Math.sin(tt0 * 1.7 + this.limp[0] * 9) * 0.012 * still;
+    bn[B.chest].rotation.x += breath;
+    bn[B.spine].rotation.z += Math.sin(tt0 * 0.43 + this.limp[1] * 7) * 0.02 * still;
+    bn[B.head].rotation.set(-lean * 0.45 - p.aimPitch * 0.35 + dying * 0.5 - breath, p.aimYaw * 0.05 + (p.headYaw ?? 0) * (1 - dying), dying * this.limp[0]);
 
     // World orientation of the chest (model space), tracked by hand.
     const qH = _q.setFromEuler(hips.rotation).clone();

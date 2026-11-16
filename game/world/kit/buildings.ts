@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { Surf, type Builder } from "~/gfx/builder";
 import { signQuad, type WorldCtx } from "../ctx";
 import { airconUnit, door, shutter, wall, win } from "./arch";
@@ -7,6 +8,12 @@ import * as P from "./props";
 /** The estate's set-piece buildings. Each is built in local space (front faces +Z) and placed with a yaw. */
 
 const F0 = 0.15;
+let fanMat: THREE.MeshStandardMaterial | null = null;
+const FAN_BLADES = (() => {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < 3; k++) parts.push(new THREE.BoxGeometry(0.78, 0.012, 0.13).translate(0.47, 0, 0).rotateX(0.12).rotateY((k / 3) * Math.PI * 2));
+  return mergeGeometries(parts)!;
+})();
 
 function placer(x: number, z: number, yaw: number): (lx: number, ly: number, lz: number) => [number, number, number] {
   const c = Math.cos(yaw), s = Math.sin(yaw);
@@ -255,10 +262,14 @@ export function hawkerCentre(ctx: WorldCtx, o: { x: number; z: number; yaw: numb
       // Ceiling fan.
       b.cyl("steel", cx, F0 + eave + 0.2, cz, 0.02, 1.3, 5, { tint: 0xd0d0cc, collide: "none" });
       b.cyl("paintmetal", cx, F0 + eave - 0.45, cz, 0.12, 0.14, 8, { tint: 0xd8d8d2, collide: "none" });
-      for (let k = 0; k < 3; k++) {
-        const a = (k / 3) * Math.PI * 2 + i;
-        b.at(cx, F0 + eave - 0.47, cz, a, () => b.box("paintmetal", 0.45, 0, 0, 0.75, 0.012, 0.13, { tint: 0xd8d8d2, collide: "none" }));
-      }
+      // The blades are a separate mesh so the fans actually turn.
+      const fan = new THREE.Mesh(FAN_BLADES, (fanMat ??= ctx.engine.lit(new THREE.MeshStandardMaterial({ color: 0xd8d8d2, roughness: 0.5, metalness: 0.3 }))));
+      fan.position.set(...W(cx, F0 + eave - 0.47, cz));
+      ctx.root.add(fan);
+      const speed = 5.5 + ((i * 7 + (cz > 0 ? 3 : 0)) % 5) * 0.6;
+      ctx.anim.push((t) => {
+        fan.rotation.y = t * speed;
+      });
       tube(ctx, b, W, cx - 1.8, F0 + eave, cz, true, 1.4, 10);
     }
 
@@ -569,10 +580,6 @@ export function communityClub(ctx: WorldCtx, o: { x: number; z: number; yaw: num
     for (const sx of [7.4, 8.4, 9.4]) b.box("paintmetal", sx + 6.5, F0 + 0.95, -10.3, 0.9, 1.9, 0.5, { tint: 0x8a9094 });
     for (const [lx, lz] of [[11.5, 5.5], [11.5, -5.5]]) tube(ctx, b, W, lx, y1, lz, true, 1.4, 10);
     // Forecourt: flagpoles and planters.
-    for (const sx of [-9, -10.6, -12.2]) {
-      b.cyl("steel", sx, F0 + 4.5, HZ + 6, 0.05, 9, 6, { tint: 0xd8dadc, collide: "none" });
-      b.collisionBox(Surf.Metal, "solid", sx, 1, HZ + 6, 0.14, 2, 0.14);
-    }
     P.planter(b, 9, HZ + 3.2, 0, 6, 0);
     P.planter(b, -9.5, HZ + 3.2, 0, 5, 0);
   });

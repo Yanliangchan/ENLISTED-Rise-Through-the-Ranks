@@ -14,6 +14,9 @@ the weapon, particle effects and all audio.
   hawker centre, clear the carpark, seize the command post, then hold for extraction.
 - **Holdout** — hold the junction against escalating waves.
 
+Patrol Base Lion, in the south-east corner by the insertion road, is a safe zone: weapons
+are made safe inside, nothing can hurt you there, and the ammunition point restocks you (`F`).
+
 ## Controls
 
 `WASD` move · mouse look · `LMB` fire · `RMB` aim · `Shift` sprint · `C` crouch ·

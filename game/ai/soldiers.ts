@@ -120,13 +120,20 @@ export class Soldiers implements TargetProvider {
   onAlert?: () => void;
   /** Global accuracy scale (difficulty). */
   difficulty = 1;
-  private readonly mats: SoldierMats;
+  private readonly mats: SoldierMats[];
+  private time = 0;
   private readonly eye = new THREE.Vector3();
   private readonly tEye = new THREE.Vector3();
   private everAlerted = false;
 
   constructor(private readonly engine: Engine, private readonly world: CollisionWorld, private readonly nav: NavGrid, private readonly vfx: Vfx, private readonly audio: Audio, private readonly target: AiTarget) {
-    this.mats = soldierMaterials(engine, { uniform: opforCamo(), gear: 0x3d3f30, helmet: 0x45473a, skin: 0x9a7354, mask: 0x23241f, armband: null });
+    const camo = opforCamo();
+    // Three looks so a squad never reads as clones: helmeted operator, watch-cap raider, head-wrapped irregular.
+    this.mats = [
+      soldierMaterials(engine, { variant: "operator", uniform: camo, cloth: 0xffffff, dark: 0x101113, helmet: 0x1c1e21, gear: 0x212327, pouch: 0x2f3136, skin: 0x8a674c, mask: 0x131416 }),
+      soldierMaterials(engine, { variant: "raider", uniform: camo, cloth: 0xc4bca8, dark: 0x121212, helmet: 0x18191b, gear: 0x5a4d38, pouch: 0x6a5b42, skin: 0x9a7354, mask: 0x151617 }),
+      soldierMaterials(engine, { variant: "wrapped", uniform: camo, cloth: 0xa4a6aa, dark: 0x111213, helmet: 0x1c1e21, gear: 0x26282b, pouch: 0x5c583e, skin: 0x7a5a42, mask: 0x18191a }),
+    ];
   }
 
   get aliveCount(): number {
@@ -149,7 +156,7 @@ export class Soldiers implements TargetProvider {
   spawn(x: number, z: number, o: SpawnOpts = {}): Soldier | null {
     const p = this.nav.nearest(x, z, 10);
     if (!p) return null;
-    const s = new Soldier(this.mats);
+    const s = new Soldier(this.mats[Math.floor(Math.random() * this.mats.length)]);
     s.pos.copy(p);
     s.home.copy(p);
     s.yaw = s.lookYaw = o.yaw ?? Math.random() * Math.PI * 2;
@@ -383,6 +390,7 @@ export class Soldiers implements TargetProvider {
 
   update(dt: number): void {
     const tp = this.target;
+    this.time += dt;
     this.tEye.set(tp.pos.x, tp.pos.y + tp.eye, tp.pos.z);
     for (let i = this.list.length - 1; i >= 0; i--) {
       const s = this.list[i];
@@ -603,6 +611,8 @@ export class Soldiers implements TargetProvider {
       s.model.root.position.copy(s.pos);
       s.model.root.rotation.y = s.yaw;
       // Far soldiers out of view pose less often? Posing is cheap enough at this headcount.
+      ps.time = this.time;
+      ps.headYaw = s.state === "combat" ? 0 : Math.max(-0.8, Math.min(0.8, wrap(s.lookYaw - s.yaw)));
       s.model.pose(ps);
     }
   }

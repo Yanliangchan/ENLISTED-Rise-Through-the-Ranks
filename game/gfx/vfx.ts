@@ -517,6 +517,20 @@ export class Vfx {
     this.glow.spawn({ x: pos.x + (Math.random() - 0.5) * size, y: pos.y, z: pos.z + (Math.random() - 0.5) * size, vy: 1 + Math.random() * 1.4, life: 0.5 + Math.random() * 0.4, size, grow: 0.5, cell: PC.fire0 + Math.floor(Math.random() * 2), r: 3, g: 1.5, b: 0.4, alpha: 0.9, spin: (Math.random() - 0.5) * 3, fadeIn: 0.08 });
   }
 
+  /** One tick of a standing fire: licking flames, the odd ember, rolling black smoke. */
+  fire(pos: THREE.Vector3, size: number, flames: number, smoke: boolean): void {
+    for (let i = 0; i < flames; i++) {
+      const a = Math.random() * 6.283, d = Math.random() * 0.55 * size;
+      this.glow.spawn({ x: pos.x + Math.cos(a) * d, y: pos.y - 0.25 * size + Math.random() * 0.3, z: pos.z + Math.sin(a) * d, vx: (Math.random() - 0.5) * 0.5 + 0.25, vy: 1.6 + Math.random() * 2.2 * size, vz: (Math.random() - 0.5) * 0.5, life: 0.5 + Math.random() * 0.5, size: (0.9 + Math.random() * 0.8) * size, grow: 0.3, cell: PC.fire0 + Math.floor(Math.random() * 2), r: 4.2, g: 1.9 + Math.random() * 0.6, b: 0.4, alpha: 1.25, spin: (Math.random() - 0.5) * 4, fadeIn: 0.06 });
+    }
+    if (Math.random() < 0.35) {
+      this.glow.spawn({ x: pos.x + (Math.random() - 0.5) * size, y: pos.y + 0.3, z: pos.z + (Math.random() - 0.5) * size, vx: (Math.random() - 0.5) * 1.6 + 0.5, vy: 2 + Math.random() * 3.5, vz: (Math.random() - 0.5) * 1.6, life: 1.2 + Math.random() * 1.8, size: 0.035 + Math.random() * 0.03, cell: PC.spark, r: 4, g: 2.0, b: 0.5, alpha: 2, gravity: -0.6, drag: 0.5 });
+    }
+    if (smoke) {
+      this.smoke.spawn({ x: pos.x + (Math.random() - 0.5) * size * 0.6, y: pos.y + 0.7 * size, z: pos.z + (Math.random() - 0.5) * size * 0.6, vx: 0.5 + Math.random() * 0.7, vy: 1.7 + Math.random() * 1.2, vz: -0.3 + Math.random() * 0.4, life: 6 + Math.random() * 4, size: 1.1 * size, grow: 5.5, cell: PC.smoke0 + Math.floor(Math.random() * 4), r: 0.07, g: 0.065, b: 0.06, alpha: 0.62, drag: 0.12, spin: (Math.random() - 0.5) * 0.5, fadeIn: 0.7 });
+    }
+  }
+
   /** Drifting motes: dust and ash hanging in the afternoon light near the camera. */
   mote(pos: THREE.Vector3): void {
     this.smoke.spawn({ x: pos.x, y: pos.y, z: pos.z, vx: (Math.random() - 0.5) * 0.3 + 0.25, vy: (Math.random() - 0.5) * 0.12, vz: (Math.random() - 0.5) * 0.3, life: 5 + Math.random() * 4, size: 0.012 + Math.random() * 0.018, cell: PC.spark, r: 1.6, g: 1.4, b: 1.1, alpha: 0.5, fadeIn: 1.2 });
