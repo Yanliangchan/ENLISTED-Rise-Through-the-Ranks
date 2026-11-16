@@ -117,7 +117,7 @@ export class Engine {
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NoToneMapping;
-    this.renderer.toneMappingExposure = 0.62;
+    this.renderer.toneMappingExposure = 0.6;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.info.autoReset = false;
@@ -131,7 +131,9 @@ export class Engine {
     this.scene.fog = new THREE.FogExp2(this.atmosphere.fogColor, 0.0034);
     this.scene.add(this.atmosphere.dome);
     this.scene.environment = this.atmosphere.buildEnvironment(this.renderer);
-    this.scene.environmentIntensity = 0.8;
+    this.scene.environmentIntensity = 1.35;
+    // Warm ground bounce + cool sky fill, so shade is readable rather than black.
+    this.scene.add(new THREE.HemisphereLight(0xa9c4ee, 0x9a8466, 0.85));
 
     shared.uMacro.value = noiseTex(256, 3, 5, 77);
     const blank = new THREE.Data3DTexture(new Uint8Array([255, 0, 0, 255]), 1, 1, 1);
@@ -147,7 +149,7 @@ export class Engine {
       shadowMapSize: q.shadowSize,
       lightDirection: this.atmosphere.sunDir.clone().multiplyScalar(-1),
       camera: this.camera,
-      lightIntensity: 7.5,
+      lightIntensity: 6.2,
       lightNear: 1,
       lightFar: 600,
       lightMargin: 120,
