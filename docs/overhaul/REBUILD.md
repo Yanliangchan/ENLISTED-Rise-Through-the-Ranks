@@ -14,14 +14,16 @@ in `game/`, served at `/play.html` beside the old game until cutover.
 - Backend (server/) is kept unchanged.
 
 ## Done
-- core/engine, gfx/{atmosphere,textures,surfaces,materials,builder,decals}
-- world/{ctx,ground,estate}, kit/{street,arch,hdb}
+- core/{engine,input,audio}, gfx/{atmosphere,textures,surfaces,materials,builder,decals,vfx}
+- world/{ctx,ground,estate,collision}, kit/{street,arch,hdb,props,vegetation,buildings}
+- player/{controller,sar21,weapon}, ai/{nav,soldierModel,soldiers}
+- play/{game,mission} (Operation Swift Lion + Holdout), ui/{hud,menus,style}, net/api
 
-## Next (in order)
-1. Collision BVH + player controller
-2. Viewmodel (SAR 21 + arms), weapon system, VFX, audio
-3. Soldiers (skinned, animated), AI, nav grid
-4. Mission director, HUD, menus, backend hookup
-5. Map: shop block, hawker centre, MSCP, community club, props, vehicles,
-   vegetation, backdrop; baked light volume
-6. Cutover: new game becomes index.html; remove src/ (Babylon)
+## Test
+- `node scripts/play.mjs <out.png> "auto=operation&q=low" <script.js> 640 360`
+  runs a scripted play session in headless Chromium (script gets `game`, `THREE`, `wait`).
+
+## Next
+1. Baked light volume (interiors currently lit by sky/hemisphere only)
+2. Viewmodel polish, surface tuning (grass tiling, asphalt normal)
+3. Cutover: new game becomes index.html; remove src/ (Babylon)

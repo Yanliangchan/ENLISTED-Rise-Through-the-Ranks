@@ -4,8 +4,9 @@ import { Input } from "~/core/input";
 import { Audio } from "~/core/audio";
 import { buildMaterials } from "~/gfx/materials";
 import { Vfx } from "~/gfx/vfx";
-import { buildEstate, BOUNDS } from "~/world/estate";
+import { buildEstate, PLAY } from "~/world/estate";
 import { CollisionWorld } from "~/world/collision";
+import { bakeLight } from "~/world/lightbake";
 import { PlayerController } from "~/player/controller";
 import { WeaponSystem } from "~/player/weapon";
 import { NavGrid } from "~/ai/nav";
@@ -71,6 +72,8 @@ export class Game implements MissionHost {
   private menuShot = 0;
   private moteT = 0;
   private readonly grenades: Grenade[] = [];
+  private readonly fires: THREE.Vector3[];
+  private fireT = 0;
   private readonly nadeGeo = new THREE.SphereGeometry(0.045, 10, 8);
   private readonly nadeMat: THREE.Material;
   private last = performance.now();
@@ -82,10 +85,19 @@ export class Game implements MissionHost {
     if (forceQuality) this.settings.quality = forceQuality;
     this.engine = new Engine(canvas, { sunAzimuth: 128, sunElevation: 26, cloudCover: 0.5 }, this.settings.quality);
     this.input = new Input(canvas);
+    const tA = performance.now();
     const lib = buildMaterials(this.engine);
+    const tB = performance.now();
     const estate = buildEstate(this.engine, lib);
+    const tC = performance.now();
     this.world = new CollisionWorld(estate.ctx.soup);
-    this.nav = new NavGrid(this.world, [BOUNDS[0] + 8, BOUNDS[1] + 60, BOUNDS[2] - 8, BOUNDS[3] - 4]);
+    console.info(`materials ${(tB - tA).toFixed(0)} ms, estate ${(tC - tB).toFixed(0)} ms, bvh ${(performance.now() - tC).toFixed(0)} ms`);
+    const t0 = performance.now();
+    bakeLight(this.world, estate.ctx.lamps, [-146, -98, 146, 160]);
+    const t1 = performance.now();
+    this.nav = new NavGrid(this.world, PLAY);
+    console.info(`light bake ${(t1 - t0).toFixed(0)} ms, nav ${(performance.now() - t1).toFixed(0)} ms, ${this.world.triangles} collision tris`);
+    this.fires = estate.fires;
     this.vfx = new Vfx(this.engine);
     this.player = new PlayerController(this.world, this.input);
     const self = this;
@@ -486,6 +498,14 @@ export class Game implements MissionHost {
         this.moteT = 0.12;
         const c = this.engine.camera.position;
         this.vfx.mote(_v.set(c.x + (Math.random() - 0.5) * 14, c.y + (Math.random() - 0.3) * 4, c.z + (Math.random() - 0.5) * 14));
+      }
+      this.fireT -= dt;
+      if (this.fireT <= 0) {
+        this.fireT = 0.22;
+        for (const f of this.fires) {
+          this.vfx.smokePuff(f, 1.3, 0.1);
+          if (Math.random() < 0.6) this.vfx.firePuff(f, 0.7);
+        }
       }
       this.vfx.update(dt, this.engine.camera);
     }

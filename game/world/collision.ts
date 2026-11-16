@@ -20,7 +20,7 @@ function makeBvh(positions: number[]): { bvh: MeshBVH; geo: THREE.BufferGeometry
   if (positions.length === 0) return null;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  const bvh = new MeshBVH(geo, { maxLeafTris: 8 });
+  const bvh = new MeshBVH(geo, { targetLeafSize: 8 });
   return { bvh, geo };
 }
 

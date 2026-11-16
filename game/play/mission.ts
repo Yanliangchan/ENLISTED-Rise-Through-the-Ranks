@@ -47,7 +47,7 @@ export const LOC = {
   cache: new THREE.Vector3(62, 0, 64),
   carpark: new THREE.Vector3(-58, 0, -48),
   club: new THREE.Vector3(58, 0, -50),
-  intel: new THREE.Vector3(60, 0, -55),
+  intel: new THREE.Vector3(47, 0, -53),
 };
 
 /** Edges of the map that reinforcements walk in from. */

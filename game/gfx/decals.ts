@@ -336,7 +336,7 @@ export function decalAtlasTex(): THREE.CanvasTexture {
  * rectangle, so all signage costs a single material.
  */
 export class SignAtlas {
-  readonly size = 2048;
+  readonly size = 4096;
   readonly canvas: HTMLCanvasElement;
   readonly ctx: CanvasRenderingContext2D;
   readonly texture: THREE.CanvasTexture;

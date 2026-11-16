@@ -131,9 +131,9 @@ export class Engine {
     this.scene.fog = new THREE.FogExp2(this.atmosphere.fogColor, 0.0034);
     this.scene.add(this.atmosphere.dome);
     this.scene.environment = this.atmosphere.buildEnvironment(this.renderer);
-    this.scene.environmentIntensity = 1.35;
+    this.scene.environmentIntensity = 1.6;
     // Warm ground bounce + cool sky fill, so shade is readable rather than black.
-    this.scene.add(new THREE.HemisphereLight(0xa9c4ee, 0x9a8466, 0.85));
+    this.scene.add(new THREE.HemisphereLight(0xc2d0e6, 0xb09a78, 1.5));
 
     shared.uMacro.value = noiseTex(256, 3, 5, 77);
     const blank = new THREE.Data3DTexture(new Uint8Array([255, 0, 0, 255]), 1, 1, 1);

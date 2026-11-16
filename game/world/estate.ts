@@ -2,10 +2,15 @@ import type { Engine } from "~/core/engine";
 import type { MatLib } from "~/gfx/materials";
 import { DECAL } from "~/gfx/decals";
 import { rr } from "~/gfx/noise";
-import { WorldCtx, decal } from "./ctx";
+import { WorldCtx, decal, signQuad as signQuadWorld } from "./ctx";
 import { GroundPlan, type Rect } from "./ground";
 import * as St from "./kit/street";
 import { hdbBlock } from "./kit/hdb";
+import * as THREE from "three";
+import { Surf } from "~/gfx/builder";
+import * as P from "./kit/props";
+import * as B from "./kit/buildings";
+import { Vegetation } from "./kit/vegetation";
 
 /**
  * NEE SOON ESTATE — the one map.
@@ -25,7 +30,12 @@ export const ST = 7;
 export interface Estate {
   ctx: WorldCtx;
   plan: GroundPlan;
+  /** Burning wrecks: the game feeds these with smoke. */
+  fires: THREE.Vector3[];
 }
+
+/** The area soldiers and the player can actually reach. */
+export const PLAY: Rect = [-142, -95, 142, 152];
 
 export function buildEstate(engine: Engine, lib: MatLib): Estate {
   const ctx = new WorldCtx(engine, lib);
@@ -130,10 +140,200 @@ export function buildEstate(engine: Engine, lib: MatLib): Estate {
   hdbBlock(ctx, { x: -59, z: 90.2, yaw: Math.PI, bays: 20, storeys: 12, number: "411", accent: 0xa8553a, accent2: 0xd9b382, room: [2, 6, "YISHUN ZONE 4 RESIDENTS' COMMITTEE CENTRE"] });
   hdbBlock(ctx, { x: -95.4, z: 46, yaw: Math.PI / 2, bays: 15, storeys: 10, number: "413", accent: 0x3f7a78, accent2: 0xb8d0c4 });
 
+
+  // =====================================================================================
+  // Districts
+  // =====================================================================================
+  ctx.lib.add("facade", new THREE.MeshStandardMaterial({ map: B.facadeTexture(), vertexColors: true, roughness: 0.9 }), 1, Surf.Plaster, "none", { macro: 0.4 });
+  const veg = new Vegetation(ctx);
+  const d = ctx.builder("dressing");
+  const v = ctx.builder("vehicles");
+  const fires: THREE.Vector3[] = [];
+
+  // ---- south-west: more of the HDB precinct -------------------------------------------
+  plan.add("path", -40.5, 10, -37.5, 84);
+  plan.add("path", -88, 58.5, -11, 61.5);
+  plan.add("court", -62, 30, -44, 52);
+  B.playground(d, -53, 41);
+  B.linkway(ctx, d, -12.6, 60, -86, 60);
+  B.linkway(ctx, d, -39, 61.5, -39, 83.4);
+  B.busStop(ctx, d, -12.6, 52, Math.PI / 2, "59241");
+  for (const [bx, bz, by] of [[-30, 66, 0], [-66, 56, Math.PI], [-48, 28, Math.PI / 2]] as const) St.bench(d, bx, bz, by);
+  St.bin(d, -36.6, 57.6);
+  for (const [px, pz, py, pl] of [[-30, 82, 0, 8], [-70, 82, 0, 8], [-86, 30, Math.PI / 2, 6]] as const) P.planter(d, px, pz, py, pl, 0);
+
+  // ---- south-east: neighbourhood centre ------------------------------------------------
+  plan.add("path", 14, 10, 100, 18.2);
+  plan.add("path", 26, 30, 84, 48.5);
+  plan.add("screed", 32, 42, 40.5, 80);
+  plan.add("path", 39, 76, 82, 82);
+  plan.add("path", 80, 30, 86, 82);
+  B.shopRow(ctx, { x: 52, z: 22, yaw: Math.PI, units: 8, accent: 0x3f7a78 });
+  B.shopRow(ctx, { x: 24, z: 62, yaw: -Math.PI / 2, units: 6, first: 3, accent: 0xa8553a });
+  B.hawkerCentre(ctx, { x: 60, z: 62, yaw: 0, cache: [2, 2] });
+  plan.add("screed", 34, 96, 100, 110);
+  hdbBlock(ctx, { x: 66, z: 103, yaw: 0, bays: 16, storeys: 11, number: "409", accent: 0x5a6f9a, accent2: 0xc9d2e0 });
+  for (const [px, pz] of [[34, 36], [46, 40], [60, 37], [74, 41]]) {
+    P.planter(d, px, pz, 0, 4.4, 0.15);
+    St.bench(d, px, pz + 1.6, 0);
+  }
+  St.bin(d, 30, 44);
+  P.wheelieBin(d, 36.4, 50, 0, 0.15);
+  P.wheelieBin(d, 36.4, 52, 0.1, 0.15, 0x2a5a8a);
+  P.pallet(d, 34.4, 66, 0.3, 0.15);
+  P.crate(d, 34.5, 66, 0.3, 0.9, 0.8);
+  P.drum(d, 39.4, 72, 0.15, 0x8a3a2a);
+  P.drum(d, 39.5, 73, 0.15);
+
+  // ---- north-west: multi-storey carpark -------------------------------------------------
+  plan.add("screed", -87, -70, -29, -31);
+  plan.add("road", -62.2, -31, -53.8, -10);
+  B.carpark(ctx, { x: -58, z: -48, yaw: 0, number: "406A" });
+  St.poleSign(ctx, d, -52.6, -12, 0, "hump");
+  P.hesco(d, -50, -27, 0, 4, 1);
+  P.hesco(d, -66, -27, 0, 4, 1);
+  P.sandbags(d, r, -30, -22, 0.5, 4.2, 4, 0.1);
+  P.wire(d, -40, -24, 0.1, 9);
+
+  // ---- north-east: community club ---------------------------------------------------------
+  plan.add("pave", 46, -39, 70, -28);
+  plan.add("path", 38, -39, 78, -27);
+  plan.add("path", 56, -27, 60, -10);
+  plan.add("court", 17, -64, 35, -36);
+  plan.add("path", 35, -52, 40, -48);
+  B.communityClub(ctx, { x: 58, z: -50, yaw: 0, intel: [-11, -3] });
+  // Basketball court: lines, hoops, fence on the road side.
+  for (const zz of [-63.4, -36.6]) St.line(m, 17.6, zz, 34.4, zz, 0.06, St.WHITE, 0.052);
+  for (const xx of [17.6, 34.4]) St.line(m, xx, -63.4, xx, -36.6, 0.06, St.WHITE, 0.052);
+  St.line(m, 17.6, -50, 34.4, -50, 0.06, St.WHITE, 0.052);
+  for (const s of [-1, 1]) {
+    const hz = -50 + s * 12.6;
+    d.cyl("steel", 26, 1.6, hz + s * 1.2, 0.08, 3.2, 8, { tint: 0x3a3c3d });
+    d.box("steel", 26, 3.1, hz + s * 0.6, 0.08, 0.08, 1.2, { tint: 0x3a3c3d, collide: "none" });
+    d.box("plastic", 26, 3.3, hz, 1.8, 1.05, 0.04, { tint: 0xe8e8e4 });
+    d.cyl("steel", 26, 3.02, hz - s * 0.28, 0.23, 0.02, 12, { tint: 0xd8521e, collide: "none", caps: false });
+  }
+  St.railing(d, 16.6, -64, 16.6, -36, 0.1, 0x5a6a5a);
+  P.hesco(d, 50, -30, 0, 3, 1);
+  P.hesco(d, 66, -30, 0, 3, 1);
+  P.sandbagPost(d, r, 58, -24.5, Math.PI, 3.4, 5);
+  P.wire(d, 44, -25, 0, 8);
+
+  // ---- north: overhead bridge, canal, viaduct ---------------------------------------------
+  plan.add("void", -150, -111.6, -11, -96.4);
+  plan.add("void", 11, -111.6, 150, -96.4);
+  B.overheadBridge(ctx, d, 0, -78, 0, 23);
+  B.canal(d, -150, 150, -104, [-11, 11]);
+  B.viaduct(d, -160, 160, -131);
+  B.busStop(ctx, d, 12.6, -34, -Math.PI / 2, "59249");
+
+  // ---- the junction: enemy roadblock ---------------------------------------------------------
+  P.sandbagPost(d, r, -10.8, 13.4, 0, 3.4, 5);
+  P.sandbagPost(d, r, 10.6, 12.2, 0, 3.4, 5);
+  P.sandbagPost(d, r, -11, -12.6, Math.PI, 3.2, 5);
+  P.sandbagPost(d, r, 11.6, -13.4, Math.PI, 3.2, 5);
+  for (const [jx, jz, jy] of [[-5, 19, 0.06], [-1.8, 19.4, -0.1], [3.6, 23, 0.04], [6.6, 22.6, 0.2], [-4.6, -19, 0], [4.4, -21, 0.12], [1.2, -21.4, -0.05]] as const) P.jersey(d, jx, jz, jy, 0xbfbcb2, true);
+  for (const [jx, jz, jy] of [[19, -3.6, Math.PI / 2], [19.3, 0.4, Math.PI / 2 + 0.1], [-19, 3.4, Math.PI / 2], [-19.2, -0.6, Math.PI / 2 - 0.1]] as const) P.jersey(d, jx, jz, jy);
+  P.hesco(d, 3, -26.5, 0, 4, 1);
+  P.wire(d, -3.5, 26, 0.05, 7);
+  P.wire(d, 26, 2, Math.PI / 2, 9);
+  P.crate(d, -9, 0.15, 9.6, 0.4, 0.9, 0.9, 0x5c6440);
+  P.ammoBox(d, -9, 1.05, 9.6, 0.2);
+  P.drum(d, 12.6, 0.15, 14.6, 0x4a5338);
+  P.tyreStack(d, -13, 9.6, 4, 0.15);
+  P.tyreStack(d, 13.6, -9.4, 3, 0.15);
+  // Shot-up traffic caught at the lights.
+  P.car(v, r, 4.6, 6.2, 0.5, { color: 0x2a2420, wreck: true });
+  fires.push(new THREE.Vector3(4.6, 1.2, 6.2));
+  P.car(v, r, -3.2, -7.5, 2.4, { color: 0x2a2420, kind: "van", wreck: true });
+  fires.push(new THREE.Vector3(-3.2, 1.6, -7.5));
+  P.car(v, r, 6.2, 32, Math.PI + 0.06, { color: 0x1f3a6a, kind: "taxi" });
+  P.car(v, r, 2.9, 41, Math.PI - 0.3, { color: 0xb8b0a0, kind: "suv" });
+  P.car(v, r, -6.1, 30, 0.04, { color: 0x9a9da0 });
+  P.car(v, r, -2.8, 52, 0.5, { color: 0xc23a2a, kind: "hatch" });
+  P.bus(ctx, v, -5.2, 84, 0.03);
+  P.car(v, r, 6.2, 74, Math.PI, { color: 0xd8d8d4, kind: "van" });
+  P.car(v, r, 2.8, 96, Math.PI + 0.1, { color: 0x3a5a44 });
+  P.car(v, r, -6, -36, 0, { color: 0x2a2c30, kind: "suv" });
+  P.car(v, r, 6.3, -52, Math.PI, { color: 0x8a8f94 });
+  P.car(v, r, -2.9, -60, 0.2, { color: 0x2a2420, wreck: true });
+  fires.push(new THREE.Vector3(-2.9, 1.2, -60));
+  P.car(v, r, 36, -3.4, -Math.PI / 2, { color: 0xd8d8d4 });
+  P.car(v, r, 62, 3.6, Math.PI / 2, { color: 0x1f3a6a, kind: "hatch" });
+  P.car(v, r, 88, -3.5, -Math.PI / 2 + 0.3, { color: 0x2a2420, kind: "suv", wreck: true });
+  P.car(v, r, -44, 3.5, Math.PI / 2, { color: 0xc23a2a });
+  P.car(v, r, -78, -3.4, -Math.PI / 2, { color: 0x9a9da0, kind: "van" });
+  P.car(v, r, -104, 3.6, Math.PI / 2 + 0.2, { color: 0xb8b0a0, kind: "taxi" });
+
+  // ---- insertion point: the section's transport ------------------------------------------------
+  P.fiveTonner(v, 5.4, 137, Math.PI);
+  P.fiveTonner(v, -4.6, 147, Math.PI, { tilt: false });
+  for (const jx of [-6.4, -3.2, 3.2, 6.4]) P.jersey(d, jx, 154.5, 0, 0xbfbcb2, true);
+  for (const [cx, cz] of [[1.4, 128], [1.5, 120], [1.3, 112], [-1.4, 133]]) P.cone(d, cx, cz);
+  P.crate(d, 9.3, 0.15, 131, 0.2, 0.9, 0.7, 0x5c6440);
+  P.ammoBox(d, 9.3, 0.85, 131, 0.5);
+  P.ammoBox(d, 9.9, 0.15, 132.2, 1.2);
+  P.sandbags(d, r, -9.6, 124, Math.PI / 2, 4.4, 4, 0.15);
+
+  // ---- road ends and the edge of the area of operations ------------------------------------------
+  for (const s of [-1, 1]) {
+    for (const jz of [-5.2, -1.8, 1.8, 5.2]) P.jersey(d, s * 139, jz, Math.PI / 2, 0xbfbcb2, true);
+    P.car(v, r, s * 133, s * 3.4, s * 0.4 + Math.PI / 2, { color: 0xd8d8d4, kind: "van" });
+    // Construction hoarding along the east and west edges, and the south.
+    d.slab("ribmetal", s * 144 - 0.05, 0, -96, 0.1, 2.6, 254, { tint: 0x3f6a4a, tile: 1.6 });
+  }
+  d.slab("ribmetal", -144, 0, 157.9, 136, 2.6, 0.1, { tint: 0x3f6a4a, tile: 1.6 });
+  d.slab("ribmetal", 8, 0, 157.9, 136, 2.6, 0.1, { tint: 0x3f6a4a, tile: 1.6 });
+  d.collisionBox(Surf.Metal, "solid", 0, 3, 157.9, 300, 8, 0.4);
+  d.collisionBox(Surf.Metal, "solid", 0, 3, -96.4, 300, 8, 0.4);
+  for (const s of [-1, 1]) d.collisionBox(Surf.Metal, "solid", s * 144, 3, 30, 0.4, 8, 260);
+  const hoard = ctx.signs.text("hoard", 1024, 256, "#3f6a4a", "#f4f0e2", [["UPGRADING WORKS IN PROGRESS", 60], ["HDB · NEIGHBOURHOOD RENEWAL PROGRAMME", 34], ["DANGER · KEEP OUT", 40]], { border: "#f4f0e2" });
+  for (const hz of [-50, 40, 110]) for (const s of [-1, 1]) signQuadWorld(d, hoard, s * 143.9, 1.5, hz, 6, 1.5, (-s * Math.PI) / 2);
+
+  // ---- backdrop: the rest of Yishun beyond the hoardings ---------------------------------------
+  const tones = [0xf0e8d8, 0xe8dcc8, 0xe0e4e0, 0xecdccc];
+  const blocks: Array<[number, number, number, number, number]> = [
+    [-84, 192, 0, 72, 13], [26, 200, 0, 60, 16], [112, 188, 0, 66, 12], [-150, 240, 0, 70, 18], [70, 250, 0, 80, 20],
+    [182, 96, Math.PI / 2, 64, 14], [190, 0, Math.PI / 2, 70, 12], [178, -70, Math.PI / 2, 56, 16], [240, 40, Math.PI / 2, 80, 20],
+    [-182, 100, Math.PI / 2, 60, 12], [-186, 10, Math.PI / 2, 70, 15], [-178, -74, Math.PI / 2, 56, 13], [-240, 60, Math.PI / 2, 80, 19],
+    [-110, -176, 0, 70, 14], [-10, -186, 0, 64, 17], [96, -172, 0, 72, 13], [30, -240, 0, 90, 22], [-150, -236, 0, 80, 19],
+  ];
+  blocks.forEach(([bx, bz, by, bl, bs], i) => B.backdropBlock(d, bx, bz, by, bl, bs, tones[i % tones.length]));
+
+  // ---- planting ------------------------------------------------------------------------------------
+  const t = ctx.builder("trees");
+  for (const s of [-1, 1]) {
+    for (const tz of [32, 58, 84, 110, 136, -30, -56, -84]) if (!(s > 0 && tz === 58) && !(s < 0 && tz === 58)) veg.rainTree(t, s * 13.6 + rr(r, -0.5, 0.5), tz + rr(r, -2, 2), rr(r, 0.85, 1.1));
+    for (const tx of [30, 52, 74, 98, 122]) {
+      veg.streetTree(t, s * tx + rr(r, -1, 1), s * 12.4, rr(r, 0.9, 1.2));
+      veg.streetTree(t, -s * tx + rr(r, -1, 1), s * 12.2, rr(r, 0.9, 1.2));
+    }
+  }
+  for (const [tx, tz, ts] of [[-28, 40, 1.1], [-72, 44, 1], [-64, 70, 0.9], [-24, 74, 0.9], [-112, 100, 1.1], [-120, 30, 1], [-60, 122, 1.1], [-20, 116, 0.9], [-100, 130, 1],
+    [100, 60, 1], [112, 24, 1.1], [96, 90, 0.9], [120, 120, 1.1], [24, 112, 0.9], [106, 140, 1],
+    [-108, -20, 1], [-100, -64, 1.1], [-22, -70, 0.9], [-120, -84, 1], [-20, -36, 0.8],
+    [94, -24, 1], [100, -70, 1.1], [120, -44, 1], [28, -80, 0.9], [84, -86, 1]]) veg.rainTree(t, tx, tz, ts);
+  for (const [px, pz] of [[42, -32], [74, -32], [38, 33], [80, 33], [-18, 20], [-18, -20], [18, -20], [86, 46], [86, 70]]) veg.palm(t, px, pz, rr(r, 0.9, 1.1));
+  for (let i = 0; i < 70; i++) {
+    const sx = rr(r, -138, 138), sz = rr(r, -92, 150);
+    if (Math.abs(sx) < 12 || Math.abs(sz) < 11) continue;
+    veg.shrub(sx, sz, rr(r, 0.8, 1.5), 0.1, i % 5 === 0 ? 0xc8305a : i % 7 === 0 ? 0xe0a020 : 0);
+  }
+  // Behind the hoardings: a tree line to soften the backdrop.
+  for (let i = 0; i < 26; i++) {
+    veg.rainTree(t, -152 - (i % 3) * 5, -90 + i * 9.6, 1.1);
+    veg.rainTree(t, 152 + (i % 3) * 5, -90 + i * 9.6, 1.1);
+    if (i < 22) veg.rainTree(t, -140 + i * 13.5, 166 + (i % 2) * 6, 1.1);
+  }
+  veg.finish();
+  ctx.commit(d);
+  ctx.commit(v);
+  ctx.commit(t);
+
   plan.build(g, BOUNDS);
   ctx.commit(g);
   ctx.commit(m);
   ctx.commit(f);
   engine.scene.add(ctx.root);
-  return { ctx, plan };
+  return { ctx, plan, fires };
 }

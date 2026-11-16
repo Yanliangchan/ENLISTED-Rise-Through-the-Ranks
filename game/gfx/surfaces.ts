@@ -120,7 +120,7 @@ export function buildSurfaces(): Record<string, TexSet> {
 
   // ---- asphalt: aggregate, repairs, cracks, damp patches -----------------
   {
-    const p = new Paint(S, "#343537", { rough: 0.9, seed: 8 });
+    const p = new Paint(S, "#4b4c4e", { rough: 0.9, seed: 8 });
     p.grain(0.2, 5, 5, 61);
     const r = rng(12);
     for (let i = 0; i < 9000; i++) {
@@ -128,12 +128,12 @@ export function buildSurfaces(): Record<string, TexSet> {
       p.a.fillStyle = `rgba(${g},${g},${g + 4},${0.25 + r() * 0.5})`;
       p.a.fillRect(r() * S, r() * S, 1 + r() * 1.6, 1 + r() * 1.6);
     }
-    p.stain("#262729", (u, v) => sm(0.55, 0.75, blot(u, v)) * 0.6);
-    p.stain("#4a4a48", (u, v) => sm(0.6, 0.9, big(u + 0.5, v)) * 0.4);
+    p.stain("#3a3b3d", (u, v) => sm(0.55, 0.75, blot(u, v)) * 0.6);
+    p.stain("#5c5c59", (u, v) => sm(0.6, 0.9, big(u + 0.5, v)) * 0.4);
     // Damp sheen where water sits: low roughness reads as a wet road in the reflections.
-    p.stain("#2a2b2d", (u, v) => sm(0.56, 0.8, mid(u + 0.1, v + 0.6)) * 0.6, { rough: 0.42 });
+    p.stain("#3c3d3f", (u, v) => sm(0.56, 0.8, mid(u + 0.1, v + 0.6)) * 0.6, { rough: 0.5 });
     cracks(p, 2, "rgba(18,18,19,0.8)", 1.0, 22, 71);
-    T.asphalt = p.finish({ normal: 2.2, height: field(S, (u, v) => (fbm(u, v, 64, 2, 5) - 0.5) * 0.16) });
+    T.asphalt = p.finish({ normal: 1.3, height: field(S, (u, v) => (fbm(u, v, 64, 2, 5) - 0.5) * 0.16) });
   }
 
   // ---- precinct pavers: herringbone clay brick --------------------------
@@ -142,23 +142,15 @@ export function buildSurfaces(): Record<string, TexSet> {
     const r = rng(14);
     const bw = S / 8;
     const bh = S / 16;
-    const cols = ["#9a6a52", "#8e5f4a", "#a37458", "#86604f", "#7d6a5c", "#94705e"];
+    const cols = ["#8f6f5e", "#876a5a", "#957664", "#7f6a5e", "#7a6d63", "#8a7163"];
     const brick = (x: number, y: number, w: number, h: number): void => {
       const col = shade(cols[Math.floor(r() * cols.length)], 0.86 + r() * 0.24);
       p.wrap((ox, oy) => {
         p.all(col, 0.52 + r() * 0.06, 0.82 + r() * 0.12, (c) => c.fillRect(x + ox + 1.5, y + oy + 1.5, w - 3, h - 3));
       });
     };
-    for (let j = 0; j < 16; j++) {
-      for (let i = 0; i < 8; i++) {
-        const k = (i + j) % 4;
-        if (k === 0) brick(i * bw, j * bh, bw, bh);
-        else if (k === 2) brick(i * bw + bw / 2, j * bh, bw, bh);
-      }
-    }
-    for (let j = 0; j < 8; j++) for (let i = 0; i < 16; i++) {
-      if ((i + j * 2) % 4 === 1) brick(i * bh + bh, j * bw, bh, bw);
-    }
+    // Running bond: every course offset by half a brick, so the surface is fully covered.
+    for (let j = 0; j < 16; j++) for (let i = 0; i < 8; i++) brick(i * bw + (j % 2 ? bw / 2 : 0), j * bh, bw, bh);
     p.grain(0.14, 6, 4, 81).speckle(0.06, 11);
     p.stain("#3b3d33", (u, v) => sm(0.58, 0.85, blot(u, v)) * 0.5);
     T.pavers = p.finish({ normal: 2.4, height: field(S, (u, v) => (fine(u, v) - 0.5) * 0.05) });

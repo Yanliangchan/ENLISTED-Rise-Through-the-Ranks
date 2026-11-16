@@ -71,6 +71,8 @@ export function buildMaterials(engine: Engine): MatLib {
     "solid",
     {}
   );
+  add("carpaint", std(null, { roughness: 0.28, metalness: 0.35, envMapIntensity: 1.3 }), 1, Surf.Metal, "solid", { macro: 0.25 });
+  add("emissiveoff", std(null, { roughness: 0.15, metalness: 0.1, envMapIntensity: 1.6 }), 1, Surf.Glass, "none", {});
   add("emissive", new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xfff2d8, emissiveIntensity: 2.2, vertexColors: false }), 1, Surf.Glass, "none", { noVis: true, castShadow: false });
   return { mats, tex, add };
 }
