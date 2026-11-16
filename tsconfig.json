@@ -15,8 +15,9 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "~/*": ["game/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "game"]
 }

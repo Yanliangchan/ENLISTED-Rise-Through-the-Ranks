@@ -6,6 +6,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
+      "~": path.resolve(__dirname, "game"),
     },
   },
   server: {
@@ -25,5 +26,11 @@ export default defineConfig({
   build: {
     outDir: "dist",
     target: "es2020",
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        play: path.resolve(__dirname, "play.html"),
+      },
+    },
   },
 });
