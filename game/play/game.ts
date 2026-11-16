@@ -11,7 +11,7 @@ import { camoTexture } from "~/player/sar21";
 import { CollisionWorld } from "~/world/collision";
 import { bakeLight } from "~/world/lightbake";
 import { PlayerController } from "~/player/controller";
-import { WeaponSystem } from "~/player/weapon";
+import { PRIMARIES, WeaponSystem } from "~/player/weapon";
 import { NavGrid } from "~/ai/nav";
 import { Soldiers, type AiTarget } from "~/ai/soldiers";
 import { Api, type MatchResult } from "~/net/api";
@@ -75,6 +75,7 @@ export class Game implements MissionHost {
   private menuShot = 0;
   private moteT = 0;
   private readonly grenades: Grenade[] = [];
+  private readonly rockets: Array<{ mesh: THREE.Group; vel: THREE.Vector3; life: number }> = [];
   private readonly fires: Fire[];
   private fireT = 0;
   private smokeT = 0;
@@ -170,7 +171,14 @@ export class Game implements MissionHost {
       if (impact > 9) this.hurt((impact - 9) * 9, this.player.pos);
     };
     this.vfx.onShellLand = (p) => this.audio.shellDrop(p.x, p.y, p.z);
-    this.weapon.onShot = (o) => this.soldiers.noise(o, 75);
+    this.weapon.onShot = (o) => this.soldiers.noise(o, this.weapon.def.noise);
+    this.weapon.onRocket = (o, d) => this.launchRocket(o, d);
+    try {
+      const saved = localStorage.getItem("enlisted.primary");
+      if (saved) this.weapon.setPrimary(saved);
+    } catch {
+      /* ignore */
+    }
     this.weapon.onHit = (part, killed) => {
       this.hud.hitmarker(killed);
       if (killed && part === "head") this.headshots++;
@@ -258,6 +266,8 @@ export class Game implements MissionHost {
     this.menus.hide();
     this.soldiers.clear();
     for (const g of this.grenades) this.engine.scene.remove(g.mesh);
+    for (const r of this.rockets) this.engine.scene.remove(r.mesh);
+    this.rockets.length = 0;
     this.grenades.length = 0;
     this.hud.reset();
     this.hp = 100;
@@ -383,6 +393,56 @@ export class Game implements MissionHost {
     this.audio.foley("pin");
   }
 
+  private launchRocket(origin: THREE.Vector3, dir: THREE.Vector3): void {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5, 10).rotateX(Math.PI / 2), this.nadeMat);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 10).rotateX(Math.PI / 2), this.nadeMat);
+    nose.position.z = 0.33;
+    const flare = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 3.2, 1.2), fog: false }));
+    flare.position.z = -0.3;
+    g.add(body, nose, flare);
+    g.position.copy(origin);
+    g.lookAt(origin.clone().add(dir));
+    this.engine.scene.add(g);
+    this.rockets.push({ mesh: g, vel: dir.clone().multiplyScalar(150), life: 4 });
+    this.shake = Math.max(this.shake, 0.6);
+  }
+
+  private stepRockets(dt: number): void {
+    for (let i = this.rockets.length - 1; i >= 0; i--) {
+      const r = this.rockets[i];
+      r.life -= dt;
+      r.vel.y -= 2.5 * dt;
+      const sp = r.vel.length();
+      _v.copy(r.vel).multiplyScalar(1 / sp);
+      const step = sp * dt;
+      const wh = this.world.raycast(r.mesh.position, _v, step + 0.3);
+      const th = this.soldiers.raycast(r.mesh.position, _v, wh ? wh.distance : step + 0.3);
+      let hit: THREE.Vector3 | null = null;
+      if (th) hit = th.point;
+      else if (wh) hit = wh.point.clone().addScaledVector(wh.normal, 0.25);
+      else {
+        // Proximity: a near miss on a man still counts.
+        for (const so of this.soldiers.list) {
+          if (so.alive && so.model.chestPos.distanceToSquared(r.mesh.position) < 4.4) {
+            hit = r.mesh.position.clone();
+            break;
+          }
+        }
+      }
+      if (hit || r.life <= 0) {
+        this.engine.scene.remove(r.mesh);
+        this.rockets.splice(i, 1);
+        this.explode(hit ?? r.mesh.position.clone(), 2);
+        continue;
+      }
+      r.mesh.position.addScaledVector(r.vel, dt);
+      r.mesh.lookAt(_v2.copy(r.mesh.position).add(r.vel));
+      this.vfx.smokePuff(_v2.copy(r.mesh.position).addScaledVector(_v, -0.6), 0.35, 0.6);
+      this.vfx.flashLight(r.mesh.position, 30, 0.05, 0xffa050, 14);
+    }
+  }
+
   private stepGrenades(dt: number): void {
     for (let i = this.grenades.length - 1; i >= 0; i--) {
       const g = this.grenades[i];
@@ -437,6 +497,7 @@ export class Game implements MissionHost {
     if (inCamp && this.hp < 100) this.hp = Math.min(100, this.hp + dt * 30);
     if (this.input.hit("KeyG") && !inCamp) this.throwGrenade();
     this.stepGrenades(dt);
+    this.stepRockets(dt);
     this.soldiers.update(dt);
     m.update(dt);
 
@@ -463,19 +524,32 @@ export class Game implements MissionHost {
       } else this.holdT = 0;
       this.hud.prompt(it.label, "F", this.holdT / it.seconds);
     } else if (inCamp && Math.hypot(CAMP_AMMO.x - p.pos.x, CAMP_AMMO.z - p.pos.z) < 3.2) {
-      const full = this.weapon.reserve >= this.weapon.def.reserve && this.weapon.ammo >= this.weapon.def.magSize && this.nades >= 3;
+      const full = this.weapon.stocked && this.nades >= 3;
+      // The armoury also issues a different primary.
+      if (this.input.hit("KeyT")) {
+        const i = PRIMARIES.indexOf(this.weapon.primary);
+        const next = PRIMARIES[(i + 1) % PRIMARIES.length];
+        this.weapon.setPrimary(next.id);
+        this.audio.foley("bolt");
+        this.hud.feed(`${next.name} drawn from the armoury`);
+        try {
+          localStorage.setItem("enlisted.primary", next.id);
+        } catch {
+          /* ignore */
+        }
+      }
       if (!full && this.input.held("KeyF")) {
         this.holdT += dt;
         if (this.holdT >= 1) {
           this.holdT = 0;
-          this.weapon.ammo = this.weapon.def.magSize;
-          this.weapon.reserve = this.weapon.def.reserve;
+          this.weapon.restock();
           this.nades = 3;
           this.audio.foley("magIn");
           this.hud.feed("Ammunition and grenades drawn");
         }
       } else this.holdT = 0;
-      this.hud.prompt(full ? "Fully stocked" : "Draw ammunition", "F", full ? -1 : this.holdT);
+      const nx = PRIMARIES[(PRIMARIES.indexOf(this.weapon.primary) + 1) % PRIMARIES.length].name;
+      this.hud.prompt(`${full ? "Fully stocked" : "Draw ammunition"}&emsp;<kbd>T</kbd>Swap primary for ${nx}`, "F", full ? -1 : this.holdT);
     } else {
       this.holdT = 0;
       this.hud.prompt(null);
@@ -502,6 +576,8 @@ export class Game implements MissionHost {
     h.setStance(p.stance === "crouch", p.sprinting);
     h.weapon(this.weapon.def.name, this.weapon.ammo, this.weapon.reserve, this.weapon.auto, this.weapon.reloading, this.nades, this.weapon.def.magSize);
     h.crosshair(this.weapon.spread, cam.fov, this.weapon.ads < 0.5 && !p.sprinting && !this.weapon.reloading);
+    h.slots(this.weapon.slotNames, this.weapon.slotIndex);
+    h.scope(this.weapon.scoped);
     if (h.update(dt)) this.audio.radio(0.35);
 
     if (m.ended) this.end(m.ended === "win", m.endLine);

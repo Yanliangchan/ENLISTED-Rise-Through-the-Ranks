@@ -6,7 +6,8 @@ import type { Vfx } from "~/gfx/vfx";
 import { canvasTex } from "~/gfx/textures";
 import type { CollisionWorld } from "~/world/collision";
 import type { PlayerController } from "./controller";
-import { buildGunMats, buildSar21, type ViewWeapon } from "./sar21";
+import { buildGunMats, buildSar21, type GunMats, type ViewWeapon } from "./sar21";
+import { buildM110, buildMatador, buildP30, buildUltimax } from "./arsenal";
 
 export type BodyPart = "head" | "torso" | "limb";
 
@@ -23,10 +24,14 @@ export interface TargetProvider {
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): TargetHit | null;
 }
 
+export type WeaponSlot = "primary" | "sidearm" | "launcher";
+
 export interface WeaponDef {
   id: string;
   name: string;
   caliber: string;
+  slot: WeaponSlot;
+  build(mats: GunMats): ViewWeapon;
   magSize: number;
   reserve: number;
   rpm: number;
@@ -42,29 +47,86 @@ export interface WeaponDef {
   adsTime: number;
   adsFov: number;
   reloadTime: number;
-  sound: "rifle" | "lmg" | "pistol";
+  sound: "rifle" | "lmg" | "pistol" | "dmr";
+  modes: Array<"auto" | "semi">;
+  /** Hip-fire position of the gun origin in camera space. */
+  hip: [number, number, number];
+  /** Movement speed multiplier while this is in hand. */
+  mobility: number;
+  /** How far enemies hear a shot, metres. */
+  noise: number;
+  /** Full-screen scope picture when aimed (magnified optics). */
+  scope?: boolean;
+  /** Fires a rocket instead of a bullet. */
+  rocket?: boolean;
+  /** Weapon kick scale (viewmodel springs). */
+  kick: number;
+  /** Bolt / slide travel on each shot, metres. */
+  boltTravel: number;
+  /** Where the support hand goes for the magazine and for the bolt, relative to its rest. */
+  magHand: [number, number, number];
+  boltHand: [number, number, number];
+  /** Direction the magazine leaves the gun. */
+  magOut: [number, number, number];
 }
 
 export const SAR21: WeaponDef = {
-  id: "sar21",
-  name: "SAR 21",
-  caliber: "5.56 × 45 mm",
-  magSize: 30,
-  reserve: 150,
-  rpm: 620,
-  damage: 36,
-  falloffStart: 45,
-  falloffEnd: 140,
-  falloffMin: 0.62,
-  hipSpread: 2.4,
-  adsSpread: 0.12,
-  recoilPitch: 0.0105,
-  recoilYaw: 0.0042,
-  adsTime: 0.2,
-  adsFov: 50,
-  reloadTime: 2.9,
-  sound: "rifle",
+  id: "sar21", name: "SAR 21", caliber: "5.56 × 45 mm", slot: "primary", build: buildSar21,
+  magSize: 30, reserve: 150, rpm: 620, damage: 36, falloffStart: 45, falloffEnd: 140, falloffMin: 0.62,
+  hipSpread: 2.4, adsSpread: 0.12, recoilPitch: 0.0105, recoilYaw: 0.0042, adsTime: 0.2, adsFov: 50, reloadTime: 2.9,
+  sound: "rifle", modes: ["auto", "semi"], hip: [0.135, -0.2, -0.36], mobility: 1, noise: 75, kick: 1, boltTravel: 0.02,
+  magHand: [-0.3, -0.12, 0], boltHand: [-0.1, 0.13, -0.03], magOut: [-0.03, -0.3, -0.06],
 };
+
+/** Section automatic weapon: a hundred rounds, slow to bring up and slow to feed, steady once it is running. */
+export const ULTIMAX: WeaponDef = {
+  id: "ultimax100", name: "ULTIMAX 100", caliber: "5.56 × 45 mm", slot: "primary", build: buildUltimax,
+  magSize: 100, reserve: 200, rpm: 540, damage: 33, falloffStart: 50, falloffEnd: 160, falloffMin: 0.6,
+  hipSpread: 3.2, adsSpread: 0.3, recoilPitch: 0.0062, recoilYaw: 0.0038, adsTime: 0.34, adsFov: 56, reloadTime: 5.4,
+  sound: "lmg", modes: ["auto"], hip: [0.15, -0.15, -0.37], mobility: 0.86, noise: 85, kick: 0.7, boltTravel: 0.0,
+  magHand: [-0.16, -0.02, 0.02], boltHand: [-0.15, 0.1, 0.0], magOut: [0, -0.34, -0.05],
+};
+
+/** Marksman rifle: suppressed 7.62, two torso hits or one to the head at any range on this map. */
+export const M110: WeaponDef = {
+  id: "m110", name: "M110 SASS", caliber: "7.62 × 51 mm", slot: "primary", build: buildM110,
+  magSize: 20, reserve: 80, rpm: 320, damage: 74, falloffStart: 120, falloffEnd: 400, falloffMin: 0.8,
+  hipSpread: 3.6, adsSpread: 0.035, recoilPitch: 0.021, recoilYaw: 0.006, adsTime: 0.3, adsFov: 16, reloadTime: 3.2,
+  sound: "dmr", modes: ["semi"], hip: [0.15, -0.155, -0.35], mobility: 0.92, noise: 38, scope: true, kick: 1.5, boltTravel: 0.03,
+  magHand: [-0.18, -0.1, 0.02], boltHand: [-0.2, 0.03, -0.01], magOut: [0.01, -0.3, -0.04],
+};
+
+export const P30: WeaponDef = {
+  id: "p30", name: "H&K P30", caliber: "9 × 19 mm", slot: "sidearm", build: buildP30,
+  magSize: 15, reserve: 60, rpm: 420, damage: 28, falloffStart: 18, falloffEnd: 60, falloffMin: 0.45,
+  hipSpread: 1.9, adsSpread: 0.4, recoilPitch: 0.017, recoilYaw: 0.006, adsTime: 0.12, adsFov: 62, reloadTime: 1.7,
+  sound: "pistol", modes: ["semi"], hip: [0.1, -0.09, -0.43], mobility: 1.06, noise: 60, kick: 1.3, boltTravel: 0.032,
+  magHand: [0.0, -0.1, 0.01], boltHand: [-0.02, 0.085, 0.03], magOut: [-0.03, -0.26, 0],
+};
+
+export const MATADOR: WeaponDef = {
+  id: "matador", name: "MATADOR", caliber: "90 mm HEAT / HESH", slot: "launcher", build: buildMatador,
+  magSize: 1, reserve: 2, rpm: 30, damage: 0, falloffStart: 0, falloffEnd: 1, falloffMin: 1,
+  hipSpread: 1.2, adsSpread: 0.15, recoilPitch: 0.03, recoilYaw: 0.01, adsTime: 0.36, adsFov: 46, reloadTime: 4.6,
+  sound: "lmg", modes: ["semi"], hip: [0.2, -0.17, -0.32], mobility: 0.8, noise: 120, rocket: true, kick: 2.2, boltTravel: 0,
+  magHand: [0, 0, 0], boltHand: [0, 0, 0], magOut: [0, 0, 0],
+};
+
+export const PRIMARIES: WeaponDef[] = [SAR21, ULTIMAX, M110];
+
+/** One carried weapon: its model and its own ammunition. */
+interface Carried {
+  def: WeaponDef;
+  gun: ViewWeapon;
+  ammo: number;
+  reserve: number;
+  auto: boolean;
+  flash: THREE.Group;
+  reticle: THREE.Object3D | null;
+  magHome: THREE.Vector3;
+  leftHome: THREE.Vector3;
+  boltHome: THREE.Vector3;
+}
 
 const sm = (t: number): number => {
   const x = Math.max(0, Math.min(1, t));
@@ -111,13 +173,9 @@ const _tmp = new THREE.Vector3();
  * a keyframed reload timeline, layered on a single rig under the camera.
  */
 export class WeaponSystem {
-  readonly def = SAR21;
-  ammo: number;
-  reserve: number;
   /** 0 = hip, 1 = fully aimed. */
   ads = 0;
   reloading = false;
-  auto = true;
   /** Current cone half-angle in degrees (for the crosshair). */
   spread = 0;
   shotsFired = 0;
@@ -126,16 +184,23 @@ export class WeaponSystem {
   hipFov = 74;
   onHit?: (part: BodyPart, killed: boolean) => void;
   onShot?: (origin: THREE.Vector3, dir: THREE.Vector3) => void;
+  /** A rocket left the tube: the game owns its flight. */
+  onRocket?: (origin: THREE.Vector3, dir: THREE.Vector3) => void;
+  onSwitch?: (def: WeaponDef) => void;
   private readonly rig = new THREE.Group();
-  private readonly gun: ViewWeapon;
-  private readonly flash: THREE.Group;
-  private readonly reticle: THREE.Object3D;
+  private readonly mats: GunMats;
+  private readonly all = new Map<string, Carried>();
+  private slots: Carried[] = [];
+  private cur!: Carried;
+  private pending: Carried | null = null;
+  private readonly flashMat: THREE.Material;
   private cooldown = 0;
   private triggerLatch = false;
   private reloadT = 0;
   private reloadStage = 0;
   private heat = 0;
   private flashT = 0;
+  private boltT = 0;
   private sprintBlend = 0;
   private drawT = 0;
   private readonly kick = new Spring(260, 26);
@@ -144,9 +209,6 @@ export class WeaponSystem {
   private swayX = 0;
   private swayY = 0;
   private viewRecover = 0;
-  private readonly magHome = new THREE.Vector3();
-  private readonly leftHome = new THREE.Vector3();
-  private readonly boltHome = new THREE.Vector3();
   private time = 0;
 
   constructor(
@@ -158,17 +220,8 @@ export class WeaponSystem {
     private readonly audio: Audio,
     private readonly targets: TargetProvider
   ) {
-    this.ammo = this.def.magSize;
-    this.reserve = this.def.reserve;
-    this.gun = buildSar21(buildGunMats(engine));
-    this.gun.root.rotation.y = Math.PI / 2;
-    this.rig.add(this.gun.root);
+    this.mats = buildGunMats(engine);
     engine.camera.add(this.rig);
-    this.reticle = this.gun.root.getObjectByName("reticle")!;
-    this.magHome.copy(this.gun.magazine.position);
-    this.leftHome.copy(this.gun.leftArm.position);
-    this.boltHome.copy(this.gun.bolt.position);
-
     // Muzzle flash: three crossed additive cards, shown for a frame or two per shot.
     const tex = canvasTex(128, 128, (c) => {
       const g = c.createRadialGradient(64, 64, 0, 64, 64, 62);
@@ -189,24 +242,112 @@ export class WeaponSystem {
     fm.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader.replace("#include <project_vertex>", "#include <project_vertex>\n  gl_Position.z = (gl_Position.z / gl_Position.w * 0.04 - 0.96) * gl_Position.w;");
     };
-    this.flash = new THREE.Group();
+    this.flashMat = fm;
+    for (const def of [SAR21, ULTIMAX, M110, P30, MATADOR]) this.all.set(def.id, this.make(def));
+    this.slots = [this.all.get("sar21")!, this.all.get("p30")!, this.all.get("matador")!];
+    this.cur = this.slots[0];
+    this.cur.gun.root.visible = true;
+  }
+
+  private make(def: WeaponDef): Carried {
+    const gun = def.build(this.mats);
+    gun.root.rotation.y = Math.PI / 2;
+    gun.root.visible = false;
+    this.rig.add(gun.root);
+    const flash = new THREE.Group();
     const long = new THREE.PlaneGeometry(0.34, 0.14);
     long.translate(0.15, 0, 0);
-    const a = new THREE.Mesh(long, fm);
-    const b = new THREE.Mesh(long, fm);
+    const a = new THREE.Mesh(long, this.flashMat);
+    const b = new THREE.Mesh(long, this.flashMat);
     b.rotation.x = Math.PI / 2;
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2).rotateY(Math.PI / 2), fm);
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2).rotateY(Math.PI / 2), this.flashMat);
     face.position.x = 0.03;
-    this.flash.add(a, b, face);
-    this.flash.position.copy(this.gun.muzzle);
-    this.flash.visible = false;
-    for (const m of this.flash.children) (m as THREE.Mesh).frustumCulled = false;
-    this.gun.root.add(this.flash);
+    flash.add(a, b, face);
+    flash.position.copy(gun.muzzle);
+    flash.visible = false;
+    for (const m of flash.children) (m as THREE.Mesh).frustumCulled = false;
+    gun.root.add(flash);
+    return { def, gun, ammo: def.magSize, reserve: def.reserve, auto: def.modes[0] === "auto", flash, reticle: gun.root.getObjectByName("reticle") ?? null, magHome: gun.magazine.position.clone(), leftHome: gun.leftArm.position.clone(), boltHome: gun.bolt.position.clone() };
+  }
+
+  get def(): WeaponDef {
+    return this.cur.def;
+  }
+  get ammo(): number {
+    return this.cur.ammo;
+  }
+  set ammo(v: number) {
+    this.cur.ammo = v;
+  }
+  get reserve(): number {
+    return this.cur.reserve;
+  }
+  set reserve(v: number) {
+    this.cur.reserve = v;
+  }
+  get auto(): boolean {
+    return this.cur.auto;
+  }
+  get primary(): WeaponDef {
+    return this.slots[0].def;
+  }
+  /** True while a magnified scope picture should replace the viewmodel. */
+  get scoped(): boolean {
+    return !!this.cur.def.scope && this.ads > 0.86;
+  }
+  /** 1-based slot numbers that hold a weapon, with the active one, for the HUD. */
+  get slotIndex(): number {
+    return this.slots.indexOf(this.pending ?? this.cur);
+  }
+  get slotNames(): string[] {
+    return this.slots.map((c) => c.def.name);
+  }
+
+  /** Issue a different primary (at the armoury). Ammunition is drawn full. */
+  setPrimary(id: string): void {
+    const c = this.all.get(id);
+    if (!c || c.def.slot !== "primary" || c === this.slots[0]) return;
+    const wasCur = this.cur === this.slots[0];
+    this.slots[0] = c;
+    c.ammo = c.def.magSize;
+    c.reserve = c.def.reserve;
+    if (wasCur) this.swap(c);
+  }
+
+  select(slot: number): void {
+    const c = this.slots[slot];
+    if (!c || c === this.cur || c === this.pending) return;
+    this.swap(c);
+  }
+
+  private swap(c: Carried): void {
+    this.pending = c;
+    this.reloading = false;
+    this.audio.foley("cloth");
+  }
+
+  /** Refill everything carried (patrol base ammunition point). */
+  restock(): void {
+    for (const c of this.slots) {
+      c.ammo = c.def.magSize;
+      c.reserve = c.def.reserve;
+    }
+  }
+
+  get stocked(): boolean {
+    return this.slots.every((c) => c.ammo >= c.def.magSize && c.reserve >= c.def.reserve);
   }
 
   reset(): void {
-    this.ammo = this.def.magSize;
-    this.reserve = this.def.reserve;
+    for (const c of this.all.values()) {
+      c.ammo = c.def.magSize;
+      c.reserve = c.def.reserve;
+      c.gun.root.visible = false;
+    }
+    this.cur = this.slots[0];
+    this.cur.gun.root.visible = true;
+    this.pending = null;
+    this.ads = 0;
     this.reloading = false;
     this.reloadT = 0;
     this.heat = 0;
@@ -219,21 +360,46 @@ export class WeaponSystem {
     this.rig.visible = v;
   }
 
+  /** Field resupply: `rounds` is in rifle rounds; other weapons get a proportional share. */
   addAmmo(rounds: number): void {
-    this.reserve = Math.min(this.def.reserve + this.def.magSize * 2, this.reserve + rounds);
+    for (const c of this.slots) {
+      const share = c.def.rocket ? 1 : Math.round((rounds / 150) * c.def.reserve);
+      c.reserve = Math.min(c.def.reserve + (c.def.rocket ? 0 : c.def.magSize), c.reserve + share);
+    }
   }
 
   update(dt: number): void {
     this.time += dt;
-    const d = this.def;
     const inp = this.input;
     const p = this.player;
     this.cooldown -= dt;
-    this.drawT = Math.min(1, this.drawT + dt / 0.45);
-    const active = this.enabled && this.drawT >= 1;
+    // Holster the old weapon, then bring the new one up.
+    if (this.pending) {
+      this.drawT -= dt / 0.22;
+      if (this.drawT <= 0) {
+        this.cur.gun.root.visible = false;
+        this.cur.flash.visible = false;
+        this.cur = this.pending;
+        this.pending = null;
+        this.cur.gun.root.visible = true;
+        this.drawT = 0;
+        this.heat = 0;
+        this.audio.foley("raise");
+        this.onSwitch?.(this.cur.def);
+      }
+    } else this.drawT = Math.min(1, this.drawT + dt / (0.36 / Math.min(1.1, this.cur.def.mobility)));
+    const d = this.cur.def;
+    const gun = this.cur.gun;
+    const active = this.enabled && this.drawT >= 1 && !this.pending;
 
-    if (inp.hit("KeyV")) {
-      this.auto = !this.auto;
+    if (!this.reloading) {
+      if (inp.hit("Digit1")) this.select(0);
+      else if (inp.hit("Digit2")) this.select(1);
+      else if (inp.hit("Digit3")) this.select(2);
+      else if (inp.wheel !== 0) this.select((this.slots.indexOf(this.pending ?? this.cur) + (inp.wheel > 0 ? 1 : this.slots.length - 1)) % this.slots.length);
+    }
+    if (inp.hit("KeyV") && d.modes.length > 1) {
+      this.cur.auto = !this.cur.auto;
       this.audio.dryFire();
     }
     const wantAim = active && inp.held("Mouse2") && !this.reloading && !p.sprinting;
@@ -241,7 +407,7 @@ export class WeaponSystem {
     this.ads += ((wantAim ? 1 : 0) - this.ads) * Math.min(1, dt / (d.adsTime * 0.45));
     if (Math.abs(this.ads - (wantAim ? 1 : 0)) < 0.002) this.ads = wantAim ? 1 : 0;
     const e = sm(this.ads);
-    p.moveScale = 1 - 0.42 * e;
+    p.moveScale = (1 - 0.42 * e) * d.mobility;
     this.sprintBlend += ((p.sprinting ? 1 : 0) - this.sprintBlend) * Math.min(1, dt * 9);
 
     // ---- firing ---------------------------------------------------------------
@@ -266,9 +432,9 @@ export class WeaponSystem {
       this.reloadT += dt;
       rp = this.reloadT / d.reloadTime;
       const stages: Array<[number, () => void]> = [
-        [0.16, () => this.audio.foley("magOut")],
-        [0.5, () => this.audio.foley("magIn")],
-        [0.72, () => this.audio.foley("bolt")],
+        [0.16, () => this.audio.foley(d.rocket ? "cloth" : "magOut")],
+        [0.5, () => this.audio.foley(d.rocket ? "raise" : "magIn")],
+        [0.72, () => this.audio.foley(d.rocket ? "pin" : "bolt")],
       ];
       while (this.reloadStage < stages.length && rp >= stages[this.reloadStage][0]) stages[this.reloadStage++][1]();
       if (rp >= 1) {
@@ -280,18 +446,20 @@ export class WeaponSystem {
         rp = 0;
       }
     }
-    // Magazine drops out and a fresh one comes up with the left hand.
+    // Magazine drops out and a fresh one comes up with the support hand; then the bolt.
+    const c = this.cur;
     const magDrop = kf(rp, [[0.14, 0], [0.3, 1], [0.36, 1], [0.5, 0], [1, 0]]);
-    this.gun.magazine.position.set(this.magHome.x - magDrop * 0.03, this.magHome.y - magDrop * 0.3, this.magHome.z - magDrop * 0.06);
+    gun.magazine.position.set(c.magHome.x + magDrop * d.magOut[0], c.magHome.y + magDrop * d.magOut[1], c.magHome.z + magDrop * d.magOut[2]);
     const toMag = kf(rp, [[0.02, 0], [0.14, 1], [0.52, 1], [0.6, 0], [1, 0]]);
     const toBolt = kf(rp, [[0.58, 0], [0.68, 1], [0.8, 1], [0.92, 0], [1, 0]]);
     const boltPull = kf(rp, [[0.68, 0], [0.74, 1], [0.78, 0], [1, 0]]);
-    this.gun.leftArm.position.set(
-      this.leftHome.x + toMag * -0.3 + toBolt * -0.1 - boltPull * 0.05 - magDrop * 0.03 * toMag,
-      this.leftHome.y + toMag * -0.12 - magDrop * 0.3 * toMag + toBolt * 0.13,
-      this.leftHome.z + toMag * 0.0 - magDrop * 0.06 * toMag + toBolt * -0.03
+    gun.leftArm.position.set(
+      c.leftHome.x + toMag * d.magHand[0] + toBolt * d.boltHand[0] - boltPull * 0.05 + magDrop * d.magOut[0] * toMag,
+      c.leftHome.y + toMag * d.magHand[1] + magDrop * d.magOut[1] * toMag + toBolt * d.boltHand[1],
+      c.leftHome.z + toMag * d.magHand[2] + magDrop * d.magOut[2] * toMag + toBolt * d.boltHand[2]
     );
-    this.gun.bolt.position.x = this.boltHome.x - boltPull * 0.05 - (this.flashT > 0 ? 0.02 : 0);
+    this.boltT = Math.max(0, this.boltT - dt * 16);
+    gun.bolt.position.x = c.boltHome.x - boltPull * 0.05 - this.boltT * d.boltTravel - (d.boltTravel > 0 && c.ammo === 0 && !this.reloading ? d.boltTravel : 0);
 
     // ---- springs ---------------------------------------------------------------
     const kick = this.kick.step(dt);
@@ -317,11 +485,13 @@ export class WeaponSystem {
     const reloadTilt = kf(rp, [[0, 0], [0.1, 1], [0.84, 1], [1, 0]]);
     const draw = 1 - sm(this.drawT);
 
-    const hx = 0.135, hy = -0.2, hz = -0.36;
-    const ax = 0, ay = -this.gun.sight.y, az = this.gun.sight.x + 0.012;
+    const [hx, hy, hz] = d.hip;
+    const ax = -gun.sight.z, ay = -gun.sight.y, az = gun.sight.x + 0.012;
+    // A launcher is lowered off the shoulder to "reload": the spent tube is dropped and a fresh one shouldered.
+    const dump = d.rocket ? kf(rp, [[0, 0], [0.2, 1], [0.6, 1], [0.9, 0], [1, 0]]) : 0;
     this.rig.position.set(
       THREE.MathUtils.lerp(hx, ax, e) + bobX + this.swayX * sway * 0.6 - s * 0.055 + reloadTilt * 0.012 + p.lean * 0.012,
-      THREE.MathUtils.lerp(hy, ay, e) + bobY + breathe - this.swayY * sway * 0.5 - s * 0.045 - reloadTilt * 0.045 - p.landed * 0.035 - draw * 0.24 + Math.max(-0.02, Math.min(0.02, p.vel.y * -0.004)),
+      THREE.MathUtils.lerp(hy, ay, e) + bobY + breathe - this.swayY * sway * 0.5 - s * 0.045 - reloadTilt * 0.045 - p.landed * 0.035 - draw * 0.24 - dump * 0.5 + Math.max(-0.02, Math.min(0.02, p.vel.y * -0.004)),
       THREE.MathUtils.lerp(hz, az, e) + kick * (1 - e * 0.45) + s * 0.03 + reloadTilt * 0.02
     );
     this.rig.rotation.set(
@@ -329,10 +499,12 @@ export class WeaponSystem {
       (1 - e) * 0.035 + this.swayX * sway * 1.4 + twist + s * 0.62 - reloadTilt * 0.12,
       (1 - e) * -0.045 + twist * 0.8 + this.swayX * sway * 1.8 - s * 0.22 - reloadTilt * 0.42 - p.lean * 0.1 + bobX * 2.5
     );
-    this.reticle.visible = e > 0.85;
+    if (c.reticle) c.reticle.visible = e > 0.85;
+    // Looking through a magnified scope: the HUD draws the sight picture, so the model steps aside.
+    gun.root.visible = !this.scoped;
 
     this.flashT -= dt;
-    this.flash.visible = this.flashT > 0;
+    c.flash.visible = this.flashT > 0 && !this.scoped;
     this.engine.setFov(THREE.MathUtils.lerp(this.hipFov + this.sprintBlend * 5, d.adsFov, e));
   }
 
@@ -342,7 +514,7 @@ export class WeaponSystem {
   }
 
   private startReload(): void {
-    if (this.reloading || this.ammo >= this.def.magSize || this.reserve <= 0) return;
+    if (this.reloading || this.pending || this.ammo >= this.def.magSize || this.reserve <= 0) return;
     this.reloading = true;
     this.reloadT = 0;
     this.reloadStage = 0;
@@ -351,6 +523,7 @@ export class WeaponSystem {
 
   private fire(): void {
     const d = this.def;
+    const gun = this.cur.gun;
     const cam = this.engine.camera;
     this.ammo--;
     this.shotsFired++;
@@ -366,11 +539,30 @@ export class WeaponSystem {
     _dir.copy(_fwd).addScaledVector(_right, Math.cos(ang) * Math.tan(rad)).addScaledVector(_up, Math.sin(ang) * Math.tan(rad)).normalize();
     cam.getWorldPosition(_origin);
 
+    gun.root.updateWorldMatrix(true, false);
+    _muzzle.copy(gun.muzzle);
+    gun.root.localToWorld(_muzzle);
+    if (d.rocket) {
+      // Backblast and launch; the rocket itself is flown by the game.
+      const back = _tmp.copy(gun.eject);
+      gun.root.localToWorld(back);
+      this.vfx.muzzle(back, _dir.clone().negate(), 3.2, true);
+      for (let i = 0; i < 5; i++) this.vfx.smokePuff(back.clone().addScaledVector(_dir, -0.8 - i * 0.9), 0.9 + i * 0.3, 0.5);
+      this.vfx.muzzle(_muzzle, _dir, 2, true);
+      this.vfx.flashLight(_muzzle, 120, 0.12);
+      this.audio.shot("lmg");
+      this.audio.explosion(_muzzle.x, _muzzle.y, _muzzle.z, 0.45);
+      this.kick.v += 4;
+      this.rise.v += 3;
+      this.player.pitch += d.recoilPitch;
+      this.viewRecover += d.recoilPitch * 0.8;
+      this.onRocket?.(_muzzle.clone(), _dir.clone());
+      this.onShot?.(_origin.clone(), _dir.clone());
+      if (this.reserve > 0) this.startReload();
+      return;
+    }
     const wHit = this.world.raycast(_origin, _dir, 500);
     const tHit = this.targets.raycast(_origin, _dir, wHit ? wHit.distance : 500);
-    this.gun.root.updateWorldMatrix(true, false);
-    _muzzle.copy(this.gun.muzzle);
-    this.gun.root.localToWorld(_muzzle);
     let end: THREE.Vector3;
     if (tHit) {
       end = tHit.point;
@@ -393,20 +585,22 @@ export class WeaponSystem {
 
     // Presentation.
     this.flashT = 0.045;
-    this.flash.rotation.x = Math.random() * Math.PI;
-    this.flash.scale.setScalar(0.8 + Math.random() * 0.5);
+    const quiet = d.id === "m110";
+    this.cur.flash.rotation.x = Math.random() * Math.PI;
+    this.cur.flash.scale.setScalar((0.8 + Math.random() * 0.5) * (quiet ? 0.25 : d.sound === "pistol" ? 0.6 : d.sound === "lmg" ? 1.15 : 1));
+    this.boltT = 1;
     this.vfx.muzzle(_muzzle, _dir, 1, false);
-    this.vfx.flashLight(_muzzle, 26, 0.06);
+    if (!quiet) this.vfx.flashLight(_muzzle, 26, 0.06);
     this.audio.shot(d.sound);
-    const ej = _tmp.copy(this.gun.eject);
-    this.gun.root.localToWorld(ej);
+    const ej = _tmp.copy(gun.eject);
+    gun.root.localToWorld(ej);
     const floor = this.world.floor(ej.x, ej.z, ej.y, 4);
     this.vfx.shell(ej, new THREE.Vector3().copy(_right).multiplyScalar(2.2 + Math.random()).addScaledVector(_up, 1.4 + Math.random()).addScaledVector(_fwd, -0.4).add(this.player.vel), floor ? floor.y : this.player.pos.y);
 
     // Recoil: weapon springs plus a climbing view.
     const stance = this.player.stance === "crouch" ? 0.75 : 1;
-    this.kick.v += 1.5;
-    this.rise.v += 2.1 * stance;
+    this.kick.v += 1.5 * d.kick;
+    this.rise.v += 2.1 * stance * d.kick;
     this.twist.v += (Math.random() - 0.5) * 1.6;
     const climb = d.recoilPitch * (0.75 + Math.random() * 0.5) * stance * (1 + Math.min(1, this.heat / 8) * 0.5);
     this.player.pitch += climb;

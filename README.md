@@ -17,6 +17,20 @@ the weapon, particle effects and all audio.
 Patrol Base Lion, in the south-east corner by the insertion road, is a safe zone: weapons
 are made safe inside, nothing can hurt you there, and the ammunition point restocks you (`F`).
 
+## Weapons
+
+Each is modelled at true scale from its real layout.
+
+| Slot | Weapon | Notes |
+|---|---|---|
+| 1 | SAR 21 | 5.56 mm bullpup, integral 1.5× optic |
+| 1 | Ultimax 100 Mk 3 | 100-round drum, slow to handle, steady in long bursts |
+| 1 | KAC M110 SASS | suppressed 7.62 mm, 3.5–10× scope; enemies hear it from far less distance |
+| 2 | H&K P30 | 9 mm sidearm |
+| 3 | MATADOR | 90 mm rocket, two carried |
+
+`1` `2` `3` or the mouse wheel switch; swap the primary at the patrol base armoury with `T`.
+
 ## Controls
 
 `WASD` move · mouse look · `LMB` fire · `RMB` aim · `Shift` sprint · `C` crouch ·

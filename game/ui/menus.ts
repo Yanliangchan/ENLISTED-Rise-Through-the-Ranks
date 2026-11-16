@@ -194,7 +194,7 @@ export class Menus {
     const k = (a: string, b: string): string => `<kbd>${a}</kbd><span>${b}</span>`;
     this.panel(`<div class="kick">FIELD MANUAL</div><h2>Controls</h2><div class="keys">
       ${k("W A S D", "Move")}${k("MOUSE", "Look")}${k("LMB", "Fire")}${k("RMB", "Aim down sights")}${k("SHIFT", "Sprint")}${k("C", "Crouch")}${k("SPACE", "Jump / vault")}
-      ${k("Q  E", "Lean left / right")}${k("R", "Reload")}${k("V", "Fire selector")}${k("G", "Throw fragmentation grenade")}${k("F", "Interact")}${k("ESC", "Pause")}</div>`);
+      ${k("Q  E", "Lean left / right")}${k("R", "Reload")}${k("1  2  3", "Primary / sidearm / launcher")}${k("V", "Fire selector")}${k("G", "Throw fragmentation grenade")}${k("F", "Interact")}${k("ESC", "Pause")}</div>`);
   }
 
   private recordPanel(): void {

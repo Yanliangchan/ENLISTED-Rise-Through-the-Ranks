@@ -92,6 +92,17 @@ const CSS = `
 @keyframes banner { 0%{opacity:0;letter-spacing:.2em} 10%{opacity:1} 78%{opacity:1} 100%{opacity:0} }
 .timer { position:absolute; top:84px; left:50%; transform:translateX(-50%); font-family:"JetBrains Mono",monospace; font-size:22px; font-weight:700; color:var(--amber); opacity:0; }
 .timer.on { opacity:1; }
+.scope { position:absolute; inset:0; opacity:0; pointer-events:none;
+  background:radial-gradient(circle at 50% 50%, transparent 0, transparent 37.2vh, rgba(0,0,0,.55) 37.8vh, #000 39vh, #000 100%); }
+.scope.on { opacity:1; }
+.scope:before,.scope:after { content:""; position:absolute; background:#0a0a0a; }
+.scope:before { left:50%; top:calc(50% - 38vh); width:1.2px; height:76vh; margin-left:-.6px;
+  -webkit-mask:linear-gradient(#000 0 24%, transparent 24% 26%, #000 26% 74%, transparent 74% 76%, #000 76%); }
+.scope:after { top:50%; left:calc(50% - 38vh); height:1.2px; width:76vh; margin-top:-.6px; }
+.scope i { position:absolute; left:50%; top:50%; width:5px; height:5px; margin:-2.5px; border-radius:50%; background:#0a0a0a; }
+.slots { display:flex; gap:10px; justify-content:flex-end; margin-top:8px; font-size:12px; font-weight:600; letter-spacing:.14em; color:var(--faint); }
+.slots span b { font-family:"JetBrains Mono",monospace; font-weight:400; margin-right:5px; }
+.slots span.on { color:var(--bone); }
 .fade { position:absolute; inset:0; background:#050606; opacity:0; transition:opacity .9s; pointer-events:none; }
 .fade.on { opacity:1; }
 

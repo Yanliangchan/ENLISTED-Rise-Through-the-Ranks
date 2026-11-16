@@ -172,12 +172,19 @@ export class Audio {
   // ---- weapons -----------------------------------------------------------------
 
   /** A rifle shot. Pass no position for the player's own weapon. */
-  shot(kind: "rifle" | "lmg" | "pistol", x: number | null = null, y = 0, z = 0): void {
+  shot(kind: "rifle" | "lmg" | "pistol" | "dmr", x: number | null = null, y = 0, z = 0): void {
     const own = x === null;
     const o = this.at(x, y, z, own ? 0.95 : 1.5, own ? 0.3 : 0.5);
     if (!o) return;
     const { node, t, dist } = o;
     const pitch = (kind === "pistol" ? 1.25 : kind === "lmg" ? 0.88 : 1) * (0.96 + Math.random() * 0.08);
+    if (kind === "dmr") {
+      // Suppressed 7.62: no crack at the muzzle, a flat thump and the action clattering.
+      this.burst(node, t, 0.09, 0.55, "lowpass", 1500, 300, 0.8);
+      this.tone(node, t, 0.09, 0.5, "sine", 130, 50);
+      this.burst(node, t + 0.03, 0.05, 0.22, "bandpass", 2600, 1800, 3);
+      return;
+    }
     if (dist < 90) {
       this.burst(node, t, 0.03, 1.0, "highpass", 2400 * pitch, 1500, 0.5); // crack
       this.burst(node, t, 0.16, 0.9, "lowpass", 3800 * pitch, 420, 0.9); // body

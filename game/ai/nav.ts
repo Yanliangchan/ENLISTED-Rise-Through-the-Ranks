@@ -44,7 +44,8 @@ export class NavGrid {
         const z = this.z0 + (j + 0.5) * this.cell;
         const fl = world.floor(x, z, 2.3, 3.2);
         if (!fl || fl.y > 0.75 || fl.y < -0.4) continue;
-        if (world.sphereBlocked(p.set(x, fl.y + 0.78, z), 0.36) || world.sphereBlocked(p.set(x, fl.y + 1.45, z), 0.3)) continue;
+        // Knee-high clutter (rubble, fallen posts) stops a walker even though a torso-height probe clears it.
+        if (world.sphereBlocked(p.set(x, fl.y + 0.78, z), 0.36) || world.sphereBlocked(p.set(x, fl.y + 1.45, z), 0.3) || world.sphereBlocked(p.set(x, fl.y + 0.46, z), 0.26)) continue;
         this.height[j * this.w + i] = fl.y;
       }
     }

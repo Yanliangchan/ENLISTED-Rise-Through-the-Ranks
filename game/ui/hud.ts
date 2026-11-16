@@ -8,6 +8,16 @@ const el = (cls: string, parent: HTMLElement, html = ""): HTMLDivElement => {
 
 const PX_PER_DEG = 3.4;
 
+/** Mil-dots along both arms of the scope reticle. */
+function mil(): string {
+  let h = "";
+  for (let i = -4; i <= 4; i++) {
+    if (i === 0) continue;
+    h += `<i style="margin-left:${i * 3.4}vh;margin-top:-2.5px"></i><i style="margin-top:${i * 3.4}vh;margin-left:-2.5px"></i>`;
+  }
+  return h;
+}
+
 /** In-game heads-up display. Every setter caches its last value, so calling them each frame costs nothing. */
 export class Hud {
   readonly root: HTMLDivElement;
@@ -36,6 +46,7 @@ export class Hud {
   private readonly bannerEl: HTMLDivElement;
   private readonly timerEl: HTMLDivElement;
   readonly fade: HTMLDivElement;
+  private scopeEl!: HTMLDivElement;
   private cache: Record<string, string | number | boolean> = {};
 
   constructor(parent: HTMLElement) {
@@ -61,7 +72,8 @@ export class Hud {
     this.hpBar = this.vit.querySelector("i")!;
     this.hpNum = this.vit.querySelector("b")!;
     this.stance = el("stance", status, "STANDING");
-    this.wpn = el("wpn", this.root, `<div class="nm"></div><div class="am"><b>30</b><span>150</span></div><div class="mt"><div class="fm"></div><div class="gr"></div></div>`);
+    this.wpn = el("wpn", this.root, `<div class="nm"></div><div class="am"><b>30</b><span>150</span></div><div class="mt"><div class="fm"></div><div class="gr"></div></div><div class="slots"></div>`);
+    this.scopeEl = el("scope", this.root, mil());
     this.xh = el("xh", this.root, `<i class="l"></i><i class="r"></i><i class="u"></i><i class="d"></i><i class="c"></i>`);
     this.xhParts = Array.from(this.xh.querySelectorAll("i"));
     this.hm = el("hm", this.root);
@@ -156,6 +168,16 @@ export class Hud {
       for (let i = 0; i < 3; i++) p += `<i class="${i < nades ? "" : "off"}"></i>`;
       this.wpn.querySelector(".gr")!.innerHTML = `FRAG<span class="pips">${p}</span>`;
     }
+  }
+
+  /** Carried weapons, the active slot highlighted. */
+  slots(names: string[], active: number): void {
+    if (!this.set("sl", names.join("|") + active)) return;
+    this.wpn.querySelector(".slots")!.innerHTML = names.map((n, i) => `<span class="${i === active ? "on" : ""}"><b>${i + 1}</b>${n}</span>`).join("");
+  }
+
+  scope(on: boolean): void {
+    if (this.set("sc", on)) this.scopeEl.classList.toggle("on", on);
   }
 
   /** Spread half-angle in degrees → crosshair gap in pixels for the current vertical FOV. */

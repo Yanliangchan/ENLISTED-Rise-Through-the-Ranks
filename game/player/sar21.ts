@@ -39,6 +39,16 @@ export interface GunMats {
   sleeve: THREE.MeshStandardMaterial;
   skin: THREE.MeshStandardMaterial;
   reticle: THREE.MeshBasicMaterial;
+  /** Flat dark earth furniture (M110). */
+  fde: THREE.MeshStandardMaterial;
+  /** Olive drab painted tube (MATADOR). */
+  olive: THREE.MeshStandardMaterial;
+  /** Smoked translucent polymer (drum rear cover). */
+  smoke: THREE.MeshStandardMaterial;
+  /** Yellow stencil / warning band. */
+  mark: THREE.MeshStandardMaterial;
+  /** Worn parkerised steel, slightly lighter than the blued parts. */
+  park: THREE.MeshStandardMaterial;
 }
 
 /** SAF No. 4 pixelised camouflage. */
@@ -108,11 +118,16 @@ export function buildGunMats(engine: Engine): GunMats {
     sleeve: std({ map: camo, normalMap: fabricT.normalMap, roughness: 0.92 }),
     skin: std({ color: 0xb98a6a, roughness: 0.62 }),
     reticle: new THREE.MeshBasicMaterial({ color: 0x050505, transparent: true, depthTest: false, depthWrite: false, fog: false }),
+    fde: std({ normalMap: polyT.normalMap, roughnessMap: polyT.ormMap, roughness: 1, metalness: 0, color: 0x9a8563 }),
+    olive: std({ normalMap: polyT.normalMap, roughnessMap: polyT.ormMap, roughness: 1, metalness: 0, color: 0x5a6340 }),
+    smoke: std({ color: 0x3a3830, roughness: 0.2, transparent: true, opacity: 0.55 }),
+    mark: std({ color: 0xd8b020, roughness: 0.7 }),
+    park: std({ map: steelT.map, normalMap: steelT.normalMap, roughnessMap: steelT.ormMap, roughness: 1, metalness: 0.6, color: 0xc8c8c8 }),
   };
 }
 
 /** Extrude a side profile (XY) to a given thickness, centred on Z, with a bevel. */
-function profile(pts: number[][], thick: number, bevel: number, holes: number[][][] = []): THREE.BufferGeometry {
+export function profile(pts: number[][], thick: number, bevel: number, holes: number[][][] = []): THREE.BufferGeometry {
   const shape = new THREE.Shape(pts.map((p) => new THREE.Vector2(p[0], p[1])));
   for (const h of holes) shape.holes.push(new THREE.Path(h.map((p) => new THREE.Vector2(p[0], p[1]))));
   const g = new THREE.ExtrudeGeometry(shape, { depth: thick - bevel * 2, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 6 });
@@ -130,7 +145,7 @@ function profile(pts: number[][], thick: number, bevel: number, holes: number[][
   return g;
 }
 
-function mesh(g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
+export function mesh(g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
   const o = new THREE.Mesh(g, m);
   o.position.set(x, y, z);
   o.castShadow = false;
@@ -140,13 +155,13 @@ function mesh(g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0): 
 }
 
 /** Cylinder along X. */
-function tube(r0: number, r1: number, len: number, seg = 18, open = false): THREE.BufferGeometry {
+export function tube(r0: number, r1: number, len: number, seg = 18, open = false): THREE.BufferGeometry {
   const g = new THREE.CylinderGeometry(r1, r0, len, seg, 1, open);
   g.rotateZ(-Math.PI / 2);
   return g;
 }
 
-function rbox(sx: number, sy: number, sz: number, bevel = 0.002): THREE.BufferGeometry {
+export function rbox(sx: number, sy: number, sz: number, bevel = 0.002): THREE.BufferGeometry {
   return profile(
     [
       [-sx / 2, -sy / 2],
@@ -160,7 +175,7 @@ function rbox(sx: number, sy: number, sz: number, bevel = 0.002): THREE.BufferGe
 }
 
 /** A capsule limb between two points. */
-function limb(a: THREE.Vector3, b: THREE.Vector3, r0: number, r1: number, mat: THREE.Material, uvScale = 1): THREE.Mesh {
+export function limb(a: THREE.Vector3, b: THREE.Vector3, r0: number, r1: number, mat: THREE.Material, uvScale = 1): THREE.Mesh {
   const len = a.distanceTo(b);
   const g = new THREE.CylinderGeometry(r1, r0, len, 14, 1, false);
   const uv = g.getAttribute("uv");
@@ -172,7 +187,7 @@ function limb(a: THREE.Vector3, b: THREE.Vector3, r0: number, r1: number, mat: T
 }
 
 /** Gloved hand: palm block plus curled fingers, built to wrap a grip of the given radius. */
-function hand(mats: GunMats, curl: number, mirror: 1 | -1): THREE.Group {
+export function hand(mats: GunMats, curl: number, mirror: 1 | -1): THREE.Group {
   const g = new THREE.Group();
   const palm = mesh(rbox(0.085, 0.034, 0.092, 0.01), mats.glove);
   g.add(palm);
@@ -211,7 +226,7 @@ function hand(mats: GunMats, curl: number, mirror: 1 | -1): THREE.Group {
  * `fingers` the direction the fingers leave the palm before curling, `back`
  * the direction the back of the hand faces, `elbow` where the forearm ends.
  */
-function arm(mats: GunMats, curl: number, mirror: 1 | -1, palm: THREE.Vector3, fingers: THREE.Vector3, back: THREE.Vector3, elbow: THREE.Vector3): THREE.Group {
+export function arm(mats: GunMats, curl: number, mirror: 1 | -1, palm: THREE.Vector3, fingers: THREE.Vector3, back: THREE.Vector3, elbow: THREE.Vector3): THREE.Group {
   const g = new THREE.Group();
   const hx = fingers.clone().normalize();
   const hz = hx.clone().cross(back).normalize();

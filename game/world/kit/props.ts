@@ -516,7 +516,6 @@ export function fallenLamp(b: Builder, x: number, z: number, yaw: number, y = 0)
     b.pop();
     b.box("paintmetal", -4.6, 0.12, 0.5, 0.75, 0.1, 0.3, { tint: 0x55595c, collide: "none" });
     b.box("concrete", 4.5, 0.2, 0, 0.7, 0.4, 0.7, { tint: 0xbdbab0 });
-    b.collisionBox(Surf.Metal, "solid", 0, 0.25, 0, 9, 0.5, 0.3);
   });
 }
 
