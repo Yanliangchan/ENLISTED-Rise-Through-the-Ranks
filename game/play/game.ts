@@ -625,7 +625,7 @@ export class Game implements MissionHost {
     h.timer(m.timer);
     h.health(this.hp);
     h.setStance(p.stance, p.sprinting);
-    h.weapon(this.weapon.def.name, this.weapon.ammo, this.weapon.reserve, this.inCamp ? "SAFE" : this.weapon.auto ? "AUTO" : "SEMI", this.weapon.reloading, this.nades, this.weapon.def.magSize);
+    h.weapon(this.weapon.def.name, this.weapon.ammo, this.weapon.reserve, this.inCamp ? "SAFE" : (this.weapon.auto ? "AUTO" : "SEMI") + (this.weapon.deployed ? " · BIPOD" : ""), this.weapon.reloading, this.nades, this.weapon.def.magSize);
     h.crosshair(this.weapon.spread, cam.fov, this.weapon.ads < 0.5 && !p.sprinting && !this.weapon.reloading);
     h.slots(this.weapon.slotNames, this.weapon.slotIndex);
     h.scope(this.weapon.scopeView);

@@ -30,6 +30,8 @@ export interface ViewWeapon {
   cover?: THREE.Object3D;
   /** The belt lying in the feed tray (belt-fed weapons). */
   belt?: THREE.Object3D;
+  /** Bipod legs, each a hinge group (see `bipodLeg`). */
+  bipod?: THREE.Object3D[];
 }
 
 export interface GunMats {

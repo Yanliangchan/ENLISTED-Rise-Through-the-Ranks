@@ -10,6 +10,20 @@ import { arm, mesh, profile, rbox, tube, type GunMats, type ViewWeapon } from ".
 
 const V = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
 
+/**
+ * One bipod leg on a hinge at the mount: the leg lies along +X (or -X when it folds back)
+ * from the pivot, so swinging the pivot a quarter-turn about Z stands it on the ground.
+ */
+function bipodLeg(mats: GunMats, x: number, y: number, z: number, len: number, r: number, dir: 1 | -1, splay: 1 | -1): THREE.Group {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  g.userData = { dir, splay };
+  g.add(mesh(tube(r, r * 0.9, len, 8), mats.steel, (dir * len) / 2, 0, 0));
+  g.add(mesh(tube(r * 1.3, r * 1.3, len * 0.28, 8), mats.steel, dir * len * 0.2, 0, 0)); // upper sleeve
+  g.add(mesh(tube(r * 1.5, r * 1.2, 0.018, 8), mats.rubber, dir * (len + 0.009), 0, 0)); // foot
+  return g;
+}
+
 /** Ring of thin slots around a muzzle device (birdcage flash hider). */
 function slots(root: THREE.Group, mat: THREE.Material, x: number, r: number, len: number, n = 6): void {
   for (let i = 0; i < n; i++) {
@@ -144,10 +158,8 @@ export function buildUltimax(mats: GunMats): ViewWeapon {
 
   // Bipod, legs folded forward under the barrel.
   root.add(mesh(rbox(0.022, 0.02, 0.04, 0.003), S, 0.432, -0.014, 0));
-  for (const s of [-1, 1]) {
-    root.add(mesh(tube(0.0045, 0.0045, 0.12, 8), S, 0.495, -0.028, s * 0.016));
-    root.add(mesh(rbox(0.016, 0.006, 0.014, 0.002), S, 0.558, -0.03, s * 0.016));
-  }
+  const bipod = ([-1, 1] as const).map((sd) => bipodLeg(mats, 0.436, -0.028, sd * 0.016, 0.24, 0.0048, 1, sd));
+  root.add(...bipod);
   // Sling swivels.
   for (const x of [-0.4, 0.39]) {
     const loop = mesh(new THREE.TorusGeometry(0.009, 0.002, 6, 12), S, x, x < 0 ? -0.116 : -0.03, -0.022);
@@ -158,7 +170,7 @@ export function buildUltimax(mats: GunMats): ViewWeapon {
   const rightArm = arm(mats, 1.0, -1, V(-0.03, -0.092, 0.03), V(0.94, 0.26, -0.1), V(0.1, 0, 1), V(-0.37, -0.25, 0.17));
   const leftArm = arm(mats, 1.0, 1, V(0.286, -0.1, -0.03), V(0.94, 0.3, 0.1), V(0.1, 0, -1), V(0.0, -0.33, -0.3));
   root.add(rightArm, leftArm);
-  return { root, muzzle: V(0.568, 0, 0), sight: V(-0.3, 0.044, 0), eject: V(0.062, 0.004, 0.03), magazine, leftArm, rightArm, bolt };
+  return { root, muzzle: V(0.568, 0, 0), sight: V(-0.3, 0.044, 0), eject: V(0.062, 0.004, 0.03), magazine, leftArm, rightArm, bolt, bipod };
 }
 
 // =====================================================================================
@@ -353,13 +365,9 @@ export function buildM110(mats: GunMats): ViewWeapon {
 
   // Harris bipod on the bottom rail, legs folded forward.
   root.add(mesh(rbox(0.04, 0.016, 0.05, 0.003), S, 0.415, -0.034, 0));
-  for (const s of [-1, 1]) {
-    root.add(mesh(tube(0.0055, 0.0055, 0.2, 8), S, 0.53, -0.04, s * 0.024));
-    root.add(mesh(tube(0.0068, 0.0068, 0.05, 8), S, 0.5, -0.04, s * 0.024));
-    root.add(mesh(tube(0.007, 0.007, 0.02, 8), mats.rubber, 0.636, -0.04, s * 0.024));
-    // Return springs.
-    root.add(mesh(tube(0.002, 0.002, 0.08, 5), S, 0.46, -0.046, s * 0.031));
-  }
+  const bipod = ([-1, 1] as const).map((sd) => bipodLeg(mats, 0.43, -0.04, sd * 0.024, 0.22, 0.0058, 1, sd));
+  root.add(...bipod);
+  for (const sd of [-1, 1]) root.add(mesh(tube(0.002, 0.002, 0.05, 5), S, 0.41, -0.046, sd * 0.031)); // return springs
 
   root.add(
     reticleMesh((c) => {
@@ -376,7 +384,7 @@ export function buildM110(mats: GunMats): ViewWeapon {
   const rightArm = arm(mats, 1.0, -1, V(-0.066, -0.098, 0.03), V(0.94, 0.26, -0.1), V(0.1, 0, 1), V(-0.38, -0.25, 0.17));
   const leftArm = arm(mats, 0.8, 1, V(0.25, -0.044, -0.004), V(0.12, 0.05, 1), V(0, -1, 0.1), V(-0.1, -0.3, -0.27));
   root.add(rightArm, leftArm);
-  return { root, muzzle: V(0.874, 0, 0), sight: V(-0.235, SY, 0), eject: V(0.03, 0.006, 0.028), magazine, leftArm, rightArm, bolt };
+  return { root, muzzle: V(0.874, 0, 0), sight: V(-0.235, SY, 0), eject: V(0.03, 0.006, 0.028), magazine, leftArm, rightArm, bolt, bipod };
 }
 
 // =====================================================================================
@@ -670,9 +678,10 @@ export function buildFNMAG(mats: GunMats): ViewWeapon {
   // Fixed top plate of the receiver behind the cover, with the cover latch catch.
   root.add(mesh(rbox(0.19, 0.012, 0.056, 0.003), K, -0.235, RT + 0.006, 0));
   // Leaf rear sight with its protective ears, forward of the cover hinge.
-  for (const s of [-1, 1]) root.add(mesh(profile([[0.11, RT], [0.165, RT], [0.16, 0.078], [0.12, 0.078]], 0.003, 0.0008), S, 0, 0, s * 0.013));
+  // Tall enough to see over the railed feed cover.
+  for (const s of [-1, 1]) root.add(mesh(profile([[0.11, RT], [0.165, RT], [0.16, 0.118], [0.12, 0.118]], 0.003, 0.0008), S, 0, 0, s * 0.013));
   root.add(mesh(rbox(0.04, 0.006, 0.03, 0.001), S, 0.14, RT + 0.003, 0));
-  root.add(mesh(profile([[0.13, RT + 0.006], [0.142, RT + 0.006], [0.142, 0.074], [0.13, 0.074]], 0.016, 0.001, [[[0.1335, 0.064], [0.1385, 0.064], [0.1385, 0.0695], [0.1335, 0.0695]]]), S));
+  root.add(mesh(profile([[0.13, RT + 0.006], [0.142, RT + 0.006], [0.142, 0.114], [0.13, 0.114]], 0.016, 0.001, [[[0.1335, 0.1035], [0.1385, 0.1035], [0.1385, 0.1105], [0.1335, 0.1105]]]), S));
 
   // Trigger housing, guard, trigger, cross-bolt safety, pistol grip.
   root.add(mesh(profile([[-0.06, -0.042], [0.06, -0.042], [0.05, -0.058], [-0.06, -0.058]], 0.03, 0.003), K));
@@ -707,14 +716,13 @@ export function buildFNMAG(mats: GunMats): ViewWeapon {
   root.add(mesh(tube(0.013, 0.013, 0.02, 12).rotateY(Math.PI / 2), S, 0.465, -0.032, 0.022));
   for (let i = 0; i < 3; i++) root.add(mesh(rbox(0.004, 0.006, 0.004, 0.001), S, 0.465 + (i - 1) * 0.007, -0.022, 0.034));
   root.add(mesh(rbox(0.03, 0.022, 0.05, 0.004), S, 0.44, -0.048, 0));
-  for (const s of [-1, 1]) {
-    root.add(mesh(tube(0.0055, 0.0055, 0.3, 8), S, 0.29, -0.052, s * 0.02));
-    root.add(mesh(rbox(0.022, 0.01, 0.02, 0.002), S, 0.135, -0.054, s * 0.02));
-  }
+  // Legs fold back under the receiver and swing forward and down to deploy.
+  const bipod = ([-1, 1] as const).map((sd) => bipodLeg(mats, 0.44, -0.052, sd * 0.02, 0.3, 0.0055, -1, sd));
+  root.add(...bipod);
   // Front sight: tall base with protective ears and the blade, then the slotted suppressor.
   root.add(mesh(profile([[0.57, 0.0], [0.6, 0.0], [0.597, 0.03], [0.575, 0.03]], 0.024, 0.003), K));
-  for (const s of [-1, 1]) root.add(mesh(profile([[0.574, 0.026], [0.598, 0.026], [0.594, 0.076], [0.586, 0.08], [0.578, 0.074]], 0.0028, 0.0006), S, 0, 0, s * 0.011));
-  root.add(mesh(rbox(0.004, 0.044, 0.003, 0.0006), S, 0.586, 0.052, 0));
+  for (const s of [-1, 1]) root.add(mesh(profile([[0.574, 0.026], [0.598, 0.026], [0.594, 0.116], [0.586, 0.12], [0.578, 0.114]], 0.0028, 0.0006), S, 0, 0, s * 0.011));
+  root.add(mesh(rbox(0.004, 0.08, 0.003, 0.0006), S, 0.586, 0.067, 0));
   root.add(mesh(tube(0.017, 0.0175, 0.065, 16), S, 0.635, 0, 0));
   slots(root, R, 0.637, 0.0165, 0.046, 8);
 
@@ -741,5 +749,5 @@ export function buildFNMAG(mats: GunMats): ViewWeapon {
   const rightArm = arm(mats, 1.0, -1, V(-0.034, -0.11, 0.032), V(0.94, 0.26, -0.1), V(0.1, 0, 1), V(-0.38, -0.26, 0.17));
   const leftArm = arm(mats, 0.9, 1, V(0.13, -0.066, -0.01), V(0.15, 0.1, 1), V(0, -1, 0.15), V(-0.22, -0.34, -0.3));
   root.add(rightArm, leftArm);
-  return { root, muzzle: V(0.67, 0, 0), sight: V(-0.32, 0.067, 0), eject: V(0.0, -0.05, 0.0), magazine, leftArm, rightArm, bolt, cover, belt };
+  return { root, muzzle: V(0.67, 0, 0), sight: V(-0.32, 0.107, 0), eject: V(0.0, -0.05, 0.0), magazine, leftArm, rightArm, bolt, cover, belt, bipod };
 }

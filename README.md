@@ -31,6 +31,10 @@ Each is modelled at true scale from its real layout.
 | 2 | H&K P30 | 9 mm sidearm |
 | 3 | MATADOR | 90 mm rocket, two carried |
 
+The Ultimax, FN MAG and M110 deploy their bipods on their own: on the ground when you go prone,
+or on a wall, barrier or sandbag line when you aim over it crouched or standing. Deployed, recoil
+falls by about 70%, traverse is limited to about 40° either way, and moving folds the legs.
+
 Every weapon has its own reload: bullpups tip up to reach the magazine behind the grip, the
 Ultimax rolls its drum out, the FN MAG opens its feed cover for a new belt, the P30 slide locks
 back on an empty magazine. Reloading from empty takes longer and ends by working the action.

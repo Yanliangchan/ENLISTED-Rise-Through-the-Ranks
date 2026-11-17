@@ -82,6 +82,8 @@ export interface WeaponDef {
   rightBolt?: [number, number, number];
   /** How far the charging handle travels when worked, metres. */
   pullLen?: number;
+  /** Has a bipod: deploys on the ground when prone, or on cover when aimed over it. */
+  bipod?: boolean;
 }
 
 export const SAR21: WeaponDef = {
@@ -110,7 +112,7 @@ export const ULTIMAX: WeaponDef = {
   hipSpread: 3.2, adsSpread: 0.3, recoilPitch: 0.0062, recoilYaw: 0.0038, adsTime: 0.34, zooms: [1.45], zoomDefault: 0, reloadTime: 5.0,
   sound: "lmg", modes: ["auto"], hip: [0.15, -0.15, -0.37], mobility: 0.86, noise: 85, kick: 0.7, boltTravel: 0.0,
   magHand: [-0.16, -0.02, 0.02], boltHand: [-0.15, 0.1, 0.0], magOut: [0, -0.34, -0.05],
-  anim: "drum", reloadEmpty: 6.2, pullLen: 0.1,
+  anim: "drum", reloadEmpty: 6.2, pullLen: 0.1, bipod: true,
 };
 
 /** Marksman rifle: suppressed 7.62, two torso hits or one to the head at any range on this map. */
@@ -120,7 +122,7 @@ export const M110: WeaponDef = {
   hipSpread: 3.6, adsSpread: 0.035, recoilPitch: 0.021, recoilYaw: 0.006, adsTime: 0.3, zooms: [4, 7, 10], zoomDefault: 1, reloadTime: 2.8,
   sound: "dmr", modes: ["semi"], hip: [0.15, -0.155, -0.35], mobility: 0.92, noise: 38, scope: "mil", kick: 1.5, boltTravel: 0.03,
   magHand: [-0.18, -0.1, 0.02], boltHand: [-0.2, 0.03, -0.01], magOut: [0.01, -0.3, -0.04],
-  anim: "rifle", reloadEmpty: 3.6, pullLen: 0.03,
+  anim: "rifle", reloadEmpty: 3.6, pullLen: 0.03, bipod: true,
 };
 
 export const P30: WeaponDef = {
@@ -148,7 +150,7 @@ export const FNMAG: WeaponDef = {
   hipSpread: 4.4, adsSpread: 0.4, recoilPitch: 0.0082, recoilYaw: 0.0052, adsTime: 0.46, zooms: [1.4], zoomDefault: 0, reloadTime: 6.4,
   sound: "lmg", modes: ["auto"], hip: [0.15, -0.16, -0.42], mobility: 0.78, noise: 110, kick: 1.15, boltTravel: 0,
   magHand: [-0.11, -0.044, -0.1], boltHand: [0, 0, 0], magOut: [0, -0.3, -0.05],
-  anim: "belt", reloadEmpty: 7.2, coverHand: [-0.265, 0.128, 0.01], rightBolt: [0.14, 0.11, 0.03], pullLen: 0.12,
+  anim: "belt", reloadEmpty: 7.2, coverHand: [-0.265, 0.128, 0.01], rightBolt: [0.14, 0.11, 0.03], pullLen: 0.12, bipod: true,
 };
 
 export const PRIMARIES: WeaponDef[] = [SAR21, BR18, ULTIMAX, FNMAG, M110];
@@ -245,6 +247,14 @@ export class WeaponSystem {
   private reloadStage = 0;
   private reloadEmpty = false;
   private reloadDur = 1;
+  /** Bipod resting on something, and its eased blend (0..1). */
+  deployed = false;
+  private bipodT = 0;
+  private bipodLock = 0;
+  private supportT = 0;
+  private supportOk = false;
+  private deployYaw = 0;
+  private deployPitch = 0;
   private readonly pose: ReloadPose = samplePose(null, 0, {} as ReloadPose);
   private heat = 0;
   private flashT = 0;
@@ -376,7 +386,7 @@ export class WeaponSystem {
     this.swayT += dt * (this.holding ? 0.35 : 1);
     const p = this.player;
     const stance = p.stance === "prone" ? 0.3 : p.stance === "crouch" ? 0.65 : 1;
-    const amp = scoped ? 0.00045 * this.mag * stance * winded * (this.holding ? 0.12 : 1) * sm(this.ads) : 0;
+    const amp = scoped ? 0.00045 * this.mag * stance * winded * (this.holding ? 0.12 : 1) * sm(this.ads) * (1 - 0.85 * this.bipodT) : 0;
     const t = this.swayT;
     this.aimOff.set(Math.sin(t * 1.1) * Math.cos(t * 0.37) * amp, Math.sin(t * 0.55 + 1.3) * amp * 1.3);
     return this.aimOff;
@@ -408,6 +418,8 @@ export class WeaponSystem {
 
   private swap(c: Carried): void {
     this.pending = c;
+    this.deployed = false;
+    this.bipodT = 0;
     this.reloading = false;
     this.audio.foley("cloth");
   }
@@ -434,6 +446,8 @@ export class WeaponSystem {
     this.cur.gun.root.visible = true;
     this.pending = null;
     this.ads = 0;
+    this.deployed = false;
+    this.bipodT = 0;
     this.reloading = false;
     this.reloadT = 0;
     this.heat = 0;
@@ -507,6 +521,46 @@ export class WeaponSystem {
     if (Math.abs(this.ads - (wantAim ? 1 : 0)) < 0.002) this.ads = wantAim ? 1 : 0;
     const e = sm(this.ads);
     p.moveScale = (1 - 0.42 * e) * d.mobility;
+
+    // ---- bipod: rests on the ground when prone, or on a ledge when aimed over one ----
+    const moveKeys = inp.held("KeyW") || inp.held("KeyA") || inp.held("KeyS") || inp.held("KeyD");
+    this.bipodLock = Math.max(0, this.bipodLock - dt);
+    if (moveKeys && this.deployed) this.bipodLock = 0.45;
+    let support = false;
+    if (d.bipod && active && !this.reloading && !moveKeys && this.bipodLock <= 0 && p.onGround) {
+      if (p.stance === "prone" && p.speed < 0.6) support = true;
+      else if (this.ads > 0.3 || this.deployed) {
+        this.supportT -= dt;
+        if (this.supportT <= 0) {
+          this.supportT = 0.15;
+          this.supportOk = this.findSupport();
+        }
+        support = this.supportOk;
+      }
+    }
+    const want = support && (p.stance === "prone" || this.ads > 0.3);
+    if (want !== this.deployed) {
+      this.deployed = want;
+      this.audio.foley(want ? "magIn" : "cloth");
+      if (want) {
+        this.deployYaw = p.yaw;
+        this.deployPitch = p.pitch;
+      }
+    }
+    this.bipodT += ((this.deployed ? 1 : 0) - this.bipodT) * Math.min(1, dt * 9);
+    if (this.deployed) {
+      p.moveScale = 0;
+      // Traverse is limited to what the legs allow without picking the gun up.
+      const dy = Math.atan2(Math.sin(p.yaw - this.deployYaw), Math.cos(p.yaw - this.deployYaw));
+      p.yaw = this.deployYaw + THREE.MathUtils.clamp(dy, -0.7, 0.7);
+      p.pitch = THREE.MathUtils.clamp(p.pitch, this.deployPitch - 0.22, this.deployPitch + 0.3);
+    }
+    if (gun.bipod) {
+      for (const leg of gun.bipod) {
+        const { dir, splay } = leg.userData as { dir: number; splay: number };
+        leg.rotation.set(splay * 0.32 * this.bipodT, 0, -dir * 1.5 * this.bipodT);
+      }
+    }
     this.sprintBlend += ((p.sprinting ? 1 : 0) - this.sprintBlend) * Math.min(1, dt * (p.sprinting ? 9 : 14));
 
     // ---- firing ---------------------------------------------------------------
@@ -531,6 +585,7 @@ export class WeaponSystem {
     this.heat = Math.max(0, this.heat - dt * 5);
     const move = Math.min(1, p.speed / 4);
     this.spread = THREE.MathUtils.lerp(d.hipSpread * (0.55 + move * 0.9 + (p.onGround ? 0 : 1.2)) * (p.stance === "prone" ? 0.5 : p.stance === "crouch" ? 0.7 : 1), d.adsSpread * (p.stance === "prone" ? 0.6 : 1) * (1 + move * 2), e) + this.heat * THREE.MathUtils.lerp(0.22, 0.03, e);
+    this.spread *= 1 - 0.6 * this.bipodT;
 
     // ---- reload timeline ------------------------------------------------------
     let rp = 0; // 0..1 through the reload
@@ -585,7 +640,7 @@ export class WeaponSystem {
     }
 
     // ---- compose the rig pose ---------------------------------------------------
-    const sway = 1 - e * 0.82;
+    const sway = (1 - e * 0.82) * (1 - 0.7 * this.bipodT);
     this.swayX += (-inp.mouseDX * 0.00016 - this.swayX) * Math.min(1, dt * 9);
     this.swayY += (inp.mouseDY * 0.00016 - this.swayY) * Math.min(1, dt * 9);
     const phase = (p.stride / 1.55) * Math.PI;
@@ -628,6 +683,27 @@ export class WeaponSystem {
     // Scale turn rate with magnification so the crosshair covers the same ground per mouse-inch.
     const zoom = Math.tan(THREE.MathUtils.degToRad(this.engine.camera.fov) / 2) / Math.tan(THREE.MathUtils.degToRad(this.hipFov) / 2);
     return THREE.MathUtils.lerp(1, Math.min(0.85, zoom * 1.15), sm(this.ads));
+  }
+
+  /**
+   * Is there something to rest the bipod on? Probes for a flat top a forearm's length ahead,
+   * between a hand's breadth and half a metre below the bore, with nothing in the way.
+   */
+  private findSupport(): boolean {
+    const p = this.player;
+    const eye = p.eyePosition(_tmp);
+    const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
+    const bore = eye.y - 0.06;
+    _origin.set(eye.x, bore, eye.z);
+    const wall = this.world.raycast(_origin, _dir.set(fx, 0, fz), 0.9);
+    // Sample along the barrel: wall tops and sandbag lines are narrow.
+    for (const d of [0.35, 0.5, 0.65, 0.8]) {
+      if (wall && wall.distance < d) return false;
+      _origin.set(eye.x + fx * d, bore, eye.z + fz * d);
+      const hit = this.world.raycast(_origin, _dir.set(0, -1, 0), 0.5);
+      if (hit && hit.normal.y > 0.65 && hit.distance > 0.08) return true;
+    }
+    return false;
   }
 
   private startReload(): void {
@@ -717,8 +793,8 @@ export class WeaponSystem {
     this.vfx.shell(ej, new THREE.Vector3().copy(_right).multiplyScalar(2.2 + Math.random()).addScaledVector(_up, 1.4 + Math.random()).addScaledVector(_fwd, -0.4).add(this.player.vel), floor ? floor.y : this.player.pos.y);
 
     // Recoil: weapon springs plus a climbing view.
-    const stance = this.player.stance === "prone" ? 0.5 : this.player.stance === "crouch" ? 0.75 : 1;
-    this.kick.v += 1.5 * d.kick;
+    const stance = (this.player.stance === "prone" ? 0.5 : this.player.stance === "crouch" ? 0.75 : 1) * (1 - 0.7 * this.bipodT);
+    this.kick.v += 1.5 * d.kick * (1 - 0.5 * this.bipodT);
     this.rise.v += 2.1 * stance * d.kick;
     this.twist.v += (Math.random() - 0.5) * 1.6;
     const climb = d.recoilPitch * (0.75 + Math.random() * 0.5) * stance * (1 + Math.min(1, this.heat / 8) * 0.5);
