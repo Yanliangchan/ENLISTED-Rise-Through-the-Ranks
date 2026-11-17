@@ -123,6 +123,7 @@ interface Carried {
   auto: boolean;
   flash: THREE.Group;
   reticle: THREE.Object3D | null;
+  lenses: THREE.Object3D[];
   magHome: THREE.Vector3;
   leftHome: THREE.Vector3;
   boltHome: THREE.Vector3;
@@ -187,6 +188,9 @@ export class WeaponSystem {
   /** A rocket left the tube: the game owns its flight. */
   onRocket?: (origin: THREE.Vector3, dir: THREE.Vector3) => void;
   onSwitch?: (def: WeaponDef) => void;
+  /** The trigger was pressed while weapons are safe (inside the patrol base). */
+  onSafeTrigger?: () => void;
+  private safeBlend = 0;
   private readonly rig = new THREE.Group();
   private readonly mats: GunMats;
   private readonly all = new Map<string, Carried>();
@@ -267,7 +271,11 @@ export class WeaponSystem {
     flash.visible = false;
     for (const m of flash.children) (m as THREE.Mesh).frustumCulled = false;
     gun.root.add(flash);
-    return { def, gun, ammo: def.magSize, reserve: def.reserve, auto: def.modes[0] === "auto", flash, reticle: gun.root.getObjectByName("reticle") ?? null, magHome: gun.magazine.position.clone(), leftHome: gun.leftArm.position.clone(), boltHome: gun.bolt.position.clone() };
+    const lenses: THREE.Object3D[] = [];
+    gun.root.traverse((o) => {
+      if (o.name === "lens") lenses.push(o);
+    });
+    return { lenses, def, gun, ammo: def.magSize, reserve: def.reserve, auto: def.modes[0] === "auto", flash, reticle: gun.root.getObjectByName("reticle") ?? null, magHome: gun.magazine.position.clone(), leftHome: gun.leftArm.position.clone(), boltHome: gun.bolt.position.clone() };
   }
 
   get def(): WeaponDef {
@@ -407,17 +415,25 @@ export class WeaponSystem {
       this.cur.auto = !this.cur.auto;
       this.audio.dryFire();
     }
-    const wantAim = active && inp.held("Mouse2") && !this.reloading && !p.sprinting;
+    // Aiming always wins over sprinting: the controller drops the sprint the moment this is set.
+    const wantAim = active && inp.held("Mouse2") && !this.reloading;
     p.aiming = wantAim;
     this.ads += ((wantAim ? 1 : 0) - this.ads) * Math.min(1, dt / (d.adsTime * 0.45));
     if (Math.abs(this.ads - (wantAim ? 1 : 0)) < 0.002) this.ads = wantAim ? 1 : 0;
     const e = sm(this.ads);
     p.moveScale = (1 - 0.42 * e) * d.mobility;
-    this.sprintBlend += ((p.sprinting ? 1 : 0) - this.sprintBlend) * Math.min(1, dt * 9);
+    this.sprintBlend += ((p.sprinting ? 1 : 0) - this.sprintBlend) * Math.min(1, dt * (p.sprinting ? 9 : 14));
 
     // ---- firing ---------------------------------------------------------------
     const trigger = inp.held("Mouse0");
     if (!trigger) this.triggerLatch = false;
+    // Pulling the trigger mid-sprint breaks the sprint; the shot follows as the weapon comes up.
+    if (trigger && active) p.sprintLock = 0.3;
+    if (trigger && !this.enabled && inp.hit("Mouse0")) {
+      this.audio.dryFire();
+      this.onSafeTrigger?.();
+    }
+    this.safeBlend += ((this.enabled ? 0 : 1) - this.safeBlend) * Math.min(1, dt * 7);
     if (active && trigger && this.cooldown <= 0 && !this.reloading && this.sprintBlend < 0.35) {
       if (this.ammo > 0 && (this.auto || !this.triggerLatch)) this.fire();
       else if (this.ammo === 0 && !this.triggerLatch) {
@@ -429,7 +445,7 @@ export class WeaponSystem {
     if (active && inp.hit("KeyR")) this.startReload();
     this.heat = Math.max(0, this.heat - dt * 5);
     const move = Math.min(1, p.speed / 4);
-    this.spread = THREE.MathUtils.lerp(d.hipSpread * (0.55 + move * 0.9 + (p.onGround ? 0 : 1.2)) * (p.stance === "crouch" ? 0.7 : 1), d.adsSpread * (1 + move * 2), e) + this.heat * THREE.MathUtils.lerp(0.22, 0.03, e);
+    this.spread = THREE.MathUtils.lerp(d.hipSpread * (0.55 + move * 0.9 + (p.onGround ? 0 : 1.2)) * (p.stance === "prone" ? 0.5 : p.stance === "crouch" ? 0.7 : 1), d.adsSpread * (p.stance === "prone" ? 0.6 : 1) * (1 + move * 2), e) + this.heat * THREE.MathUtils.lerp(0.22, 0.03, e);
 
     // ---- reload timeline ------------------------------------------------------
     let rp = 0; // 0..1 through the reload
@@ -486,7 +502,8 @@ export class WeaponSystem {
     const bobX = Math.sin(phase) * amp * 1.4;
     const bobY = -Math.abs(Math.cos(phase)) * amp * 1.6 + amp;
     const breathe = Math.sin(this.time * 1.25) * 0.0011 * (1 - e * 0.5);
-    const s = this.sprintBlend;
+    // Weapons safe: carried low and canted, the same lowered pose as a sprint.
+    const s = Math.max(this.sprintBlend, this.safeBlend * 0.85);
     const reloadTilt = kf(rp, [[0, 0], [0.1, 1], [0.84, 1], [1, 0]]);
     const draw = 1 - sm(this.drawT);
 
@@ -505,6 +522,7 @@ export class WeaponSystem {
       (1 - e) * -0.045 + twist * 0.8 + this.swayX * sway * 1.8 - s * 0.22 - reloadTilt * 0.42 - p.lean * 0.1 + bobX * 2.5
     );
     if (c.reticle) c.reticle.visible = e > 0.85;
+    for (const l of c.lenses) l.visible = e < 0.5;
     // Looking through a magnified scope: the HUD draws the sight picture, so the model steps aside.
     gun.root.visible = !this.scoped;
 
@@ -515,7 +533,9 @@ export class WeaponSystem {
 
   /** Look sensitivity scale for the current zoom. */
   get lookScale(): number {
-    return THREE.MathUtils.lerp(1, 0.62, sm(this.ads));
+    // Scale turn rate with magnification so the crosshair covers the same ground per mouse-inch.
+    const zoom = Math.tan(THREE.MathUtils.degToRad(this.engine.camera.fov) / 2) / Math.tan(THREE.MathUtils.degToRad(this.hipFov) / 2);
+    return THREE.MathUtils.lerp(1, Math.min(0.85, zoom * 1.15), sm(this.ads));
   }
 
   private startReload(): void {
@@ -603,7 +623,7 @@ export class WeaponSystem {
     this.vfx.shell(ej, new THREE.Vector3().copy(_right).multiplyScalar(2.2 + Math.random()).addScaledVector(_up, 1.4 + Math.random()).addScaledVector(_fwd, -0.4).add(this.player.vel), floor ? floor.y : this.player.pos.y);
 
     // Recoil: weapon springs plus a climbing view.
-    const stance = this.player.stance === "crouch" ? 0.75 : 1;
+    const stance = this.player.stance === "prone" ? 0.5 : this.player.stance === "crouch" ? 0.75 : 1;
     this.kick.v += 1.5 * d.kick;
     this.rise.v += 2.1 * stance * d.kick;
     this.twist.v += (Math.random() - 0.5) * 1.6;

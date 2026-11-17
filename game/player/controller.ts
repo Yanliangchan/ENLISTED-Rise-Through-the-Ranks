@@ -8,9 +8,11 @@ const STAND = 1.78;
 const CROUCH = 1.15;
 const EYE_STAND = 1.64;
 const EYE_CROUCH = 1.02;
+const PRONE = 0.68;
+const EYE_PRONE = 0.36;
 const GRAVITY = 15;
 
-export type Stance = "stand" | "crouch";
+export type Stance = "stand" | "crouch" | "prone";
 
 /**
  * First-person body: a capsule moved against the collision BVH, with
@@ -46,6 +48,10 @@ export class PlayerController {
   private height = STAND;
   private stepAcc = 0;
   private airTime = 0;
+  /** Seconds since the feet last touched: smooths sprint and control over kerbs, steps and rubble. */
+  private offGround = 0;
+  /** Set by the weapon when the trigger is pressed mid-sprint: drops out of the sprint so the shot can go. */
+  sprintLock = 0;
 
   constructor(private readonly world: CollisionWorld, private readonly input: Input) {}
 
@@ -57,6 +63,8 @@ export class PlayerController {
     this.stance = "stand";
     this.height = STAND;
     this.eye = EYE_STAND;
+    this.sprintLock = 0;
+    this.lean = 0;
   }
 
   /** Mouse look. `scale` lets ADS / scopes slow the turn rate. */
@@ -70,14 +78,22 @@ export class PlayerController {
   update(dt: number): void {
     const inp = this.input;
     // Stance.
+    // C / Ctrl: crouch toggle. Z: go prone or get up. Space climbs one stance at a time.
     if (inp.hit("KeyC") || inp.hit("ControlLeft")) {
       if (this.stance === "stand") this.stance = "crouch";
-      else if (this.canStand()) this.stance = "stand";
+      else if (this.stance === "prone") {
+        if (this.fits(CROUCH)) this.stance = "crouch";
+      } else if (this.fits(STAND)) this.stance = "stand";
     }
-    const targetH = this.stance === "crouch" ? CROUCH : STAND;
-    this.height += (targetH - this.height) * Math.min(1, dt * 12);
-    const targetEye = this.stance === "crouch" ? EYE_CROUCH : EYE_STAND;
-    this.eye += (targetEye - this.eye) * Math.min(1, dt * 10);
+    if (inp.hit("KeyZ")) {
+      if (this.stance !== "prone") this.stance = "prone";
+      else if (this.fits(STAND)) this.stance = "stand";
+      else if (this.fits(CROUCH)) this.stance = "crouch";
+    }
+    const targetH = this.stance === "prone" ? PRONE : this.stance === "crouch" ? CROUCH : STAND;
+    this.height += (targetH - this.height) * Math.min(1, dt * (this.stance === "prone" ? 7 : 12));
+    const targetEye = this.stance === "prone" ? EYE_PRONE : this.stance === "crouch" ? EYE_CROUCH : EYE_STAND;
+    this.eye += (targetEye - this.eye) * Math.min(1, dt * (this.stance === "prone" ? 6 : 10));
 
     // Wish direction in the horizontal plane.
     let fx = 0;
@@ -95,14 +111,20 @@ export class PlayerController {
     const wx = fx * cos + fz * sin;
     const wz = -fx * sin + fz * cos;
 
-    this.sprinting = inp.held("ShiftLeft") && fz < 0 && this.stance === "stand" && !this.aiming && this.onGround;
-    if (this.sprinting && this.stance === "crouch") this.stance = "stand";
-    let max = this.stance === "crouch" ? 2.0 : this.sprinting ? 6.3 : 4.1;
+    // Sprint: hold Shift while moving forward. It gets you up from a crouch or the ground, survives
+    // brief loss of footing, and yields at once to aiming or the trigger.
+    this.sprintLock = Math.max(0, this.sprintLock - dt);
+    const wantSprint = (inp.held("ShiftLeft") || inp.held("ShiftRight")) && fz < 0 && !this.aiming && this.sprintLock <= 0;
+    if (wantSprint && this.stance !== "stand" && this.fits(STAND)) this.stance = "stand";
+    const footing = this.onGround || this.offGround < 0.18;
+    this.sprinting = wantSprint && this.stance === "stand" && footing;
+    let max = this.stance === "prone" ? 1.05 : this.stance === "crouch" ? 2.1 : this.sprinting ? 6.4 : 4.1;
+    if (this.stance === "stand" && !this.sprinting && fx !== 0 && fz === 0) max *= 0.92;
     max *= this.moveScale;
     if (fz > 0) max *= 0.8;
 
-    const accel = this.onGround ? 46 : 9;
-    const friction = this.onGround ? (moving ? 7 : 11) : 0.2;
+    const accel = footing ? 46 : 9;
+    const friction = footing ? (moving ? 7 : 11) : 0.2;
     const hv = Math.hypot(this.vel.x, this.vel.z);
     if (hv > 0) {
       const drop = Math.max(0, hv - hv * friction * dt - (this.onGround ? 0.6 * dt : 0)) / hv;
@@ -116,11 +138,14 @@ export class PlayerController {
       this.vel.z += wz * add;
     }
 
-    if (this.onGround && inp.hit("Space") && this.stance === "stand") {
+    if (footing && inp.hit("Space") && this.stance === "stand" && this.vel.y <= 0.5) {
       this.vel.y = 5.2;
       this.onGround = false;
-    } else if (inp.hit("Space") && this.stance === "crouch" && this.canStand()) {
+      this.offGround = 1;
+    } else if (inp.hit("Space") && this.stance === "crouch" && this.fits(STAND)) {
       this.stance = "stand";
+    } else if (inp.hit("Space") && this.stance === "prone" && this.fits(CROUCH)) {
+      this.stance = "crouch";
     }
     this.vel.y -= GRAVITY * dt;
     if (this.onGround && this.vel.y < 0) this.vel.y = Math.max(this.vel.y, -2);
@@ -168,6 +193,7 @@ export class PlayerController {
       }
     }
     this.airTime = grounded ? 0 : this.airTime + dt;
+    this.offGround = grounded ? 0 : this.offGround + dt;
     this.onGround = grounded;
     if (this.pos.y < -30) this.pos.y = 5;
 
@@ -182,7 +208,7 @@ export class PlayerController {
     if (this.onGround && this.speed > 0.8) {
       this.stride += this.speed * dt;
       this.stepAcc += this.speed * dt;
-      const stepLen = this.sprinting ? 2.1 : this.stance === "crouch" ? 1.1 : 1.55;
+      const stepLen = this.sprinting ? 2.1 : this.stance === "prone" ? 0.75 : this.stance === "crouch" ? 1.1 : 1.55;
       if (this.stepAcc > stepLen) {
         this.stepAcc = 0;
         const f = this.world.floor(this.pos.x, this.pos.z, this.pos.y + 0.5, 1.5);
@@ -192,8 +218,9 @@ export class PlayerController {
     }
   }
 
-  private canStand(): boolean {
-    return !this.world.sphereBlocked(new THREE.Vector3(this.pos.x, this.pos.y + STAND - RADIUS, this.pos.z), RADIUS * 0.9);
+  /** Is there headroom to rise to a body of this height? */
+  private fits(height: number): boolean {
+    return !this.world.sphereBlocked(new THREE.Vector3(this.pos.x, this.pos.y + height - RADIUS, this.pos.z), RADIUS * 0.9);
   }
 
   /** World-space eye position including lean. */

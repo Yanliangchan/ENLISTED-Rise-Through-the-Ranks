@@ -33,7 +33,7 @@ Each is modelled at true scale from its real layout.
 
 ## Controls
 
-`WASD` move · mouse look · `LMB` fire · `RMB` aim · `Shift` sprint · `C` crouch ·
+`WASD` move · mouse look · `LMB` fire · `RMB` aim · `Shift` sprint · `C` crouch · `Z` prone ·
 `Space` jump · `Q`/`E` lean · `R` reload · `V` fire selector · `G` grenade ·
 `F` interact · `Esc` pause
 

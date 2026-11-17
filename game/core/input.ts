@@ -14,12 +14,15 @@ export class Input {
       if (!this.locked) return;
       if (!e.repeat) this.pressed.add(e.code);
       this.down.add(e.code);
-      if (e.code === "Tab" || e.code === "Space" || e.code.startsWith("Arrow") || (e.ctrlKey && e.code !== "KeyR")) e.preventDefault();
+      if (e.code === "Tab" || e.code === "Space" || e.code === "KeyZ" || e.code.startsWith("Arrow") || (e.ctrlKey && e.code !== "KeyR")) e.preventDefault();
     });
     window.addEventListener("keyup", (e) => this.down.delete(e.code));
     window.addEventListener("blur", () => this.down.clear());
     document.addEventListener("mousemove", (e) => {
       if (!this.locked) return;
+      // Browsers occasionally report one enormous delta (a warp when the lock engages or the
+      // window regains focus); letting it through spins the view.
+      if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
       this.mouseDX += e.movementX;
       this.mouseDY += e.movementY;
     });
@@ -44,7 +47,16 @@ export class Input {
   onLockChange?: (locked: boolean) => void;
 
   lock(): void {
-    if (!this.locked) void this.canvas.requestPointerLock()?.catch?.(() => undefined);
+    if (this.locked) return;
+    // Raw mouse input (no OS pointer acceleration) where the browser offers it: aim tracks the hand 1:1.
+    type Lock = (o?: { unadjustedMovement?: boolean }) => Promise<void> | void;
+    const req = this.canvas.requestPointerLock.bind(this.canvas) as Lock;
+    try {
+      const p = req({ unadjustedMovement: true });
+      if (p && typeof p.catch === "function") p.catch(() => void (req() as Promise<void> | undefined)?.catch?.(() => undefined));
+    } catch {
+      void (req() as Promise<void> | undefined)?.catch?.(() => undefined);
+    }
   }
 
   unlock(): void {

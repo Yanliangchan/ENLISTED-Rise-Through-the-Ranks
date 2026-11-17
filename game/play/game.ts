@@ -182,6 +182,7 @@ export class Game implements MissionHost {
     this.vfx.onShellLand = (p) => this.audio.shellDrop(p.x, p.y, p.z);
     this.weapon.onShot = (o) => this.soldiers.noise(o, this.weapon.def.noise);
     this.weapon.onRocket = (o, d) => this.launchRocket(o, d);
+    this.weapon.onSafeTrigger = () => this.hud.banner("WEAPONS SAFE", "Leave the patrol base to fire");
     try {
       const saved = localStorage.getItem("enlisted.primary");
       if (saved) this.weapon.setPrimary(saved);
@@ -582,8 +583,8 @@ export class Game implements MissionHost {
     h.objective(m.op, m.title, m.detail);
     h.timer(m.timer);
     h.health(this.hp);
-    h.setStance(p.stance === "crouch", p.sprinting);
-    h.weapon(this.weapon.def.name, this.weapon.ammo, this.weapon.reserve, this.weapon.auto, this.weapon.reloading, this.nades, this.weapon.def.magSize);
+    h.setStance(p.stance, p.sprinting);
+    h.weapon(this.weapon.def.name, this.weapon.ammo, this.weapon.reserve, this.inCamp ? "SAFE" : this.weapon.auto ? "AUTO" : "SEMI", this.weapon.reloading, this.nades, this.weapon.def.magSize);
     h.crosshair(this.weapon.spread, cam.fov, this.weapon.ads < 0.5 && !p.sprinting && !this.weapon.reloading);
     h.slots(this.weapon.slotNames, this.weapon.slotIndex);
     h.scope(this.weapon.scoped);

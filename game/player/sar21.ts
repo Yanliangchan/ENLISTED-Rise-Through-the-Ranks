@@ -399,7 +399,7 @@ export function buildSar21(mats: GunMats): ViewWeapon {
   root.add(mesh(tube(0.0235, 0.0235, 0.255, 22, true), P, 0.02, HY, 0));
   root.add(mesh(tube(0.0265, 0.0265, 0.03, 22, true), P, -0.105, HY, 0)); // eyepiece housing
   root.add(mesh(tube(0.0275, 0.0275, 0.014, 22, true), mats.rubber, -0.124, HY, 0)); // rubber eyecup
-  root.add(mesh(new THREE.RingGeometry(0.0175, 0.0275, 24).rotateY(-Math.PI / 2), mats.rubber, -0.131, HY, 0));
+  root.add(mesh(new THREE.RingGeometry(0.0215, 0.0275, 24).rotateY(-Math.PI / 2), mats.rubber, -0.131, HY, 0));
   root.add(mesh(new THREE.RingGeometry(0.019, 0.0255, 24).rotateY(Math.PI / 2), mats.rubber, 0.161, HY, 0));
   root.add(mesh(tube(0.0255, 0.0255, 0.03, 22, true), P, 0.146, HY, 0)); // objective housing
   // Flat top rail with back-up iron sights.
@@ -410,8 +410,12 @@ export function buildSar21(mats: GunMats): ViewWeapon {
   root.add(mesh(profile([[-0.11, 0.044], [-0.062, 0.044], [-0.07, HY - 0.018], [-0.106, HY - 0.018]], 0.03, 0.005), P));
   root.add(mesh(profile([[0.11, 0.044], [0.165, 0.044], [0.158, HY - 0.018], [0.118, HY - 0.018]], 0.03, 0.005), P));
   // Lenses.
-  root.add(mesh(new THREE.CircleGeometry(0.019, 20).rotateY(-Math.PI / 2), mats.lens, -0.118, HY, 0));
-  root.add(mesh(new THREE.CircleGeometry(0.02, 20).rotateY(Math.PI / 2), mats.lens, 0.16, HY, 0));
+  // Lenses: tinted glass from outside, but they must not darken the sight picture, so the
+  // weapon system hides anything named "lens" while aiming.
+  for (const l of [mesh(new THREE.CircleGeometry(0.019, 20).rotateY(-Math.PI / 2), mats.lens, -0.118, HY, 0), mesh(new THREE.CircleGeometry(0.02, 20).rotateY(Math.PI / 2), mats.lens, 0.16, HY, 0)]) {
+    l.name = "lens";
+    root.add(l);
+  }
   // Cocking handle under the carrying handle.
   const bolt = new THREE.Group();
   bolt.add(mesh(rbox(0.05, 0.01, 0.012, 0.002), S, 0.02, 0.052, 0));
@@ -463,7 +467,7 @@ export function buildSar21(mats: GunMats): ViewWeapon {
   return {
     root,
     muzzle: new THREE.Vector3(0.472, 0, 0),
-    sight: new THREE.Vector3(-0.2, HY, 0),
+    sight: new THREE.Vector3(-0.215, HY, 0),
     eject: new THREE.Vector3(-0.19, 0.018, 0.034),
     magazine,
     leftArm,

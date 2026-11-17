@@ -150,19 +150,19 @@ export class Hud {
     this.vit.classList.toggle("low", v < 35);
   }
 
-  setStance(crouch: boolean, sprint: boolean): void {
-    const s = sprint ? "SPRINT" : crouch ? "CROUCHED" : "STANDING";
+  setStance(stance: "stand" | "crouch" | "prone", sprint: boolean): void {
+    const s = sprint ? "SPRINT" : stance === "prone" ? "PRONE" : stance === "crouch" ? "CROUCHED" : "STANDING";
     if (this.set("st", s)) this.stance.textContent = s;
   }
 
-  weapon(name: string, ammo: number, reserve: number, auto: boolean, reloading: boolean, nades: number, magSize: number): void {
+  weapon(name: string, ammo: number, reserve: number, mode: string, reloading: boolean, nades: number, magSize: number): void {
     if (this.set("wn", name)) this.wpn.children[0].textContent = name;
     if (this.set("wa", `${ammo}/${reserve}/${reloading}`)) {
       this.wpn.children[1].innerHTML = reloading ? `<b style="font-size:26px;letter-spacing:.1em">RELOADING</b>` : `<b>${String(ammo).padStart(2, "0")}</b><span>${String(reserve).padStart(3, "0")}</span>`;
       this.wpn.classList.toggle("low", ammo > 0 && ammo <= magSize * 0.27);
       this.wpn.classList.toggle("empty", ammo === 0);
     }
-    if (this.set("wf", auto)) this.wpn.querySelector(".fm")!.innerHTML = `<em>${auto ? "AUTO" : "SEMI"}</em>`;
+    if (this.set("wf", mode)) this.wpn.querySelector(".fm")!.innerHTML = mode === "SAFE" ? `<em style="color:var(--amber)">WEAPONS SAFE</em>` : `<em>${mode}</em>`;
     if (this.set("wg", nades)) {
       let p = "";
       for (let i = 0; i < 3; i++) p += `<i class="${i < nades ? "" : "off"}"></i>`;

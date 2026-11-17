@@ -78,10 +78,10 @@ export function buildUltimax(mats: GunMats): ViewWeapon {
   root.add(bolt);
 
   // Rear sight: sliding aperture leaf between protective wings.
-  for (const s of [-1, 1]) root.add(mesh(profile([[-0.15, 0.028], [-0.1, 0.028], [-0.105, 0.052], [-0.145, 0.052]], 0.003, 0.0008), S, 0, 0, s * 0.011));
-  root.add(mesh(rbox(0.05, 0.004, 0.02, 0.001), S, -0.125, 0.03, 0));
-  root.add(mesh(new THREE.RingGeometry(0.0022, 0.0075, 14).rotateY(-Math.PI / 2), S, -0.13, 0.044, 0));
-  root.add(mesh(rbox(0.004, 0.012, 0.01, 0.001), S, -0.129, 0.037, 0));
+  for (const s of [-1, 1]) root.add(mesh(profile([[-0.15, 0.028], [-0.1, 0.028], [-0.105, 0.046], [-0.145, 0.046]], 0.002, 0.0006), S, 0, 0, s * 0.0125));
+  root.add(mesh(rbox(0.05, 0.004, 0.024, 0.001), S, -0.125, 0.03, 0));
+  root.add(mesh(new THREE.RingGeometry(0.0034, 0.0062, 18).rotateY(-Math.PI / 2), S, -0.13, 0.044, 0));
+  root.add(mesh(rbox(0.004, 0.008, 0.006, 0.001), S, -0.129, 0.0345, 0));
 
   // Pistol grip, trigger guard, trigger, safety lever (left, behind the trigger).
   root.add(mesh(profile([[-0.036, -0.034], [0.01, -0.034], [-0.004, -0.085], [-0.016, -0.135], [-0.056, -0.132], [-0.048, -0.085]], 0.032, 0.007), P));
@@ -129,7 +129,7 @@ export function buildUltimax(mats: GunMats): ViewWeapon {
   root.add(mesh(rbox(0.03, 0.05, 0.026, 0.004), S, 0.4, -0.004, 0));
   root.add(mesh(tube(0.011, 0.011, 0.014, 12), S, 0.418, -0.022, 0));
   for (const s of [-1, 1]) root.add(mesh(profile([[0.388, 0.018], [0.412, 0.018], [0.408, 0.05], [0.398, 0.054], [0.39, 0.048]], 0.0026, 0.0006), S, 0, 0, s * 0.0085));
-  root.add(mesh(tube(0.0014, 0.0011, 0.03, 6).rotateZ(Math.PI / 2), S, 0.4, 0.033, 0));
+  root.add(mesh(tube(0.0014, 0.0011, 0.026, 6).rotateZ(Math.PI / 2), S, 0.4, 0.031, 0));
 
   // Quick-change barrel, carrying handle folded to the right, flash suppressor.
   root.add(mesh(tube(0.0112, 0.0102, 0.31, 14), S, 0.37, 0, 0));
@@ -158,7 +158,7 @@ export function buildUltimax(mats: GunMats): ViewWeapon {
   const rightArm = arm(mats, 1.0, -1, V(-0.03, -0.092, 0.03), V(0.94, 0.26, -0.1), V(0.1, 0, 1), V(-0.37, -0.25, 0.17));
   const leftArm = arm(mats, 1.0, 1, V(0.286, -0.1, -0.03), V(0.94, 0.3, 0.1), V(0.1, 0, -1), V(0.0, -0.33, -0.3));
   root.add(rightArm, leftArm);
-  return { root, muzzle: V(0.568, 0, 0), sight: V(-0.215, 0.044, 0), eject: V(0.062, 0.004, 0.03), magazine, leftArm, rightArm, bolt };
+  return { root, muzzle: V(0.568, 0, 0), sight: V(-0.3, 0.044, 0), eject: V(0.062, 0.004, 0.03), magazine, leftArm, rightArm, bolt };
 }
 
 // =====================================================================================
@@ -436,13 +436,20 @@ export function buildMatador(mats: GunMats): ViewWeapon {
   // Optical sight on its bracket, up the left side: body, eyecup, objective, rail on top.
   const SYc = 0.088, SZ = -0.062;
   root.add(mesh(profile([[0.0, 0.03], [0.1, 0.03], [0.1, SYc - 0.02], [0.0, SYc - 0.02]], 0.012, 0.002), S, 0, 0, SZ + 0.012));
-  root.add(mesh(rbox(0.13, 0.044, 0.04, 0.006), P, 0.05, SYc, SZ));
-  root.add(mesh(tube(0.017, 0.015, 0.03, 16), R, -0.03, SYc, SZ));
-  root.add(mesh(new THREE.RingGeometry(0.009, 0.017, 16).rotateY(-Math.PI / 2), R, -0.0452, SYc, SZ));
-  root.add(mesh(tube(0.016, 0.016, 0.014, 16), P, 0.12, SYc, SZ));
-  root.add(mesh(new THREE.CircleGeometry(0.014, 16).rotateY(Math.PI / 2), mats.lens, 0.1275, SYc, SZ));
-  root.add(mesh(rbox(0.1, 0.006, 0.021, 0.001), S, 0.05, SYc + 0.025, SZ));
-  rail(root, S, 0.0, 0.1, SYc + 0.028, SZ, "y", 1);
+  // The housing is solid from outside; anything named "lens" is hidden while aiming so the
+  // firer sees the sight picture (eyecup ring and stadia) instead of the back of a box.
+  for (const m of [
+    mesh(rbox(0.13, 0.044, 0.04, 0.006), P, 0.05, SYc, SZ),
+    mesh(tube(0.017, 0.015, 0.03, 16), R, -0.03, SYc, SZ),
+    mesh(tube(0.016, 0.016, 0.014, 16), P, 0.12, SYc, SZ),
+    mesh(new THREE.CircleGeometry(0.014, 16).rotateY(Math.PI / 2), mats.lens, 0.1275, SYc, SZ),
+    mesh(rbox(0.1, 0.006, 0.021, 0.001), S, 0.05, SYc + 0.025, SZ),
+  ]) {
+    m.name = "lens";
+    root.add(m);
+  }
+  root.add(mesh(new THREE.RingGeometry(0.0135, 0.018, 20).rotateY(-Math.PI / 2), R, -0.0452, SYc, SZ));
+
   // Stencilled data panel.
   const label = canvasTex(256, 96, (c) => {
     c.fillStyle = "#5a6340";
