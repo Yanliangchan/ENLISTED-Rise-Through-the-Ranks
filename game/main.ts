@@ -9,8 +9,9 @@ const ui = document.getElementById("ui") as HTMLElement;
 
 // Let the loading screen paint before the (synchronous) world build.
 requestAnimationFrame(() =>
-  setTimeout(() => {
+  setTimeout(async () => {
     const game = new Game(canvas, ui, (params.get("q") as Quality) ?? undefined);
+    await game.warmUp();
     const w = window as unknown as Record<string, unknown>;
     w.__game = game;
     w.__THREE = THREE;

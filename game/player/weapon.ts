@@ -356,6 +356,11 @@ export class WeaponSystem {
     this.shotsHit = 0;
   }
 
+  /** Show every carried and stowed weapon at once (shader warm-up only). */
+  showAll(on: boolean): void {
+    for (const c of this.all.values()) c.gun.root.visible = on ? true : c === this.cur;
+  }
+
   setVisible(v: boolean): void {
     this.rig.visible = v;
   }

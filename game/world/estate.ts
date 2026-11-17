@@ -151,7 +151,7 @@ export function buildEstate(engine: Engine, lib: MatLib): Estate {
   // =====================================================================================
   // Districts
   // =====================================================================================
-  ctx.lib.add("facade", new THREE.MeshStandardMaterial({ map: B.facadeTexture(), vertexColors: true, roughness: 0.9 }), 1, Surf.Plaster, "none", { macro: 0.4 });
+  ctx.lib.add("facade", new THREE.MeshStandardMaterial({ map: B.facadeTexture(), vertexColors: true, roughness: 0.9 }), 1, Surf.Plaster, "none", { macro: 0.4, castShadow: false });
   const veg = new Vegetation(ctx);
   const d = ctx.builder("dressing");
   const v = ctx.builder("vehicles");

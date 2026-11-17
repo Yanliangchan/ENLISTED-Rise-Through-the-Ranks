@@ -235,19 +235,43 @@ export class Vegetation {
 
   /** Emit the leaf mesh. Call once, after all planting. */
   finish(): void {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(this.pos, 3));
-    g.setAttribute("normal", new THREE.Float32BufferAttribute(this.nrm, 3));
-    g.setAttribute("uv", new THREE.Float32BufferAttribute(this.uv, 2));
-    g.setAttribute("color", new THREE.Float32BufferAttribute(this.col, 3));
-    g.setAttribute("aWind", new THREE.Float32BufferAttribute(this.wind, 1));
-    g.setIndex(this.idx);
     const mat = new THREE.MeshStandardMaterial({ map: leafAtlas(), alphaTest: 0.42, side: THREE.DoubleSide, vertexColors: true, roughness: 0.82, metalness: 0 });
     this.ctx.engine.lit(mat, { wind: true, macro: 0.5 });
-    const mesh = new THREE.Mesh(g, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.name = "foliage";
-    this.ctx.root.add(mesh);
+    // Cards are grouped by 64 m cell so trees out of view (and out of a shadow cascade) cost nothing.
+    const cells = new Map<number, number[]>();
+    for (let q = 0; q < this.pos.length / 12; q++) {
+      const id = (Math.floor(this.pos[q * 12] / 64) + 512) * 1024 + Math.floor(this.pos[q * 12 + 2] / 64) + 512;
+      let c = cells.get(id);
+      if (!c) cells.set(id, (c = []));
+      c.push(q);
+    }
+    for (const quads of cells.values()) {
+      const n = quads.length;
+      const pos = new Float32Array(n * 12), nrm = new Float32Array(n * 12), col = new Float32Array(n * 12), uv = new Float32Array(n * 8), wind = new Float32Array(n * 4);
+      const idx = new Uint32Array(n * 6);
+      quads.forEach((q, k) => {
+        for (let j = 0; j < 12; j++) {
+          pos[k * 12 + j] = this.pos[q * 12 + j];
+          nrm[k * 12 + j] = this.nrm[q * 12 + j];
+          col[k * 12 + j] = this.col[q * 12 + j];
+        }
+        for (let j = 0; j < 8; j++) uv[k * 8 + j] = this.uv[q * 8 + j];
+        for (let j = 0; j < 4; j++) wind[k * 4 + j] = this.wind[q * 4 + j];
+        idx.set([k * 4, k * 4 + 1, k * 4 + 2, k * 4, k * 4 + 2, k * 4 + 3], k * 6);
+      });
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      g.setAttribute("normal", new THREE.BufferAttribute(nrm, 3));
+      g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+      g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      g.setAttribute("aWind", new THREE.BufferAttribute(wind, 1));
+      g.setIndex(new THREE.BufferAttribute(idx, 1));
+      g.computeBoundingSphere();
+      const mesh = new THREE.Mesh(g, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.name = "foliage";
+      this.ctx.root.add(mesh);
+    }
   }
 }

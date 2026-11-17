@@ -19,10 +19,10 @@ interface QualityPreset {
 }
 
 const QUALITY: Record<Quality, QualityPreset> = {
-  low: { pixelRatio: 0.8, cascades: 2, shadowSize: 1024, shadowFar: 90, ao: false, aoHalfRes: true, smaa: false, bloom: true },
-  medium: { pixelRatio: 1, cascades: 3, shadowSize: 1536, shadowFar: 130, ao: true, aoHalfRes: true, smaa: true, bloom: true },
-  high: { pixelRatio: 1.25, cascades: 3, shadowSize: 2048, shadowFar: 170, ao: true, aoHalfRes: true, smaa: true, bloom: true },
-  ultra: { pixelRatio: 1.5, cascades: 4, shadowSize: 2048, shadowFar: 220, ao: true, aoHalfRes: false, smaa: true, bloom: true },
+  low: { pixelRatio: 0.75, cascades: 2, shadowSize: 1024, shadowFar: 60, ao: false, aoHalfRes: true, smaa: false, bloom: false },
+  medium: { pixelRatio: 0.9, cascades: 2, shadowSize: 1536, shadowFar: 95, ao: false, aoHalfRes: true, smaa: true, bloom: true },
+  high: { pixelRatio: 1, cascades: 3, shadowSize: 2048, shadowFar: 140, ao: true, aoHalfRes: true, smaa: true, bloom: true },
+  ultra: { pixelRatio: 1.25, cascades: 4, shadowSize: 2048, shadowFar: 200, ao: true, aoHalfRes: false, smaa: true, bloom: true },
 };
 
 /**
@@ -115,7 +115,7 @@ export class Engine {
     this.quality = quality;
     const q = QUALITY[quality];
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance", stencil: false, depth: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * q.pixelRatio);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5) * q.pixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NoToneMapping;
@@ -177,8 +177,8 @@ export class Engine {
       ao.configuration.aoRadius = 1.6;
       ao.configuration.distanceFalloff = 1.2;
       ao.configuration.intensity = 3.2;
-      ao.configuration.aoSamples = 12;
-      ao.configuration.denoiseSamples = 6;
+      ao.configuration.aoSamples = 8;
+      ao.configuration.denoiseSamples = 4;
       ao.configuration.denoiseRadius = 10;
       ao.configuration.halfRes = q.aoHalfRes;
       ao.configuration.depthAwareUpsampling = true;
@@ -315,13 +315,73 @@ uniform sampler2D uMacro;`
     return mat;
   }
 
+  /** Resolution multiplier chosen by the frame-rate governor (0.55..1). */
+  scale = 1;
+  /** Called when the governor has had to drop a whole quality tier. */
+  onAutoQuality?: (q: Quality) => void;
+  private gAcc = 0;
+  private gN = 0;
+  private gLast = 0;
+  private gSlow = 0;
+  private gFast = 0;
+  private gCeil = 1;
+  private gCeilT = 0;
+  private gWarm = 0;
+
+  private applyRatio(): void {
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5) * QUALITY[this.quality].pixelRatio * this.scale);
+  }
+
   setQuality(qual: Quality): void {
     this.quality = qual;
-    const q = QUALITY[qual];
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * q.pixelRatio);
+    this.scale = 1;
+    this.gCeil = 1;
+    this.gWarm = 0;
+    this.applyRatio();
     this.composer.dispose();
     this.buildComposer();
     this.resize();
+  }
+
+  /**
+   * Frame-rate governor. Watches real frame times and trades resolution for smoothness: below
+   * ~48 fps it renders fewer pixels, and gives them back when there is headroom. If the lowest
+   * resolution still cannot hold up, it steps the whole quality tier down once per stall.
+   */
+  private govern(): void {
+    const now = performance.now();
+    const ms = now - this.gLast;
+    this.gLast = now;
+    if (ms > 250 || ms <= 0) return; // tab was hidden, or first frame
+    if (++this.gWarm < 90) return; // let shaders compile and textures upload first
+    this.gAcc += ms;
+    if (++this.gN < 40) return;
+    const avg = this.gAcc / this.gN;
+    this.gAcc = this.gN = 0;
+    if (now > this.gCeilT) this.gCeil = 1;
+    if (avg > 21) {
+      this.gFast = 0;
+      if (this.scale > 0.56) {
+        this.gCeil = this.scale - 0.02;
+        this.gCeilT = now + 30000;
+        this.scale = Math.max(0.55, this.scale * (avg > 30 ? 0.78 : 0.88));
+        this.applyRatio();
+        this.resize();
+      } else if (++this.gSlow >= 3 && this.quality !== "low") {
+        this.gSlow = 0;
+        const next: Quality = this.quality === "ultra" ? "high" : this.quality === "high" ? "medium" : "low";
+        this.setQuality(next);
+        this.onAutoQuality?.(next);
+      }
+    } else {
+      this.gSlow = 0;
+      if (avg < 17.4 && this.scale < this.gCeil - 0.01 && ++this.gFast >= 4) {
+        this.gFast = 0;
+        this.scale = Math.min(this.gCeil, 1, this.scale * 1.07);
+        this.applyRatio();
+        this.resize();
+      }
+    }
   }
 
   resize(): void {
@@ -342,6 +402,7 @@ uniform sampler2D uMacro;`
   }
 
   render(dt: number): void {
+    this.govern();
     this.time += dt;
     shared.uTime.value = this.time;
     this.atmosphere.update(this.time);

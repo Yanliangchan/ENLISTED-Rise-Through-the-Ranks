@@ -10,7 +10,7 @@ const BAG = [0xb7a888, 0xa99a7a, 0xc2b494, 0x9c8f72];
 /** A sandbag wall along local X, `len` metres, `rows` courses high, stretcher bond. */
 export function sandbags(b: Builder, r: Rand, x: number, z: number, yaw: number, len: number, rows = 3, y = 0): void {
   const bw = 0.62, bh = 0.2, bd = 0.34;
-  const geo = new THREE.SphereGeometry(0.5, 8, 6);
+  const geo = new THREE.SphereGeometry(0.5, 6, 4);
   b.at(x, y, z, yaw, () => {
     const n = Math.max(1, Math.round(len / bw));
     for (let row = 0; row < rows; row++) {
@@ -155,9 +155,9 @@ export function tyreStack(b: Builder, x: number, z: number, n: number, y = 0): v
 /** Concertina wire coil along local X: slows nothing, but reads from across the street. */
 export function wire(b: Builder, x: number, z: number, yaw: number, len: number): void {
   b.at(x, 0, z, yaw, () => {
-    const loops = Math.round(len / 0.22);
+    const loops = Math.round(len / 0.3);
     for (let i = 0; i < loops; i++) {
-      const m = new THREE.Matrix4().makeRotationY(Math.PI / 2 + (i % 2 ? 0.25 : -0.25)).setPosition(-len / 2 + i * 0.22, 0.46, 0);
+      const m = new THREE.Matrix4().makeRotationY(Math.PI / 2 + (i % 2 ? 0.25 : -0.25)).setPosition(-len / 2 + i * 0.3, 0.46, 0);
       b.geo("trim", WIRE, m, { tint: 0x8c9092, collide: "none" });
     }
     for (let i = 0; i <= len; i += 2.4) {
@@ -166,7 +166,7 @@ export function wire(b: Builder, x: number, z: number, yaw: number, len: number)
     b.collisionBox(Surf.Metal, "soft", 0, 0.45, 0, len, 0.9, 0.7);
   });
 }
-const WIRE = new THREE.TorusGeometry(0.44, 0.008, 3, 14);
+const WIRE = new THREE.TorusGeometry(0.44, 0.008, 3, 9);
 
 // ---- vehicles --------------------------------------------------------------------
 

@@ -411,15 +411,15 @@ export class Builder {
   build(): THREE.Group {
     const group = new THREE.Group();
     group.name = this.name;
-    for (const [key, b] of this.buckets) {
-      if (b.count === 0) continue;
+    const CELL = 96;
+    const emit = (key: string, pos: number[], nrm: number[], uv: number[], col: number[], idx: number[]): void => {
       const def = this.mats[key];
       const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.Float32BufferAttribute(b.pos, 3));
-      g.setAttribute("normal", new THREE.Float32BufferAttribute(b.nrm, 3));
-      g.setAttribute("uv", new THREE.Float32BufferAttribute(b.uv, 2));
-      g.setAttribute("color", new THREE.Float32BufferAttribute(b.col, 3));
-      g.setIndex(b.count > 65535 ? new THREE.Uint32BufferAttribute(b.idx, 1) : new THREE.Uint16BufferAttribute(b.idx, 1));
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+      g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+      g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+      g.setIndex(pos.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(idx, 1) : new THREE.Uint16BufferAttribute(idx, 1));
       g.computeBoundingSphere();
       g.computeBoundingBox();
       const mesh = new THREE.Mesh(g, def.material);
@@ -428,6 +428,46 @@ export class Builder {
       mesh.receiveShadow = def.receiveShadow ?? true;
       mesh.matrixAutoUpdate = false;
       group.add(mesh);
+    };
+    for (const [key, b] of this.buckets) {
+      if (b.count === 0) continue;
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (let i = 0; i < b.pos.length; i += 3) {
+        const x = b.pos[i], z = b.pos[i + 2];
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (z < z0) z0 = z;
+        if (z > z1) z1 = z;
+      }
+      // Small buckets stay whole: splitting them would only add draw calls.
+      if (b.idx.length < 9000 || (x1 - x0 < CELL * 1.4 && z1 - z0 < CELL * 1.4)) {
+        emit(key, b.pos, b.nrm, b.uv, b.col, b.idx);
+        continue;
+      }
+      // A map-wide bucket: split by grid cell (triangle centroid), so only what is in view — or in a
+      // shadow cascade — gets drawn instead of the whole estate every pass.
+      const cells = new Map<number, { pos: number[]; nrm: number[]; uv: number[]; col: number[]; idx: number[]; remap: Map<number, number> }>();
+      for (let t = 0; t < b.idx.length; t += 3) {
+        const i0 = b.idx[t], i1 = b.idx[t + 1], i2 = b.idx[t + 2];
+        const cx = Math.floor((b.pos[i0 * 3] + b.pos[i1 * 3] + b.pos[i2 * 3]) / 3 / CELL);
+        const cz = Math.floor((b.pos[i0 * 3 + 2] + b.pos[i1 * 3 + 2] + b.pos[i2 * 3 + 2]) / 3 / CELL);
+        const id = (cx + 512) * 1024 + (cz + 512);
+        let c = cells.get(id);
+        if (!c) cells.set(id, (c = { pos: [], nrm: [], uv: [], col: [], idx: [], remap: new Map() }));
+        for (const i of [i0, i1, i2]) {
+          let n = c.remap.get(i);
+          if (n === undefined) {
+            n = c.pos.length / 3;
+            c.remap.set(i, n);
+            c.pos.push(b.pos[i * 3], b.pos[i * 3 + 1], b.pos[i * 3 + 2]);
+            c.nrm.push(b.nrm[i * 3], b.nrm[i * 3 + 1], b.nrm[i * 3 + 2]);
+            c.uv.push(b.uv[i * 2], b.uv[i * 2 + 1]);
+            c.col.push(b.col[i * 3], b.col[i * 3 + 1], b.col[i * 3 + 2]);
+          }
+          c.idx.push(n);
+        }
+      }
+      for (const c of cells.values()) emit(key, c.pos, c.nrm, c.uv, c.col, c.idx);
     }
     this.buckets.clear();
     return group;

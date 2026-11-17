@@ -112,8 +112,8 @@ export class Game implements MissionHost {
     this.nav.block(CAMP[0] - 3, CAMP[1] - 3, CAMP[2] + 3, CAMP[3] + 3);
     this.fires = estate.fires;
     this.anim = estate.anim;
-    for (let i = 0; i < 3; i++) {
-      const l = new THREE.PointLight(0xff8a3a, 0, 18, 1.6);
+    for (let i = 0; i < 1; i++) {
+      const l = new THREE.PointLight(0xff8a3a, 0, 20, 1.6);
       this.engine.scene.add(l);
       this.fireLights.push(l);
     }
@@ -165,6 +165,15 @@ export class Game implements MissionHost {
     });
 
     // ---- wiring -------------------------------------------------------------
+    this.engine.onAutoQuality = (q) => {
+      this.settings.quality = q;
+      try {
+        localStorage.setItem("enlisted.settings3", JSON.stringify(this.settings));
+      } catch {
+        /* ignore */
+      }
+      if (this.state === "playing") this.hud.feed(`Graphics set to ${q} to hold the frame rate`);
+    };
     this.player.onFootstep = (surf, sprint) => this.audio.footstep(surf, sprint);
     this.player.onLand = (impact) => {
       this.audio.land(impact);
@@ -602,6 +611,31 @@ export class Game implements MissionHost {
     this.hud.fade.style.opacity = String(1 - edge);
   }
 
+  /**
+   * Compile every shader the game will use before the loading screen lifts, so neither the menu
+   * nor the first firefight stalls on a program link. Needs each kind of thing visible once.
+   */
+  async warmUp(): Promise<void> {
+    const temp = [0, 1, 2].map((i) => {
+      const orig = Math.random;
+      Math.random = () => (i + 0.5) / 3;
+      const s = this.soldiers.spawn(CAMP[0] - 6 + i, 137, {});
+      Math.random = orig;
+      return s;
+    });
+    this.weapon.setVisible(true);
+    this.weapon.showAll(true);
+    try {
+      await this.engine.renderer.compileAsync(this.engine.scene, this.engine.camera);
+    } catch {
+      /* fall back to compiling on first use */
+    }
+    this.weapon.showAll(false);
+    this.weapon.setVisible(false);
+    void temp;
+    this.soldiers.clear();
+  }
+
   /** Advance the simulation without rendering (automated play tests). */
   simulate(dt: number): void {
     if (this.state === "playing") this.play(dt);
@@ -667,7 +701,7 @@ export class Game implements MissionHost {
         const t = this.worldT * 9 + i * 17;
         const flick = 0.72 + 0.16 * Math.sin(t) + 0.12 * Math.sin(t * 2.7 + 1.3) + (Math.random() - 0.5) * 0.12;
         l.position.set(n[1].pos.x, n[1].pos.y + 0.6, n[1].pos.z);
-        l.intensity = 34 * n[1].size * flick;
+        l.intensity = 44 * n[1].size * flick;
       });
       for (const st of this.sentries) {
         st.pose.time = (st.pose.time ?? 0) + dt;

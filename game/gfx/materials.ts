@@ -61,18 +61,18 @@ export function buildMaterials(engine: Engine): MatLib {
   add("plastic", std(tex.plastic), 1, Surf.Plastic, "solid", { macro: 0.15 });
   add("rubber", std(tex.rubber), 0.5, Surf.Rubber, "solid", {});
   // Thin dressing that should never stop a player or a bullet.
-  add("trim", std(tex.paintmetal), 1.4, Surf.Metal, "none", { macro: 0.2 });
-  add("rail", std(tex.paintmetal), 1.4, Surf.Metal, "soft", { macro: 0.2 });
+  add("trim", std(tex.paintmetal), 1.4, Surf.Metal, "none", { macro: 0.2, castShadow: false });
+  add("rail", std(tex.paintmetal), 1.4, Surf.Metal, "soft", { macro: 0.2, castShadow: false });
   add(
     "glass",
     std(null, { color: 0xffffff, roughness: 0.06, metalness: 0.0, envMapIntensity: 2.2, vertexColors: true }),
     1,
     Surf.Glass,
     "solid",
-    {}
+    { castShadow: false }
   );
   add("carpaint", std(null, { roughness: 0.28, metalness: 0.35, envMapIntensity: 1.3 }), 1, Surf.Metal, "solid", { macro: 0.25 });
-  add("emissiveoff", std(null, { roughness: 0.15, metalness: 0.1, envMapIntensity: 1.6 }), 1, Surf.Glass, "none", {});
+  add("emissiveoff", std(null, { roughness: 0.15, metalness: 0.1, envMapIntensity: 1.6 }), 1, Surf.Glass, "none", { castShadow: false });
   add("emissive", new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xfff2d8, emissiveIntensity: 2.2, vertexColors: false }), 1, Surf.Glass, "none", { noVis: true, castShadow: false });
   return { mats, tex, add };
 }

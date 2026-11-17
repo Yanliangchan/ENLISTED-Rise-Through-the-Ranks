@@ -360,7 +360,7 @@ export class Vfx {
     this.shellMesh.castShadow = false;
     engine.scene.add(this.shellMesh);
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       const light = new THREE.PointLight(0xffc880, 0, 18, 2);
       engine.scene.add(light);
       this.lights.push({ light, life: 0, max: 1, power: 0 });

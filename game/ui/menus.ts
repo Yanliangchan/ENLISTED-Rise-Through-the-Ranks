@@ -8,11 +8,11 @@ export interface Settings {
   fov: number;
 }
 
-export const DEFAULT_SETTINGS: Settings = { sensitivity: 1, volume: 0.8, quality: "high", fov: 74 };
+export const DEFAULT_SETTINGS: Settings = { sensitivity: 1, volume: 0.8, quality: "medium", fov: 74 };
 
 export function loadSettings(): Settings {
   try {
-    return { ...DEFAULT_SETTINGS, ...(JSON.parse(localStorage.getItem("enlisted.settings2") ?? "{}") as Partial<Settings>) };
+    return { ...DEFAULT_SETTINGS, ...(JSON.parse(localStorage.getItem("enlisted.settings3") ?? "{}") as Partial<Settings>) };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -183,7 +183,7 @@ export class Menus {
 
   private commit(): void {
     try {
-      localStorage.setItem("enlisted.settings2", JSON.stringify(this.settings));
+      localStorage.setItem("enlisted.settings3", JSON.stringify(this.settings));
     } catch {
       /* ignore */
     }
