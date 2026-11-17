@@ -225,8 +225,8 @@ export function buildP30(mats: GunMats): ViewWeapon {
   root.add(magazine);
 
   // Two-handed hold: the right hand high on the backstrap, the left wrapped over it.
-  const rightArm = arm(mats, 1.05, -1, V(-0.058, -0.078, 0.024), V(0.9, 0.36, -0.14), V(0.1, 0, 1), V(-0.4, -0.2, 0.15));
-  const leftArm = arm(mats, 1.05, 1, V(-0.044, -0.088, -0.03), V(0.86, 0.42, 0.22), V(0.15, -0.1, -1), V(-0.36, -0.26, -0.24));
+  const rightArm = arm(mats, 1.05, -1, V(-0.062, -0.09, 0.024), V(0.95, 0.22, -0.14), V(0.1, 0, 1), V(-0.42, -0.25, 0.15));
+  const leftArm = arm(mats, 1.05, 1, V(-0.05, -0.102, -0.03), V(0.93, 0.25, 0.22), V(0.15, -0.1, -1), V(-0.38, -0.3, -0.24));
   root.add(rightArm, leftArm);
   return { root, muzzle: V(0.108, 0, 0), sight: V(-0.36, 0.0196, 0), eject: V(0.012, 0.012, 0.014), magazine, leftArm, rightArm, bolt };
 }
@@ -487,4 +487,135 @@ export function buildMatador(mats: GunMats): ViewWeapon {
   const leftArm = arm(mats, 1.0, 1, V(0.21, -0.14, -0.03), V(0.94, 0.3, 0.1), V(0.1, 0, -1), V(-0.05, -0.36, -0.28));
   root.add(rightArm, leftArm);
   return { root, muzzle: V(X1 + 0.08, 0, 0), sight: V(-0.1, SYc, SZ), eject: V(X0 - 0.05, 0, 0), magazine, leftArm, rightArm, bolt };
+}
+
+// =====================================================================================
+// ST Engineering BR18 — 5.56 mm bullpup (645 mm overall, 368 mm barrel)
+// =====================================================================================
+
+/**
+ * The SAF's next-generation bullpup. Compact and angular, in reinforced polymer: a
+ * full-length top rail, side and bottom rails at the fore-end, forward ejection through a
+ * deflector on the right just ahead of the grip, the charging handle above the trigger
+ * guard, a large flip-out trigger guard for gloved hands and a carbon-fibre cheek piece
+ * that slides open over the chamber. Issued here with a red-dot sight and a 3× magnifier
+ * flipped aside on its mount.
+ */
+export function buildBR18(mats: GunMats): ViewWeapon {
+  const root = new THREE.Group();
+  const P = mats.polymer, S = mats.steel, R = mats.rubber;
+  const TOP = 0.04;
+
+  // Main body: one angular shell from butt to fore-end.
+  // Lower shell: stock, magazine housing and fore-end, slimming toward the muzzle.
+  root.add(mesh(profile([[-0.37, -0.064], [-0.17, -0.07], [-0.07, -0.05], [0.02, -0.046], [0.08, -0.034], [0.196, -0.032], [0.208, -0.018], [0.208, 0.002], [-0.37, 0.002]], 0.052, 0.006), P));
+  // Upper receiver: a slightly wider, lighter grey shell carrying the top rail, chamfered at the nose.
+  root.add(mesh(profile([[-0.37, 0.0], [0.212, 0.0], [0.212, 0.014], [0.19, TOP - 0.004], [-0.33, TOP - 0.004], [-0.37, 0.022]], 0.056, 0.005), mats.park));
+  // Parting line between the two shells, and recessed grip panels on the stock.
+  for (const s of [-1, 1]) {
+    root.add(mesh(rbox(0.56, 0.0025, 0.002, 0.0006), R, -0.08, 0.001, s * 0.0281));
+    root.add(mesh(profile([[-0.33, -0.05], [-0.2, -0.054], [-0.16, -0.012], [-0.33, -0.012]], 0.002, 0.0008), R, 0, 0, s * 0.0262));
+  }
+  // Fore-end vents.
+  for (let i = 0; i < 5; i++) for (const s of [-1, 1]) root.add(mesh(rbox(0.014, 0.012, 0.002, 0.0006), R, 0.105 + i * 0.02, -0.016, s * 0.0262));
+  root.add(mesh(profile([[-0.384, -0.068], [-0.368, -0.07], [-0.368, 0.024], [-0.384, 0.02]], 0.05, 0.004), R)); // butt pad
+  // Carbon-fibre cheek piece (left), with its sliding seam.
+  root.add(mesh(profile([[-0.33, -0.012], [-0.14, -0.012], [-0.13, 0.03], [-0.33, 0.03]], 0.003, 0.0008), R, 0, 0, -0.0275));
+  root.add(mesh(rbox(0.004, 0.04, 0.002, 0.0006), S, -0.14, 0.009, -0.0292));
+  // Stock flutes and texture panels.
+  for (let i = 0; i < 4; i++) for (const s of [-1, 1]) root.add(mesh(rbox(0.13, 0.003, 0.002, 0.0006), P, -0.25, -0.03 - i * 0.008, s * 0.0275));
+  // Forward ejection deflector on the right, with the port behind it.
+  root.add(mesh(profile([[-0.08, -0.01], [0.02, -0.01], [0.04, 0.0], [0.04, 0.026], [-0.06, 0.026]], 0.012, 0.003), P, 0, 0, 0.031));
+  root.add(mesh(rbox(0.05, 0.016, 0.003, 0.001), R, -0.12, 0.01, 0.0275));
+  // Gas valve and front of the receiver.
+  root.add(mesh(tube(0.011, 0.011, 0.014, 12).rotateY(Math.PI / 2), S, 0.17, 0.02, -0.028));
+
+  // Rails: full-length top, plus 3, 6 and 9 o'clock at the fore-end.
+  root.add(mesh(rbox(0.5, 0.006, 0.021, 0.001), P, -0.07, TOP, 0));
+  rail(root, P, -0.32, 0.2, TOP + 0.001, 0, "y", 1);
+  rail(root, P, 0.09, 0.2, -0.039, 0, "y", -1);
+  for (const s of [-1, 1] as const) rail(root, P, 0.1, 0.2, 0.0, s * 0.0275, "z", s);
+
+  // Pistol grip with finger groove and texture, flip-out trigger guard, trigger.
+  root.add(mesh(profile([[-0.03, -0.046], [0.012, -0.046], [0.004, -0.07], [0.008, -0.092], [-0.004, -0.13], [-0.044, -0.128], [-0.04, -0.084]], 0.032, 0.007), P));
+  for (let i = 0; i < 6; i++) for (const s of [-1, 1]) root.add(mesh(rbox(0.028, 0.0025, 0.002, 0.0006), P, -0.022 - i * 0.0015, -0.07 - i * 0.009, s * 0.0165));
+  root.add(mesh(profile([[0.012, -0.046], [0.11, -0.04], [0.112, -0.05], [0.098, -0.092], [0.004, -0.13], [-0.002, -0.124], [0.09, -0.086], [0.1, -0.052], [0.016, -0.054]], 0.016, 0.003), P));
+  root.add(mesh(profile([[0.034, -0.046], [0.044, -0.046], [0.04, -0.066], [0.034, -0.074], [0.031, -0.07]], 0.007, 0.0015), S));
+  // Ambidextrous selector behind the grip and the magazine release paddle.
+  for (const s of [-1, 1]) root.add(mesh(rbox(0.016, 0.006, 0.004, 0.001), S, -0.06, -0.026, s * 0.029));
+  root.add(mesh(rbox(0.012, 0.016, 0.042, 0.003), P, -0.045, -0.06, 0));
+  // Charging handle above the trigger guard (left), folded.
+  const bolt = new THREE.Group();
+  bolt.add(mesh(rbox(0.032, 0.012, 0.012, 0.003), S, 0.07, -0.026, -0.033));
+  bolt.add(mesh(rbox(0.012, 0.02, 0.02, 0.004), P, 0.082, -0.026, -0.045));
+  root.add(mesh(rbox(0.11, 0.004, 0.002, 0.0008), R, 0.05, -0.026, -0.0275)); // its slot
+  root.add(bolt);
+
+  // STANAG magazine behind the grip, curved.
+  const magazine = new THREE.Group();
+  magazine.add(mesh(profile([[-0.122, -0.06], [-0.058, -0.06], [-0.062, -0.12], [-0.078, -0.18], [-0.13, -0.17], [-0.124, -0.12]], 0.024, 0.002), S));
+  for (const s of [-1, 1]) magazine.add(mesh(rbox(0.05, 0.004, 0.0015, 0.0005), S, -0.095, -0.1, s * 0.0125));
+  magazine.add(mesh(profile([[-0.132, -0.168], [-0.075, -0.178], [-0.076, -0.188], [-0.134, -0.178]], 0.028, 0.002), P));
+  root.add(magazine);
+  root.add(mesh(rbox(0.074, 0.016, 0.034, 0.003), P, -0.09, -0.056, 0)); // magazine well lip
+
+  // Barrel, gas block, flash hider.
+  root.add(mesh(tube(0.0098, 0.0092, 0.07, 14), S, 0.245, 0.0, 0));
+  root.add(mesh(tube(0.0118, 0.0118, 0.028, 14), S, 0.272, 0, 0));
+  slots(root, R, 0.274, 0.0112, 0.02, 6);
+  root.add(mesh(tube(0.0125, 0.0125, 0.005, 14), S, 0.257, 0, 0));
+  // Folded back-up iron sights at each end of the top rail.
+  root.add(mesh(rbox(0.03, 0.009, 0.02, 0.002), P, 0.18, TOP + 0.008, 0));
+  root.add(mesh(rbox(0.03, 0.009, 0.02, 0.002), P, -0.3, TOP + 0.008, 0));
+
+  // Red-dot sight on the rail: base, hood, window, battery cap, brightness buttons.
+  const RY = TOP + 0.034;
+  root.add(mesh(rbox(0.06, 0.012, 0.03, 0.002), S, -0.02, TOP + 0.01, 0));
+  for (const s of [-1, 1]) root.add(mesh(profile([[-0.05, TOP + 0.012], [0.01, TOP + 0.012], [0.006, RY + 0.024], [-0.045, RY + 0.024]], 0.006, 0.0015), P, 0, 0, s * 0.017));
+  root.add(mesh(rbox(0.055, 0.006, 0.04, 0.002), P, -0.02, RY + 0.025, 0));
+  root.add(mesh(tube(0.008, 0.008, 0.012, 12).rotateY(Math.PI / 2), S, -0.03, TOP + 0.02, 0.022));
+  for (const x of [-0.045, -0.035]) root.add(mesh(rbox(0.006, 0.004, 0.006, 0.001), R, x, RY + 0.029, 0.008));
+  const win = mesh(new THREE.PlaneGeometry(0.03, 0.024).rotateY(-Math.PI / 2), mats.lens, -0.018, RY, 0);
+  win.name = "lens";
+  root.add(win);
+  // 3× magnifier on a flip mount, swung out to the left.
+  // Hinged down and out to the left, below the line of sight.
+  root.add(mesh(rbox(0.03, 0.012, 0.03, 0.002), S, -0.09, TOP + 0.01, 0));
+  root.add(mesh(rbox(0.012, 0.012, 0.03, 0.002), S, -0.09, TOP + 0.014, -0.022));
+  root.add(mesh(tube(0.0145, 0.0145, 0.072, 18), P, -0.09, TOP + 0.008, -0.045));
+  root.add(mesh(tube(0.016, 0.016, 0.012, 18), R, -0.128, TOP + 0.008, -0.045));
+  root.add(mesh(new THREE.CircleGeometry(0.012, 16).rotateY(-Math.PI / 2), mats.lens, -0.1342, TOP + 0.008, -0.045));
+
+  root.add(
+    reticleMeshRed(0.034, -0.02, RY)
+  );
+  const rightArm = arm(mats, 1.0, -1, V(-0.03, -0.098, 0.031), V(0.94, 0.26, -0.1), V(0.1, 0, 1), V(-0.37, -0.24, 0.17));
+  const leftArm = arm(mats, 0.8, 1, V(0.15, -0.062, -0.004), V(0.12, 0.05, 1), V(0, -1, 0.1), V(-0.18, -0.3, -0.26));
+  root.add(rightArm, leftArm);
+  return { root, muzzle: V(0.286, 0, 0), sight: V(-0.3, RY, 0), eject: V(0.04, 0.008, 0.04), magazine, leftArm, rightArm, bolt };
+}
+
+/** Red-dot reticle: a 2 MOA dot inside a thin 65 MOA ring, glowing red. */
+function reticleMeshRed(size: number, x: number, y: number): THREE.Mesh {
+  const tex = canvasTex(128, 128, (c) => {
+    c.clearRect(0, 0, 128, 128);
+    c.strokeStyle = "rgba(255,40,30,0.9)";
+    c.lineWidth = 3;
+    c.beginPath();
+    c.arc(64, 64, 46, 0, Math.PI * 2);
+    c.stroke();
+    const g = c.createRadialGradient(64, 64, 0, 64, 64, 12);
+    g.addColorStop(0, "rgba(255,90,60,1)");
+    g.addColorStop(0.45, "rgba(255,50,30,1)");
+    g.addColorStop(1, "rgba(255,40,30,0)");
+    c.fillStyle = g;
+    c.beginPath();
+    c.arc(64, 64, 12, 0, Math.PI * 2);
+    c.fill();
+  });
+  const m = mesh(new THREE.PlaneGeometry(size, size).rotateY(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false, color: new THREE.Color(2.2, 1.2, 1.1) }), x, y, 0);
+  m.renderOrder = 10;
+  m.name = "reticle";
+  m.visible = false;
+  return m;
 }

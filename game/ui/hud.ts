@@ -9,7 +9,7 @@ const el = (cls: string, parent: HTMLElement, html = ""): HTMLDivElement => {
 const PX_PER_DEG = 3.4;
 
 /** Reticles as SVG on a 200-unit square that spans the scope's field. */
-const RETICLES: Record<"mil" | "sar", string> = {
+const RETICLES: Record<"mil" | "sar" | "dot", string> = {
   // M110: thin duplex crosshair with mil-dots, heavy posts toward the edge.
   mil: (() => {
     let d = "";
@@ -17,6 +17,8 @@ const RETICLES: Record<"mil" | "sar", string> = {
     return `<path d="M0 100H200M100 0V200" stroke="#0a0a0a" stroke-width=".45" fill="none"/><path d="M0 100H58M142 100H200M100 142V200M100 0V58" stroke="#0a0a0a" stroke-width="2.2"/><g fill="#0a0a0a">${d}</g>`;
   })(),
   // SAR 21: open ring, a post rising from below, bars in from the sides, a centre dot.
+  // Red dot seen through the 3× magnifier: ring and dot, both glowing.
+  dot: `<circle cx="100" cy="100" r="34" stroke="#ff3a24" stroke-width="1.1" fill="none" opacity=".85"/><circle cx="100" cy="100" r="1.8" fill="#ff4a30"/><circle cx="100" cy="100" r="4" fill="#ff4a30" opacity=".25"/>`,
   sar: `<circle cx="100" cy="100" r="15" stroke="#0a0a0a" stroke-width="1.2" fill="none"/><path d="M100 118V200M0 100H82M118 100H200" stroke="#0a0a0a" stroke-width="2"/><circle cx="100" cy="100" r="1.4" fill="#c8241a"/>`,
 };
 
@@ -183,12 +185,12 @@ export class Hud {
     this.wpn.querySelector(".slots")!.innerHTML = names.map((n, i) => `<span class="${i === active ? "on" : ""}"><b>${i + 1}</b>${n}</span>`).join("");
   }
 
-  scope(v: { style: "mil" | "sar"; mag: number; breath: number } | null): void {
+  scope(v: { style: "mil" | "sar" | "dot"; mag: number; breath: number } | null): void {
     if (this.set("sc", !!v)) this.scopeEl.classList.toggle("on", !!v);
     if (!v) return;
     if (this.set("ss", v.style)) {
       this.scopeEl.querySelector(".ret")!.innerHTML = RETICLES[v.style];
-      this.scopeEl.classList.toggle("wide", v.style === "sar");
+      this.scopeEl.classList.toggle("wide", v.style !== "mil");
     }
     if (this.set("sm", v.mag)) this.scopeEl.querySelector(".zm")!.textContent = `${v.mag.toFixed(1)}×`;
     const b = Math.round(v.breath * 40);

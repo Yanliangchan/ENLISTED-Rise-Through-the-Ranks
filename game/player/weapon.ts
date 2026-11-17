@@ -7,7 +7,7 @@ import { canvasTex } from "~/gfx/textures";
 import type { CollisionWorld } from "~/world/collision";
 import type { PlayerController } from "./controller";
 import { buildGunMats, buildSar21, type GunMats, type ViewWeapon } from "./sar21";
-import { buildM110, buildMatador, buildP30, buildUltimax } from "./arsenal";
+import { buildBR18, buildM110, buildMatador, buildP30, buildUltimax } from "./arsenal";
 
 export type BodyPart = "head" | "torso" | "limb";
 
@@ -59,7 +59,7 @@ export interface WeaponDef {
   /** How far enemies hear a shot, metres. */
   noise: number;
   /** Reticle drawn as a full-screen sight picture at 2× and above (magnified optics). */
-  scope?: "mil" | "sar";
+  scope?: "mil" | "sar" | "dot";
   /** Fires a rocket instead of a bullet. */
   rocket?: boolean;
   /** Weapon kick scale (viewmodel springs). */
@@ -79,6 +79,15 @@ export const SAR21: WeaponDef = {
   hipSpread: 2.4, adsSpread: 0.12, recoilPitch: 0.0105, recoilYaw: 0.0042, adsTime: 0.2, zooms: [1.5, 3], zoomDefault: 1, scope: "sar", reloadTime: 2.9,
   sound: "rifle", modes: ["auto", "semi"], hip: [0.135, -0.2, -0.36], mobility: 1, noise: 75, kick: 1, boltTravel: 0.02,
   magHand: [-0.3, -0.12, 0], boltHand: [-0.1, 0.13, -0.03], magOut: [-0.03, -0.3, -0.06],
+};
+
+/** The SAF's newer bullpup: shorter, quicker, faster-firing, with a red dot and a 3× magnifier. */
+export const BR18: WeaponDef = {
+  id: "br18", name: "BR18", caliber: "5.56 × 45 mm", slot: "primary", build: buildBR18,
+  magSize: 30, reserve: 180, rpm: 780, damage: 33, falloffStart: 40, falloffEnd: 130, falloffMin: 0.6,
+  hipSpread: 2.1, adsSpread: 0.14, recoilPitch: 0.0098, recoilYaw: 0.0048, adsTime: 0.17, zooms: [1.3, 3], zoomDefault: 0, scope: "dot", reloadTime: 2.6,
+  sound: "rifle", modes: ["auto", "semi"], hip: [0.13, -0.19, -0.34], mobility: 1.04, noise: 75, kick: 0.95, boltTravel: 0,
+  magHand: [-0.29, -0.11, 0], boltHand: [-0.07, 0.02, -0.04], magOut: [-0.03, -0.3, -0.06],
 };
 
 /** Section automatic weapon: a hundred rounds, slow to bring up and slow to feed, steady once it is running. */
@@ -103,7 +112,7 @@ export const P30: WeaponDef = {
   id: "p30", name: "H&K P30", caliber: "9 × 19 mm", slot: "sidearm", build: buildP30,
   magSize: 15, reserve: 60, rpm: 420, damage: 28, falloffStart: 18, falloffEnd: 60, falloffMin: 0.45,
   hipSpread: 1.9, adsSpread: 0.4, recoilPitch: 0.017, recoilYaw: 0.006, adsTime: 0.12, zooms: [1.25], zoomDefault: 0, reloadTime: 1.7,
-  sound: "pistol", modes: ["semi"], hip: [0.1, -0.09, -0.43], mobility: 1.06, noise: 60, kick: 1.3, boltTravel: 0.032,
+  sound: "pistol", modes: ["semi"], hip: [0.125, -0.115, -0.42], mobility: 1.06, noise: 60, kick: 1.3, boltTravel: 0.032,
   magHand: [0.0, -0.1, 0.01], boltHand: [-0.02, 0.085, 0.03], magOut: [-0.03, -0.26, 0],
 };
 
@@ -115,7 +124,7 @@ export const MATADOR: WeaponDef = {
   magHand: [0, 0, 0], boltHand: [0, 0, 0], magOut: [0, 0, 0],
 };
 
-export const PRIMARIES: WeaponDef[] = [SAR21, ULTIMAX, M110];
+export const PRIMARIES: WeaponDef[] = [SAR21, BR18, ULTIMAX, M110];
 
 /** One carried weapon: its model and its own ammunition. */
 interface Carried {
@@ -251,7 +260,7 @@ export class WeaponSystem {
       sh.vertexShader = sh.vertexShader.replace("#include <project_vertex>", "#include <project_vertex>\n  gl_Position.z = (gl_Position.z / gl_Position.w * 0.04 - 0.96) * gl_Position.w;");
     };
     this.flashMat = fm;
-    for (const def of [SAR21, ULTIMAX, M110, P30, MATADOR]) this.all.set(def.id, this.make(def));
+    for (const def of [SAR21, BR18, ULTIMAX, M110, P30, MATADOR]) this.all.set(def.id, this.make(def));
     this.slots = [this.all.get("sar21")!, this.all.get("p30")!, this.all.get("matador")!];
     this.cur = this.slots[0];
     this.cur.gun.root.visible = true;
@@ -312,7 +321,7 @@ export class WeaponSystem {
     return this.cur.def.zooms[this.cur.zoomI];
   }
   /** Sight picture for the HUD while scoped. */
-  get scopeView(): { style: "mil" | "sar"; mag: number; breath: number } | null {
+  get scopeView(): { style: "mil" | "sar" | "dot"; mag: number; breath: number } | null {
     return this.scoped ? { style: this.cur.def.scope!, mag: this.zoom, breath: this.breath } : null;
   }
   /** Magnification actually on screen right now (eases between steps and from the hip). */
