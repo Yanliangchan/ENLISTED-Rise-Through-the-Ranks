@@ -7,7 +7,7 @@ import { canvasTex } from "~/gfx/textures";
 import type { CollisionWorld } from "~/world/collision";
 import type { PlayerController } from "./controller";
 import { buildGunMats, buildSar21, type GunMats, type ViewWeapon } from "./sar21";
-import { buildBR18, buildFNMAG, buildM110, buildMatador, buildP30, buildUltimax } from "./arsenal";
+import { buildBR18, buildColtIAR, buildFNMAG, buildM110, buildMatador, buildMP5K, buildP30, buildP90, buildTRG22, buildUltimax } from "./arsenal";
 import { reloadAnim, samplePose, type ReloadPose, type ReloadStyle } from "./reloads";
 
 export type BodyPart = "head" | "torso" | "limb";
@@ -60,7 +60,7 @@ export interface WeaponDef {
   /** How far enemies hear a shot, metres. */
   noise: number;
   /** Reticle drawn as a full-screen sight picture at 2× and above (magnified optics). */
-  scope?: "mil" | "sar" | "dot";
+  scope?: "mil" | "sar" | "dot" | "acog";
   /** Fires a rocket instead of a bullet. */
   rocket?: boolean;
   /** Weapon kick scale (viewmodel springs). */
@@ -84,6 +84,8 @@ export interface WeaponDef {
   pullLen?: number;
   /** Has a bipod: deploys on the ground when prone, or on cover when aimed over it. */
   bipod?: boolean;
+  /** Bolt-action: the action is worked by hand after every shot, taking this many seconds. */
+  boltCycle?: number;
 }
 
 export const SAR21: WeaponDef = {
@@ -153,7 +155,47 @@ export const FNMAG: WeaponDef = {
   anim: "belt", reloadEmpty: 7.2, coverHand: [-0.265, 0.128, 0.01], rightBolt: [0.14, 0.11, 0.03], pullLen: 0.12, bipod: true,
 };
 
-export const PRIMARIES: WeaponDef[] = [SAR21, BR18, ULTIMAX, FNMAG, M110];
+/** Bolt-action sniper: one aimed round of 7.62 at a time, then the bolt is worked by hand. */
+export const TRG22: WeaponDef = {
+  id: "trg22", name: "SAKO TRG-22", caliber: "7.62 × 51 mm", slot: "primary", build: buildTRG22,
+  magSize: 10, reserve: 40, rpm: 50, damage: 115, falloffStart: 200, falloffEnd: 600, falloffMin: 0.85,
+  hipSpread: 4.2, adsSpread: 0.012, recoilPitch: 0.03, recoilYaw: 0.006, adsTime: 0.34, zooms: [4, 8, 12], zoomDefault: 1, scope: "mil", reloadTime: 3.0,
+  sound: "rifle", modes: ["semi"], hip: [0.15, -0.16, -0.33], mobility: 0.9, noise: 110, kick: 1.8, boltTravel: 0,
+  magHand: [-0.2, -0.06, 0.02], boltHand: [-0.3, 0.06, 0.04], magOut: [0.0, -0.26, -0.03],
+  anim: "rifle", reloadEmpty: 3.4, rightBolt: [-0.03, 0.08, 0.035], pullLen: 0.098, bipod: true, boltCycle: 0.95,
+};
+
+/** Compact 9 mm: fast, light, accurate from the hip, falls away quickly with range. */
+export const MP5K: WeaponDef = {
+  id: "mp5k", name: "H&K MP5K", caliber: "9 × 19 mm", slot: "primary", build: buildMP5K,
+  magSize: 30, reserve: 180, rpm: 900, damage: 24, falloffStart: 15, falloffEnd: 55, falloffMin: 0.5,
+  hipSpread: 1.5, adsSpread: 0.32, recoilPitch: 0.0065, recoilYaw: 0.0058, adsTime: 0.14, zooms: [1.25], zoomDefault: 0, reloadTime: 2.1,
+  sound: "pistol", modes: ["auto", "semi"], hip: [0.12, -0.16, -0.4], mobility: 1.1, noise: 55, kick: 0.7, boltTravel: 0,
+  magHand: [-0.05, -0.05, 0.03], boltHand: [0.0, 0.12, 0.012], magOut: [0.03, -0.28, -0.04],
+  anim: "rifle", reloadEmpty: 2.7, pullLen: 0.05,
+};
+
+/** 5.7 mm PDW: fifty rounds, very little recoil, pierces well. */
+export const P90: WeaponDef = {
+  id: "p90", name: "FN P90", caliber: "5.7 × 28 mm", slot: "primary", build: buildP90,
+  magSize: 50, reserve: 200, rpm: 900, damage: 23, falloffStart: 25, falloffEnd: 80, falloffMin: 0.55,
+  hipSpread: 1.7, adsSpread: 0.24, recoilPitch: 0.0048, recoilYaw: 0.0042, adsTime: 0.15, zooms: [1.3], zoomDefault: 0, reloadTime: 2.6,
+  sound: "pistol", modes: ["auto", "semi"], hip: [0.115, -0.1, -0.33], mobility: 1.12, noise: 60, kick: 0.6, boltTravel: 0,
+  magHand: [-0.17, 0.18, -0.006], boltHand: [0.05, 0.12, -0.026], magOut: [-0.12, 0.13, 0],
+  anim: "bullpup", reloadEmpty: 3.2, pullLen: 0.05,
+};
+
+/** Infantry automatic rifle: magazine-fed, quicker than the belt guns, steady on its bipod. */
+export const COLT_IAR: WeaponDef = {
+  id: "colt_iar", name: "COLT IAR", caliber: "5.56 × 45 mm", slot: "primary", build: buildColtIAR,
+  magSize: 30, reserve: 210, rpm: 740, damage: 32, falloffStart: 50, falloffEnd: 150, falloffMin: 0.62,
+  hipSpread: 2.6, adsSpread: 0.15, recoilPitch: 0.0084, recoilYaw: 0.0042, adsTime: 0.26, zooms: [4], zoomDefault: 0, scope: "acog", reloadTime: 2.6,
+  sound: "rifle", modes: ["auto", "semi"], hip: [0.14, -0.18, -0.34], mobility: 0.95, noise: 80, kick: 0.85, boltTravel: 0.02,
+  magHand: [-0.15, -0.09, 0.02], boltHand: [-0.33, 0.07, 0.0], magOut: [0.01, -0.3, -0.04],
+  anim: "rifle", reloadEmpty: 3.3, pullLen: 0.06, bipod: true,
+};
+
+export const PRIMARIES: WeaponDef[] = [SAR21, BR18, ULTIMAX, FNMAG, COLT_IAR, M110, TRG22, MP5K, P90];
 
 /** One carried weapon: its model and its own ammunition. */
 interface Carried {
@@ -255,6 +297,11 @@ export class WeaponSystem {
   private supportOk = false;
   private deployYaw = 0;
   private deployPitch = 0;
+  /** Seconds left working a bolt-action after a shot, and whether its case has gone. */
+  private cycleT = 0;
+  private cycleEjected = false;
+  /** How far the rifle is turned in to work the bolt (rig pose). */
+  private cycHand = 0;
   private readonly pose: ReloadPose = samplePose(null, 0, {} as ReloadPose);
   private heat = 0;
   private flashT = 0;
@@ -301,7 +348,7 @@ export class WeaponSystem {
       sh.vertexShader = sh.vertexShader.replace("#include <project_vertex>", "#include <project_vertex>\n  gl_Position.z = (gl_Position.z / gl_Position.w * 0.04 - 0.96) * gl_Position.w;");
     };
     this.flashMat = fm;
-    for (const def of [SAR21, BR18, ULTIMAX, FNMAG, M110, P30, MATADOR]) this.all.set(def.id, this.make(def));
+    for (const def of [...PRIMARIES, P30, MATADOR]) this.all.set(def.id, this.make(def));
     this.slots = [this.all.get("sar21")!, this.all.get("p30")!, this.all.get("matador")!];
     this.cur = this.slots[0];
     this.cur.gun.root.visible = true;
@@ -362,7 +409,7 @@ export class WeaponSystem {
     return this.cur.def.zooms[this.cur.zoomI];
   }
   /** Sight picture for the HUD while scoped. */
-  get scopeView(): { style: "mil" | "sar" | "dot"; mag: number; breath: number } | null {
+  get scopeView(): { style: "mil" | "sar" | "dot" | "acog"; mag: number; breath: number } | null {
     return this.scoped ? { style: this.cur.def.scope!, mag: this.zoom, breath: this.breath } : null;
   }
   /** Magnification actually on screen right now (eases between steps and from the hip). */
@@ -418,6 +465,7 @@ export class WeaponSystem {
 
   private swap(c: Carried): void {
     this.pending = c;
+    this.cycleT = 0;
     this.deployed = false;
     this.bipodT = 0;
     this.reloading = false;
@@ -446,6 +494,7 @@ export class WeaponSystem {
     this.cur.gun.root.visible = true;
     this.pending = null;
     this.ads = 0;
+    this.cycleT = 0;
     this.deployed = false;
     this.bipodT = 0;
     this.reloading = false;
@@ -573,7 +622,7 @@ export class WeaponSystem {
       this.onSafeTrigger?.();
     }
     this.safeBlend += ((this.enabled ? 0 : 1) - this.safeBlend) * Math.min(1, dt * 7);
-    if (active && trigger && this.cooldown <= 0 && !this.reloading && this.sprintBlend < 0.35) {
+    if (active && trigger && this.cooldown <= 0 && this.cycleT <= 0 && !this.reloading && this.sprintBlend < 0.35) {
       if (this.ammo > 0 && (this.auto || !this.triggerLatch)) this.fire();
       else if (this.ammo === 0 && !this.triggerLatch) {
         this.audio.dryFire();
@@ -601,6 +650,7 @@ export class WeaponSystem {
         this.reserve -= take;
         this.reloading = false;
         rp = 0;
+        if (d.boltCycle && this.reloadEmpty) this.startCycle(d.boltCycle, false);
       }
     }
     const q = samplePose(this.reloading ? anim : null, rp, this.pose);
@@ -618,7 +668,25 @@ export class WeaponSystem {
       c.leftHome.z + q.hMag * d.magHand[2] + q.hFollow * q.mag * d.magOut[2] + q.hBolt * d.boltHand[2] + q.hCover * ch[2] - q.hAway * 0.04
     );
     const rb = d.rightBolt ?? [0, 0, 0];
-    gun.rightArm.position.set(c.rightHome.x + q.rBolt * rb[0] - q.rBolt * q.pull * pull, c.rightHome.y + q.rBolt * rb[1], c.rightHome.z + q.rBolt * rb[2]);
+    // Bolt-action cycle: hand to the knob, lift 60 degrees, back, forward, down, hand to the grip.
+    let cHand = 0, cLift = 0, cBack = 0;
+    this.cycHand = 0;
+    if (this.cycleT > 0 && d.boltCycle) {
+      this.cycleT = Math.max(0, this.cycleT - dt);
+      const pc = 1 - this.cycleT / d.boltCycle;
+      cHand = kf(pc, [[0, 0], [0.14, 1], [0.84, 1], [1, 0]]);
+      cLift = kf(pc, [[0.12, 0], [0.24, 1], [0.7, 1], [0.82, 0]]);
+      cBack = kf(pc, [[0.24, 0], [0.4, 1], [0.52, 1], [0.7, 0]]);
+      this.cycHand = cHand * (1 - sm(this.ads) * 0.8);
+      if (!this.cycleEjected && cBack > 0.9) {
+        this.cycleEjected = true;
+        this.ejectCase();
+      }
+      if (this.cycleT === 0) this.audio.foley("magIn");
+    }
+    const rh = Math.max(q.rBolt, cHand);
+    gun.rightArm.position.set(c.rightHome.x + rh * rb[0] - q.rBolt * q.pull * pull - cBack * pull, c.rightHome.y + rh * rb[1] + cLift * 0.02, c.rightHome.z + rh * rb[2]);
+    gun.bolt.rotation.x = -cLift * 1.05;
     if (gun.cover) gun.cover.rotation.z = -q.cover * 1.15;
     if (gun.belt) {
       gun.belt.position.set(0, q.belt * 0.05, -q.belt * 0.03);
@@ -626,7 +694,7 @@ export class WeaponSystem {
     }
     this.boltT = Math.max(0, this.boltT - dt * 16);
     const locked = this.reloading ? q.lock : d.boltTravel > 0 && c.ammo === 0 ? 1 : 0;
-    gun.bolt.position.x = c.boltHome.x - q.pull * pull - this.boltT * d.boltTravel - locked * d.boltTravel;
+    gun.bolt.position.x = c.boltHome.x - q.pull * pull - this.boltT * d.boltTravel - locked * d.boltTravel - cBack * pull;
 
     // ---- springs ---------------------------------------------------------------
     const kick = this.kick.step(dt);
@@ -656,14 +724,14 @@ export class WeaponSystem {
     const [hx, hy, hz] = d.hip;
     const ax = -gun.sight.z, ay = -gun.sight.y, az = gun.sight.x + 0.012;
     this.rig.position.set(
-      THREE.MathUtils.lerp(hx, ax, e) + bobX + this.swayX * sway * 0.6 - s * 0.055 + q.px + p.lean * 0.012,
-      THREE.MathUtils.lerp(hy, ay, e) + bobY + breathe - this.swayY * sway * 0.5 - s * 0.045 + q.py - p.landed * 0.035 - draw * 0.24 + Math.max(-0.02, Math.min(0.02, p.vel.y * -0.004)),
+      THREE.MathUtils.lerp(hx, ax, e) + bobX + this.swayX * sway * 0.6 - s * 0.055 + q.px + p.lean * 0.012 - this.cycHand * 0.03,
+      THREE.MathUtils.lerp(hy, ay, e) + bobY + breathe - this.swayY * sway * 0.5 - s * 0.045 + q.py + this.cycHand * 0.04 - p.landed * 0.035 - draw * 0.24 + Math.max(-0.02, Math.min(0.02, p.vel.y * -0.004)),
       THREE.MathUtils.lerp(hz, az, e) + kick * (1 - e * 0.45) + s * 0.03 + q.pz
     );
     this.rig.rotation.set(
-      rise * (1 - e * 0.55) + this.swayY * sway * 0.9 - s * 0.16 + q.rx + draw * 0.9 + breathe * 2,
+      rise * (1 - e * 0.55) + this.swayY * sway * 0.9 - s * 0.16 + q.rx + this.cycHand * 0.07 + draw * 0.9 + breathe * 2,
       (1 - e) * 0.035 + this.swayX * sway * 1.4 + twist + s * 0.62 + q.ry,
-      (1 - e) * -0.045 + twist * 0.8 + this.swayX * sway * 1.8 - s * 0.22 + q.rz - p.lean * 0.1 + bobX * 2.5
+      (1 - e) * -0.045 + twist * 0.8 + this.swayX * sway * 1.8 - s * 0.22 + q.rz - this.cycHand * 0.3 - p.lean * 0.1 + bobX * 2.5
     );
     if (c.reticle) c.reticle.visible = e > 0.85;
     for (const l of c.lenses) l.visible = e < 0.5;
@@ -683,6 +751,27 @@ export class WeaponSystem {
     // Scale turn rate with magnification so the crosshair covers the same ground per mouse-inch.
     const zoom = Math.tan(THREE.MathUtils.degToRad(this.engine.camera.fov) / 2) / Math.tan(THREE.MathUtils.degToRad(this.hipFov) / 2);
     return THREE.MathUtils.lerp(1, Math.min(0.85, zoom * 1.15), sm(this.ads));
+  }
+
+  /** Throw a spent case from the ejection port, sideways and up from the camera. */
+  private ejectCase(): void {
+    const gun = this.cur.gun;
+    const cam = this.engine.camera;
+    cam.getWorldDirection(_fwd);
+    _right.crossVectors(_fwd, cam.up).normalize();
+    _up.crossVectors(_right, _fwd).normalize();
+    gun.root.updateWorldMatrix(true, false);
+    const ej = _tmp.copy(gun.eject);
+    gun.root.localToWorld(ej);
+    const floor = this.world.floor(ej.x, ej.z, ej.y, 4);
+    this.vfx.shell(ej, new THREE.Vector3().copy(_right).multiplyScalar(2.2 + Math.random()).addScaledVector(_up, 1.4 + Math.random()).addScaledVector(_fwd, -0.4).add(this.player.vel), floor ? floor.y : this.player.pos.y);
+  }
+
+  /** Begin working a bolt-action by hand. `spent`: there is a fired case to throw out. */
+  private startCycle(time: number, spent: boolean): void {
+    this.cycleT = time;
+    this.cycleEjected = !spent;
+    this.audio.foley("bolt");
   }
 
   /**
@@ -722,7 +811,8 @@ export class WeaponSystem {
     const cam = this.engine.camera;
     this.ammo--;
     this.shotsFired++;
-    this.cooldown = 60 / d.rpm;
+    // Carry the part of a frame already spent, so the cyclic rate is not rounded to whole frames.
+    this.cooldown = (this.cooldown > -0.05 ? this.cooldown : 0) + 60 / d.rpm;
     const e = sm(this.ads);
 
     cam.getWorldDirection(_fwd);
@@ -787,10 +877,9 @@ export class WeaponSystem {
     this.vfx.muzzle(_muzzle, _dir, 1, false);
     if (!quiet) this.vfx.flashLight(_muzzle, 26, 0.06);
     this.audio.shot(d.sound);
-    const ej = _tmp.copy(gun.eject);
-    gun.root.localToWorld(ej);
-    const floor = this.world.floor(ej.x, ej.z, ej.y, 4);
-    this.vfx.shell(ej, new THREE.Vector3().copy(_right).multiplyScalar(2.2 + Math.random()).addScaledVector(_up, 1.4 + Math.random()).addScaledVector(_fwd, -0.4).add(this.player.vel), floor ? floor.y : this.player.pos.y);
+    if (d.boltCycle) {
+      if (this.ammo > 0) this.startCycle(d.boltCycle, true);
+    } else this.ejectCase();
 
     // Recoil: weapon springs plus a climbing view.
     const stance = (this.player.stance === "prone" ? 0.5 : this.player.stance === "crouch" ? 0.75 : 1) * (1 - 0.7 * this.bipodT);

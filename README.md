@@ -27,11 +27,15 @@ Each is modelled at true scale from its real layout.
 | 1 | ST Engineering BR18 | 5.56 mm bullpup, 645 mm, red dot 1.3× with 3× magnifier |
 | 1 | Ultimax 100 Mk 3 | 100-round drum, slow to handle, steady in long bursts |
 | 1 | FN MAG | 7.62 mm belt-fed GPMG, 100-round belt bag; feed-cover belt change |
+| 1 | Colt IAR | 5.56 mm automatic rifle, 4× prism sight, bipod |
+| 1 | Sako TRG-22 | 7.62 mm bolt-action, 4× / 8× / 12× scope, bolt worked by hand after each shot, bipod |
+| 1 | H&K MP5K | 9 mm machine pistol, vertical foregrip, 900 rounds/min |
+| 1 | FN P90 | 5.7 mm PDW, 50-round top magazine, ring sight |
 | 1 | KAC M110 SASS | suppressed 7.62 mm, 4× / 7× / 10× scope; enemies hear it from far less distance |
 | 2 | H&K P30 | 9 mm sidearm |
 | 3 | MATADOR | 90 mm rocket, two carried |
 
-The Ultimax, FN MAG and M110 deploy their bipods on their own: on the ground when you go prone,
+The Ultimax, FN MAG, Colt IAR, M110 and TRG-22 deploy their bipods on their own: on the ground when you go prone,
 or on a wall, barrier or sandbag line when you aim over it crouched or standing. Deployed, recoil
 falls by about 70%, traverse is limited to about 40° either way, and moving folds the legs.
 

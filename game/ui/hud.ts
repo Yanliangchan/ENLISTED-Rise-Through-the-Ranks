@@ -9,7 +9,7 @@ const el = (cls: string, parent: HTMLElement, html = ""): HTMLDivElement => {
 const PX_PER_DEG = 3.4;
 
 /** Reticles as SVG on a 200-unit square that spans the scope's field. */
-const RETICLES: Record<"mil" | "sar" | "dot", string> = {
+const RETICLES: Record<"mil" | "sar" | "dot" | "acog", string> = {
   // M110: thin duplex crosshair with mil-dots, heavy posts toward the edge.
   mil: (() => {
     let d = "";
@@ -17,6 +17,8 @@ const RETICLES: Record<"mil" | "sar" | "dot", string> = {
     return `<path d="M0 100H200M100 0V200" stroke="#0a0a0a" stroke-width=".45" fill="none"/><path d="M0 100H58M142 100H200M100 142V200M100 0V58" stroke="#0a0a0a" stroke-width="2.2"/><g fill="#0a0a0a">${d}</g>`;
   })(),
   // SAR 21: open ring, a post rising from below, bars in from the sides, a centre dot.
+  // 4× prism sight: a lit chevron with a bullet-drop ladder of short bars below it.
+  acog: `<path d="M88 112L100 96L112 112" stroke="#e8432c" stroke-width="2.4" fill="none"/><path d="M100 0V60M100 140V200M0 100H60M140 100H200" stroke="#0a0a0a" stroke-width=".7"/><g stroke="#0a0a0a" stroke-width="1"><path d="M94 124H106M95 134H105M96 144H104M97 154H103"/></g>`,
   // Red dot seen through the 3× magnifier: ring and dot, both glowing.
   dot: `<circle cx="100" cy="100" r="34" stroke="#ff3a24" stroke-width="1.1" fill="none" opacity=".85"/><circle cx="100" cy="100" r="1.8" fill="#ff4a30"/><circle cx="100" cy="100" r="4" fill="#ff4a30" opacity=".25"/>`,
   sar: `<circle cx="100" cy="100" r="15" stroke="#0a0a0a" stroke-width="1.2" fill="none"/><path d="M100 118V200M0 100H82M118 100H200" stroke="#0a0a0a" stroke-width="2"/><circle cx="100" cy="100" r="1.4" fill="#c8241a"/>`,
@@ -185,7 +187,7 @@ export class Hud {
     this.wpn.querySelector(".slots")!.innerHTML = names.map((n, i) => `<span class="${i === active ? "on" : ""}"><b>${i + 1}</b>${n}</span>`).join("");
   }
 
-  scope(v: { style: "mil" | "sar" | "dot"; mag: number; breath: number } | null): void {
+  scope(v: { style: "mil" | "sar" | "dot" | "acog"; mag: number; breath: number } | null): void {
     if (this.set("sc", !!v)) this.scopeEl.classList.toggle("on", !!v);
     if (!v) return;
     if (this.set("ss", v.style)) {
