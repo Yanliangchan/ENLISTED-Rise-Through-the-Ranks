@@ -26,6 +26,10 @@ export interface ViewWeapon {
   leftArm: THREE.Object3D;
   rightArm: THREE.Object3D;
   bolt: THREE.Object3D;
+  /** Feed cover, pivoting about its own origin (belt-fed weapons). */
+  cover?: THREE.Object3D;
+  /** The belt lying in the feed tray (belt-fed weapons). */
+  belt?: THREE.Object3D;
 }
 
 export interface GunMats {

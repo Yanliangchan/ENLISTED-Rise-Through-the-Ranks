@@ -7,7 +7,8 @@ import { canvasTex } from "~/gfx/textures";
 import type { CollisionWorld } from "~/world/collision";
 import type { PlayerController } from "./controller";
 import { buildGunMats, buildSar21, type GunMats, type ViewWeapon } from "./sar21";
-import { buildBR18, buildM110, buildMatador, buildP30, buildUltimax } from "./arsenal";
+import { buildBR18, buildFNMAG, buildM110, buildMatador, buildP30, buildUltimax } from "./arsenal";
+import { reloadAnim, samplePose, type ReloadPose, type ReloadStyle } from "./reloads";
 
 export type BodyPart = "head" | "torso" | "limb";
 
@@ -71,49 +72,64 @@ export interface WeaponDef {
   boltHand: [number, number, number];
   /** Direction the magazine leaves the gun. */
   magOut: [number, number, number];
+  /** Reload choreography family. */
+  anim: ReloadStyle;
+  /** Seconds for a reload from empty (tactical reloads use `reloadTime`). */
+  reloadEmpty: number;
+  /** Support-hand offset to the feed cover latch (belt-fed). */
+  coverHand?: [number, number, number];
+  /** Firing-hand offset to a right-side charging handle (belt-fed). */
+  rightBolt?: [number, number, number];
+  /** How far the charging handle travels when worked, metres. */
+  pullLen?: number;
 }
 
 export const SAR21: WeaponDef = {
   id: "sar21", name: "SAR 21", caliber: "5.56 × 45 mm", slot: "primary", build: buildSar21,
   magSize: 30, reserve: 150, rpm: 620, damage: 36, falloffStart: 45, falloffEnd: 140, falloffMin: 0.62,
-  hipSpread: 2.4, adsSpread: 0.12, recoilPitch: 0.0105, recoilYaw: 0.0042, adsTime: 0.2, zooms: [1.5, 3], zoomDefault: 1, scope: "sar", reloadTime: 2.9,
+  hipSpread: 2.4, adsSpread: 0.12, recoilPitch: 0.0105, recoilYaw: 0.0042, adsTime: 0.2, zooms: [1.5, 3], zoomDefault: 1, scope: "sar", reloadTime: 2.6,
   sound: "rifle", modes: ["auto", "semi"], hip: [0.135, -0.2, -0.36], mobility: 1, noise: 75, kick: 1, boltTravel: 0.02,
   magHand: [-0.3, -0.12, 0], boltHand: [-0.1, 0.13, -0.03], magOut: [-0.03, -0.3, -0.06],
+  anim: "bullpup", reloadEmpty: 3.5,
 };
 
 /** The SAF's newer bullpup: shorter, quicker, faster-firing, with a red dot and a 3× magnifier. */
 export const BR18: WeaponDef = {
   id: "br18", name: "BR18", caliber: "5.56 × 45 mm", slot: "primary", build: buildBR18,
   magSize: 30, reserve: 180, rpm: 780, damage: 33, falloffStart: 40, falloffEnd: 130, falloffMin: 0.6,
-  hipSpread: 2.1, adsSpread: 0.14, recoilPitch: 0.0098, recoilYaw: 0.0048, adsTime: 0.17, zooms: [1.3, 3], zoomDefault: 0, scope: "dot", reloadTime: 2.6,
+  hipSpread: 2.1, adsSpread: 0.14, recoilPitch: 0.0098, recoilYaw: 0.0048, adsTime: 0.17, zooms: [1.3, 3], zoomDefault: 0, scope: "dot", reloadTime: 2.4,
   sound: "rifle", modes: ["auto", "semi"], hip: [0.13, -0.19, -0.34], mobility: 1.04, noise: 75, kick: 0.95, boltTravel: 0,
   magHand: [-0.29, -0.11, 0], boltHand: [-0.07, 0.02, -0.04], magOut: [-0.03, -0.3, -0.06],
+  anim: "bullpup", reloadEmpty: 3.2,
 };
 
 /** Section automatic weapon: a hundred rounds, slow to bring up and slow to feed, steady once it is running. */
 export const ULTIMAX: WeaponDef = {
   id: "ultimax100", name: "ULTIMAX 100", caliber: "5.56 × 45 mm", slot: "primary", build: buildUltimax,
   magSize: 100, reserve: 200, rpm: 540, damage: 33, falloffStart: 50, falloffEnd: 160, falloffMin: 0.6,
-  hipSpread: 3.2, adsSpread: 0.3, recoilPitch: 0.0062, recoilYaw: 0.0038, adsTime: 0.34, zooms: [1.45], zoomDefault: 0, reloadTime: 5.4,
+  hipSpread: 3.2, adsSpread: 0.3, recoilPitch: 0.0062, recoilYaw: 0.0038, adsTime: 0.34, zooms: [1.45], zoomDefault: 0, reloadTime: 5.0,
   sound: "lmg", modes: ["auto"], hip: [0.15, -0.15, -0.37], mobility: 0.86, noise: 85, kick: 0.7, boltTravel: 0.0,
   magHand: [-0.16, -0.02, 0.02], boltHand: [-0.15, 0.1, 0.0], magOut: [0, -0.34, -0.05],
+  anim: "drum", reloadEmpty: 6.2, pullLen: 0.1,
 };
 
 /** Marksman rifle: suppressed 7.62, two torso hits or one to the head at any range on this map. */
 export const M110: WeaponDef = {
   id: "m110", name: "M110 SASS", caliber: "7.62 × 51 mm", slot: "primary", build: buildM110,
   magSize: 20, reserve: 80, rpm: 320, damage: 74, falloffStart: 120, falloffEnd: 400, falloffMin: 0.8,
-  hipSpread: 3.6, adsSpread: 0.035, recoilPitch: 0.021, recoilYaw: 0.006, adsTime: 0.3, zooms: [4, 7, 10], zoomDefault: 1, reloadTime: 3.2,
+  hipSpread: 3.6, adsSpread: 0.035, recoilPitch: 0.021, recoilYaw: 0.006, adsTime: 0.3, zooms: [4, 7, 10], zoomDefault: 1, reloadTime: 2.8,
   sound: "dmr", modes: ["semi"], hip: [0.15, -0.155, -0.35], mobility: 0.92, noise: 38, scope: "mil", kick: 1.5, boltTravel: 0.03,
   magHand: [-0.18, -0.1, 0.02], boltHand: [-0.2, 0.03, -0.01], magOut: [0.01, -0.3, -0.04],
+  anim: "rifle", reloadEmpty: 3.6, pullLen: 0.03,
 };
 
 export const P30: WeaponDef = {
   id: "p30", name: "H&K P30", caliber: "9 × 19 mm", slot: "sidearm", build: buildP30,
   magSize: 15, reserve: 60, rpm: 420, damage: 28, falloffStart: 18, falloffEnd: 60, falloffMin: 0.45,
-  hipSpread: 1.9, adsSpread: 0.4, recoilPitch: 0.017, recoilYaw: 0.006, adsTime: 0.12, zooms: [1.25], zoomDefault: 0, reloadTime: 1.7,
+  hipSpread: 1.9, adsSpread: 0.4, recoilPitch: 0.017, recoilYaw: 0.006, adsTime: 0.12, zooms: [1.25], zoomDefault: 0, reloadTime: 1.5,
   sound: "pistol", modes: ["semi"], hip: [0.125, -0.115, -0.42], mobility: 1.06, noise: 60, kick: 1.3, boltTravel: 0.032,
   magHand: [0.0, -0.1, 0.01], boltHand: [-0.02, 0.085, 0.03], magOut: [-0.03, -0.26, 0],
+  anim: "pistol", reloadEmpty: 2.1, pullLen: 0.032,
 };
 
 export const MATADOR: WeaponDef = {
@@ -122,9 +138,20 @@ export const MATADOR: WeaponDef = {
   hipSpread: 1.2, adsSpread: 0.15, recoilPitch: 0.03, recoilYaw: 0.01, adsTime: 0.36, zooms: [2], zoomDefault: 0, reloadTime: 4.6,
   sound: "lmg", modes: ["semi"], hip: [0.2, -0.17, -0.32], mobility: 0.8, noise: 120, rocket: true, kick: 2.2, boltTravel: 0,
   magHand: [0, 0, 0], boltHand: [0, 0, 0], magOut: [0, 0, 0],
+  anim: "tube", reloadEmpty: 4.6,
 };
 
-export const PRIMARIES: WeaponDef[] = [SAR21, BR18, ULTIMAX, M110];
+/** General-purpose machine gun: a hundred rounds of 7.62, punishing in a long burst, slow to feed. */
+export const FNMAG: WeaponDef = {
+  id: "fnmag", name: "FN MAG", caliber: "7.62 × 51 mm", slot: "primary", build: buildFNMAG,
+  magSize: 100, reserve: 200, rpm: 720, damage: 50, falloffStart: 80, falloffEnd: 300, falloffMin: 0.75,
+  hipSpread: 4.4, adsSpread: 0.4, recoilPitch: 0.0082, recoilYaw: 0.0052, adsTime: 0.46, zooms: [1.4], zoomDefault: 0, reloadTime: 6.4,
+  sound: "lmg", modes: ["auto"], hip: [0.15, -0.16, -0.42], mobility: 0.78, noise: 110, kick: 1.15, boltTravel: 0,
+  magHand: [-0.11, -0.044, -0.1], boltHand: [0, 0, 0], magOut: [0, -0.3, -0.05],
+  anim: "belt", reloadEmpty: 7.2, coverHand: [-0.265, 0.128, 0.01], rightBolt: [0.14, 0.11, 0.03], pullLen: 0.12,
+};
+
+export const PRIMARIES: WeaponDef[] = [SAR21, BR18, ULTIMAX, FNMAG, M110];
 
 /** One carried weapon: its model and its own ammunition. */
 interface Carried {
@@ -139,6 +166,7 @@ interface Carried {
   zoomI: number;
   magHome: THREE.Vector3;
   leftHome: THREE.Vector3;
+  rightHome: THREE.Vector3;
   boltHome: THREE.Vector3;
 }
 
@@ -215,6 +243,9 @@ export class WeaponSystem {
   private triggerLatch = false;
   private reloadT = 0;
   private reloadStage = 0;
+  private reloadEmpty = false;
+  private reloadDur = 1;
+  private readonly pose: ReloadPose = samplePose(null, 0, {} as ReloadPose);
   private heat = 0;
   private flashT = 0;
   private boltT = 0;
@@ -260,7 +291,7 @@ export class WeaponSystem {
       sh.vertexShader = sh.vertexShader.replace("#include <project_vertex>", "#include <project_vertex>\n  gl_Position.z = (gl_Position.z / gl_Position.w * 0.04 - 0.96) * gl_Position.w;");
     };
     this.flashMat = fm;
-    for (const def of [SAR21, BR18, ULTIMAX, M110, P30, MATADOR]) this.all.set(def.id, this.make(def));
+    for (const def of [SAR21, BR18, ULTIMAX, FNMAG, M110, P30, MATADOR]) this.all.set(def.id, this.make(def));
     this.slots = [this.all.get("sar21")!, this.all.get("p30")!, this.all.get("matador")!];
     this.cur = this.slots[0];
     this.cur.gun.root.visible = true;
@@ -288,7 +319,7 @@ export class WeaponSystem {
     gun.root.traverse((o) => {
       if (o.name === "lens") lenses.push(o);
     });
-    return { zoomI: def.zoomDefault, lenses, def, gun, ammo: def.magSize, reserve: def.reserve, auto: def.modes[0] === "auto", flash, reticle: gun.root.getObjectByName("reticle") ?? null, magHome: gun.magazine.position.clone(), leftHome: gun.leftArm.position.clone(), boltHome: gun.bolt.position.clone() };
+    return { zoomI: def.zoomDefault, lenses, def, gun, ammo: def.magSize, reserve: def.reserve, auto: def.modes[0] === "auto", flash, reticle: gun.root.getObjectByName("reticle") ?? null, magHome: gun.magazine.position.clone(), leftHome: gun.leftArm.position.clone(), rightHome: gun.rightArm.position.clone(), boltHome: gun.bolt.position.clone() };
   }
 
   get def(): WeaponDef {
@@ -503,15 +534,11 @@ export class WeaponSystem {
 
     // ---- reload timeline ------------------------------------------------------
     let rp = 0; // 0..1 through the reload
-    if (this.reloading) {
+    const anim = this.reloading ? reloadAnim(d.anim, this.reloadEmpty) : null;
+    if (anim) {
       this.reloadT += dt;
-      rp = this.reloadT / d.reloadTime;
-      const stages: Array<[number, () => void]> = [
-        [0.16, () => this.audio.foley(d.rocket ? "cloth" : "magOut")],
-        [0.5, () => this.audio.foley(d.rocket ? "raise" : "magIn")],
-        [0.72, () => this.audio.foley(d.rocket ? "pin" : "bolt")],
-      ];
-      while (this.reloadStage < stages.length && rp >= stages[this.reloadStage][0]) stages[this.reloadStage++][1]();
+      rp = this.reloadT / this.reloadDur;
+      while (this.reloadStage < anim.sounds.length && rp >= anim.sounds[this.reloadStage][0]) this.audio.foley(anim.sounds[this.reloadStage++][1]);
       if (rp >= 1) {
         const need = d.magSize - this.ammo;
         const take = Math.min(need, this.reserve);
@@ -521,20 +548,30 @@ export class WeaponSystem {
         rp = 0;
       }
     }
-    // Magazine drops out and a fresh one comes up with the support hand; then the bolt.
+    const q = samplePose(this.reloading ? anim : null, rp, this.pose);
     const c = this.cur;
-    const magDrop = kf(rp, [[0.14, 0], [0.3, 1], [0.36, 1], [0.5, 0], [1, 0]]);
-    gun.magazine.position.set(c.magHome.x + magDrop * d.magOut[0], c.magHome.y + magDrop * d.magOut[1], c.magHome.z + magDrop * d.magOut[2]);
-    const toMag = kf(rp, [[0.02, 0], [0.14, 1], [0.52, 1], [0.6, 0], [1, 0]]);
-    const toBolt = kf(rp, [[0.58, 0], [0.68, 1], [0.8, 1], [0.92, 0], [1, 0]]);
-    const boltPull = kf(rp, [[0.68, 0], [0.74, 1], [0.78, 0], [1, 0]]);
+    const pull = d.pullLen ?? 0.05;
+    // Magazine (or belt bag): out along its own axis, rolled for drums.
+    gun.magazine.position.set(c.magHome.x + q.mag * d.magOut[0], c.magHome.y + q.mag * d.magOut[1], c.magHome.z + q.mag * d.magOut[2]);
+    gun.magazine.rotation.z = q.magRz;
+    gun.magazine.visible = q.mag < 2.3;
+    // Support hand: blend of rest, magazine, carried magazine, pouch, charging handle and cover latch.
+    const ch = d.coverHand ?? [0, 0, 0];
     gun.leftArm.position.set(
-      c.leftHome.x + toMag * d.magHand[0] + toBolt * d.boltHand[0] - boltPull * 0.05 + magDrop * d.magOut[0] * toMag,
-      c.leftHome.y + toMag * d.magHand[1] + magDrop * d.magOut[1] * toMag + toBolt * d.boltHand[1],
-      c.leftHome.z + toMag * d.magHand[2] + magDrop * d.magOut[2] * toMag + toBolt * d.boltHand[2]
+      c.leftHome.x + q.hMag * d.magHand[0] + q.hFollow * q.mag * d.magOut[0] + q.hBolt * d.boltHand[0] + q.hCover * ch[0] - q.hAway * 0.1 - q.hBolt * q.pull * pull,
+      c.leftHome.y + q.hMag * d.magHand[1] + q.hFollow * q.mag * d.magOut[1] + q.hBolt * d.boltHand[1] + q.hCover * ch[1] - q.hAway * 0.3 + q.hCover * q.cover * 0.08,
+      c.leftHome.z + q.hMag * d.magHand[2] + q.hFollow * q.mag * d.magOut[2] + q.hBolt * d.boltHand[2] + q.hCover * ch[2] - q.hAway * 0.04
     );
+    const rb = d.rightBolt ?? [0, 0, 0];
+    gun.rightArm.position.set(c.rightHome.x + q.rBolt * rb[0] - q.rBolt * q.pull * pull, c.rightHome.y + q.rBolt * rb[1], c.rightHome.z + q.rBolt * rb[2]);
+    if (gun.cover) gun.cover.rotation.z = -q.cover * 1.15;
+    if (gun.belt) {
+      gun.belt.position.set(0, q.belt * 0.05, -q.belt * 0.03);
+      gun.belt.visible = q.mag < 2.3 || q.belt < 0.5;
+    }
     this.boltT = Math.max(0, this.boltT - dt * 16);
-    gun.bolt.position.x = c.boltHome.x - boltPull * 0.05 - this.boltT * d.boltTravel - (d.boltTravel > 0 && c.ammo === 0 && !this.reloading ? d.boltTravel : 0);
+    const locked = this.reloading ? q.lock : d.boltTravel > 0 && c.ammo === 0 ? 1 : 0;
+    gun.bolt.position.x = c.boltHome.x - q.pull * pull - this.boltT * d.boltTravel - locked * d.boltTravel;
 
     // ---- springs ---------------------------------------------------------------
     const kick = this.kick.step(dt);
@@ -558,22 +595,20 @@ export class WeaponSystem {
     const breathe = Math.sin(this.time * 1.25) * 0.0011 * (1 - e * 0.5);
     // Weapons safe: carried low and canted, the same lowered pose as a sprint.
     const s = Math.max(this.sprintBlend, this.safeBlend * 0.85);
-    const reloadTilt = kf(rp, [[0, 0], [0.1, 1], [0.84, 1], [1, 0]]);
+
     const draw = 1 - sm(this.drawT);
 
     const [hx, hy, hz] = d.hip;
     const ax = -gun.sight.z, ay = -gun.sight.y, az = gun.sight.x + 0.012;
-    // A launcher is lowered off the shoulder to "reload": the spent tube is dropped and a fresh one shouldered.
-    const dump = d.rocket ? kf(rp, [[0, 0], [0.2, 1], [0.6, 1], [0.9, 0], [1, 0]]) : 0;
     this.rig.position.set(
-      THREE.MathUtils.lerp(hx, ax, e) + bobX + this.swayX * sway * 0.6 - s * 0.055 + reloadTilt * 0.012 + p.lean * 0.012,
-      THREE.MathUtils.lerp(hy, ay, e) + bobY + breathe - this.swayY * sway * 0.5 - s * 0.045 - reloadTilt * 0.045 - p.landed * 0.035 - draw * 0.24 - dump * 0.5 + Math.max(-0.02, Math.min(0.02, p.vel.y * -0.004)),
-      THREE.MathUtils.lerp(hz, az, e) + kick * (1 - e * 0.45) + s * 0.03 + reloadTilt * 0.02
+      THREE.MathUtils.lerp(hx, ax, e) + bobX + this.swayX * sway * 0.6 - s * 0.055 + q.px + p.lean * 0.012,
+      THREE.MathUtils.lerp(hy, ay, e) + bobY + breathe - this.swayY * sway * 0.5 - s * 0.045 + q.py - p.landed * 0.035 - draw * 0.24 + Math.max(-0.02, Math.min(0.02, p.vel.y * -0.004)),
+      THREE.MathUtils.lerp(hz, az, e) + kick * (1 - e * 0.45) + s * 0.03 + q.pz
     );
     this.rig.rotation.set(
-      rise * (1 - e * 0.55) + this.swayY * sway * 0.9 - s * 0.16 + reloadTilt * 0.32 + draw * 0.9 + breathe * 2,
-      (1 - e) * 0.035 + this.swayX * sway * 1.4 + twist + s * 0.62 - reloadTilt * 0.12,
-      (1 - e) * -0.045 + twist * 0.8 + this.swayX * sway * 1.8 - s * 0.22 - reloadTilt * 0.42 - p.lean * 0.1 + bobX * 2.5
+      rise * (1 - e * 0.55) + this.swayY * sway * 0.9 - s * 0.16 + q.rx + draw * 0.9 + breathe * 2,
+      (1 - e) * 0.035 + this.swayX * sway * 1.4 + twist + s * 0.62 + q.ry,
+      (1 - e) * -0.045 + twist * 0.8 + this.swayX * sway * 1.8 - s * 0.22 + q.rz - p.lean * 0.1 + bobX * 2.5
     );
     if (c.reticle) c.reticle.visible = e > 0.85;
     for (const l of c.lenses) l.visible = e < 0.5;
@@ -600,6 +635,8 @@ export class WeaponSystem {
     this.reloading = true;
     this.reloadT = 0;
     this.reloadStage = 0;
+    this.reloadEmpty = this.ammo === 0 && !this.def.rocket;
+    this.reloadDur = this.reloadEmpty ? this.def.reloadEmpty : this.def.reloadTime;
     this.audio.foley("cloth");
   }
 

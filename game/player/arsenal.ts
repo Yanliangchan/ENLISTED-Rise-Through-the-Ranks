@@ -619,3 +619,127 @@ function reticleMeshRed(size: number, x: number, y: number): THREE.Mesh {
   m.visible = false;
   return m;
 }
+
+// =====================================================================================
+// FN MAG — 7.62 mm general-purpose machine gun (1,263 mm, 630 mm barrel, 11.8 kg)
+// =====================================================================================
+
+/**
+ * The SAF's GPMG. A long, slab-sided steel receiver with rows of rivets, the feed cover on
+ * top hinged at its front with the latch at the rear, the belt entering the feed tray from
+ * the left out of a canvas belt bag hung on that side, the cocking handle on the right,
+ * cases leaving through the bottom of the receiver. Forward of the receiver: the barrel
+ * lock and the folding carrying handle, the gas cylinder under the barrel with the folded
+ * bipod clipped to its front, the gas regulator, the tall front sight between its ears and
+ * the slotted flash suppressor. A polymer butt with a hinged shoulder strap at the back.
+ */
+export function buildFNMAG(mats: GunMats): ViewWeapon {
+  const root = new THREE.Group();
+  const P = mats.polymer, S = mats.steel, K = mats.park, R = mats.rubber;
+  const RT = 0.05; // receiver top
+  // Receiver: tall steel box with a heavier rail along the top and stamped side panels.
+  root.add(mesh(profile([[-0.33, -0.042], [0.17, -0.042], [0.17, RT], [-0.33, RT]], 0.058, 0.004), K));
+  for (const s of [-1, 1]) {
+    root.add(mesh(rbox(0.46, 0.008, 0.003, 0.001), S, -0.08, RT - 0.012, s * 0.03));
+    root.add(mesh(rbox(0.46, 0.006, 0.003, 0.001), S, -0.08, -0.03, s * 0.03));
+    for (let i = 0; i < 9; i++) for (const y of [RT - 0.012, -0.03]) root.add(mesh(new THREE.SphereGeometry(0.0028, 6, 4).scale(1, 1, 0.5), S, -0.3 + i * 0.055, y, s * 0.0318));
+    // Lightening panel recessed between the rivet rows.
+    root.add(mesh(rbox(0.3, 0.032, 0.002, 0.0006), mats.rubber, -0.12, 0.004, s * 0.0292));
+  }
+  // Feed tray mouth on the left, link chute on the right, bottom ejection port.
+  root.add(mesh(rbox(0.07, 0.02, 0.012, 0.002), S, 0.02, RT - 0.018, -0.034));
+  root.add(mesh(rbox(0.05, 0.014, 0.016, 0.002), S, 0.02, RT - 0.02, 0.036));
+  root.add(mesh(rbox(0.07, 0.003, 0.03, 0.001), R, 0.0, -0.0435, 0));
+  // Cocking handle, right side, forward, folded.
+  const bolt = new THREE.Group();
+  bolt.add(mesh(rbox(0.012, 0.014, 0.03, 0.003), S, 0.11, 0.0, 0.044));
+  bolt.add(mesh(tube(0.009, 0.009, 0.016, 10).rotateZ(Math.PI / 2), P, 0.11, 0.0, 0.062));
+  root.add(mesh(rbox(0.2, 0.006, 0.002, 0.0008), R, 0.05, 0.0, 0.0302)); // its slot
+  root.add(bolt);
+
+  // Feed cover: aluminium casting with a top rail, hinged at its front edge.
+  const cover = new THREE.Group();
+  cover.position.set(0.1, RT, 0);
+  cover.add(mesh(profile([[-0.24, 0.0], [0.0, 0.0], [0.0, 0.016], [-0.035, 0.024], [-0.225, 0.024], [-0.24, 0.014]], 0.062, 0.004), K));
+  cover.add(mesh(rbox(0.17, 0.006, 0.021, 0.001), S, -0.125, 0.027, 0));
+  rail(cover, S, -0.2, -0.05, 0.028, 0, "y", 1);
+  cover.add(mesh(rbox(0.02, 0.014, 0.05, 0.003), S, -0.232, 0.012, 0)); // rear latch
+  cover.add(mesh(tube(0.006, 0.006, 0.07, 10).rotateY(Math.PI / 2), S, -0.002, 0.004, 0)); // hinge pin
+  root.add(cover);
+
+  // Fixed top plate of the receiver behind the cover, with the cover latch catch.
+  root.add(mesh(rbox(0.19, 0.012, 0.056, 0.003), K, -0.235, RT + 0.006, 0));
+  // Leaf rear sight with its protective ears, forward of the cover hinge.
+  for (const s of [-1, 1]) root.add(mesh(profile([[0.11, RT], [0.165, RT], [0.16, 0.078], [0.12, 0.078]], 0.003, 0.0008), S, 0, 0, s * 0.013));
+  root.add(mesh(rbox(0.04, 0.006, 0.03, 0.001), S, 0.14, RT + 0.003, 0));
+  root.add(mesh(profile([[0.13, RT + 0.006], [0.142, RT + 0.006], [0.142, 0.074], [0.13, 0.074]], 0.016, 0.001, [[[0.1335, 0.064], [0.1385, 0.064], [0.1385, 0.0695], [0.1335, 0.0695]]]), S));
+
+  // Trigger housing, guard, trigger, cross-bolt safety, pistol grip.
+  root.add(mesh(profile([[-0.06, -0.042], [0.06, -0.042], [0.05, -0.058], [-0.06, -0.058]], 0.03, 0.003), K));
+  const bow = new THREE.CatmullRomCurve3([V(0.002, -0.058, 0), V(0.016, -0.088, 0), V(0.052, -0.092, 0), V(0.062, -0.058, 0)]);
+  root.add(mesh(new THREE.TubeGeometry(bow, 16, 0.004, 6, false).scale(1, 1, 2.4), S));
+  root.add(mesh(profile([[0.03, -0.058], [0.04, -0.058], [0.036, -0.078], [0.03, -0.084], [0.027, -0.08]], 0.007, 0.0015), S));
+  root.add(mesh(tube(0.0055, 0.0055, 0.04, 8).rotateY(Math.PI / 2), S, -0.012, -0.05, 0));
+  root.add(mesh(profile([[-0.044, -0.058], [0.0, -0.058], [-0.01, -0.1], [-0.018, -0.15], [-0.058, -0.146], [-0.052, -0.098]], 0.034, 0.008), P));
+  for (let i = 0; i < 7; i++) for (const s of [-1, 1]) root.add(mesh(rbox(0.03, 0.0025, 0.002, 0.0006), P, -0.032 - i * 0.002, -0.076 - i * 0.01, s * 0.0175));
+
+  // Butt: polymer, deep and straight, with the hinged shoulder strap folded down.
+  root.add(mesh(profile([[-0.33, 0.046], [-0.6, 0.046], [-0.614, -0.12], [-0.52, -0.122], [-0.33, -0.042]], 0.042, 0.009, [[[-0.42, -0.02], [-0.5, -0.02], [-0.52, -0.09], [-0.47, -0.088]]]), P));
+  root.add(mesh(profile([[-0.614, 0.048], [-0.628, 0.044], [-0.632, -0.122], [-0.614, -0.126]], 0.046, 0.004), R));
+  root.add(mesh(rbox(0.008, 0.11, 0.044, 0.003), K, -0.636, -0.02, 0));
+  for (let i = 0; i < 4; i++) for (const s of [-1, 1]) root.add(mesh(rbox(0.14, 0.003, 0.002, 0.0006), P, -0.43, 0.034 - i * 0.008, s * 0.0215));
+
+  // Barrel, barrel lock, carrying handle folded to the left.
+  root.add(mesh(tube(0.0145, 0.0135, 0.43, 16), S, 0.39, 0, 0));
+  root.add(mesh(tube(0.021, 0.021, 0.04, 16), K, 0.19, 0, 0));
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    root.add(mesh(rbox(0.024, 0.004, 0.004, 0.001), S, 0.19, Math.sin(a) * 0.021, Math.cos(a) * 0.021));
+  }
+  root.add(mesh(rbox(0.03, 0.024, 0.03, 0.004), K, 0.25, 0.006, 0));
+  const ch = new THREE.CatmullRomCurve3([V(0.24, 0.014, -0.014), V(0.245, 0.03, -0.07), V(0.29, 0.034, -0.088), V(0.335, 0.028, -0.072), V(0.34, 0.012, -0.02)]);
+  root.add(mesh(new THREE.TubeGeometry(ch, 18, 0.0045, 6, false), S));
+  root.add(mesh(tube(0.011, 0.011, 0.08, 12), P, 0.29, 0.033, -0.088));
+
+  // Gas cylinder under the barrel, gas block and regulator, bipod folded back.
+  root.add(mesh(tube(0.011, 0.011, 0.27, 12), K, 0.3, -0.032, 0));
+  root.add(mesh(rbox(0.044, 0.064, 0.034, 0.005), K, 0.455, -0.012, 0));
+  root.add(mesh(tube(0.013, 0.013, 0.02, 12).rotateY(Math.PI / 2), S, 0.465, -0.032, 0.022));
+  for (let i = 0; i < 3; i++) root.add(mesh(rbox(0.004, 0.006, 0.004, 0.001), S, 0.465 + (i - 1) * 0.007, -0.022, 0.034));
+  root.add(mesh(rbox(0.03, 0.022, 0.05, 0.004), S, 0.44, -0.048, 0));
+  for (const s of [-1, 1]) {
+    root.add(mesh(tube(0.0055, 0.0055, 0.3, 8), S, 0.29, -0.052, s * 0.02));
+    root.add(mesh(rbox(0.022, 0.01, 0.02, 0.002), S, 0.135, -0.054, s * 0.02));
+  }
+  // Front sight: tall base with protective ears and the blade, then the slotted suppressor.
+  root.add(mesh(profile([[0.57, 0.0], [0.6, 0.0], [0.597, 0.03], [0.575, 0.03]], 0.024, 0.003), K));
+  for (const s of [-1, 1]) root.add(mesh(profile([[0.574, 0.026], [0.598, 0.026], [0.594, 0.076], [0.586, 0.08], [0.578, 0.074]], 0.0028, 0.0006), S, 0, 0, s * 0.011));
+  root.add(mesh(rbox(0.004, 0.044, 0.003, 0.0006), S, 0.586, 0.052, 0));
+  root.add(mesh(tube(0.017, 0.0175, 0.065, 16), S, 0.635, 0, 0));
+  slots(root, R, 0.637, 0.0165, 0.046, 8);
+
+  // Belt: a curve of linked rounds from the feed tray down into the belt bag on the left.
+  const belt = new THREE.Group();
+  const path = new THREE.CatmullRomCurve3([V(0.02, RT - 0.012, -0.036), V(0.02, RT - 0.01, -0.07), V(0.022, 0.0, -0.11), V(0.02, -0.06, -0.122)]);
+  const round = new THREE.CylinderGeometry(0.0059, 0.0059, 0.051, 8).rotateZ(-Math.PI / 2);
+  const tip = new THREE.ConeGeometry(0.0055, 0.022, 8).rotateZ(-Math.PI / 2);
+  for (let i = 0; i <= 12; i++) {
+    const p = path.getPointAt(i / 12);
+    belt.add(mesh(round, mats.brass, p.x - 0.008, p.y, p.z));
+    belt.add(mesh(tip, mats.brass, p.x + 0.028, p.y, p.z));
+    belt.add(mesh(rbox(0.04, 0.012, 0.004, 0.001), S, p.x - 0.006, p.y, p.z + 0.002));
+  }
+  root.add(belt);
+  // Belt bag, hooked to the left of the receiver: 100 rounds in canvas.
+  const magazine = new THREE.Group();
+  magazine.add(mesh(rbox(0.14, 0.11, 0.07, 0.016), mats.sleeve, 0.02, -0.11, -0.112));
+  magazine.add(mesh(rbox(0.144, 0.022, 0.074, 0.008), mats.sleeve, 0.02, -0.048, -0.112));
+  magazine.add(mesh(rbox(0.06, 0.02, 0.004, 0.002), R, 0.02, -0.11, -0.149));
+  magazine.add(mesh(rbox(0.02, 0.05, 0.02, 0.004), S, -0.04, -0.03, -0.075));
+  root.add(magazine);
+
+  const rightArm = arm(mats, 1.0, -1, V(-0.034, -0.11, 0.032), V(0.94, 0.26, -0.1), V(0.1, 0, 1), V(-0.38, -0.26, 0.17));
+  const leftArm = arm(mats, 0.9, 1, V(0.13, -0.066, -0.01), V(0.15, 0.1, 1), V(0, -1, 0.15), V(-0.22, -0.34, -0.3));
+  root.add(rightArm, leftArm);
+  return { root, muzzle: V(0.67, 0, 0), sight: V(-0.32, 0.067, 0), eject: V(0.0, -0.05, 0.0), magazine, leftArm, rightArm, bolt, cover, belt };
+}

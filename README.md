@@ -26,9 +26,14 @@ Each is modelled at true scale from its real layout.
 | 1 | SAR 21 | 5.56 mm bullpup, optic 1.5× / 3× |
 | 1 | ST Engineering BR18 | 5.56 mm bullpup, 645 mm, red dot 1.3× with 3× magnifier |
 | 1 | Ultimax 100 Mk 3 | 100-round drum, slow to handle, steady in long bursts |
+| 1 | FN MAG | 7.62 mm belt-fed GPMG, 100-round belt bag; feed-cover belt change |
 | 1 | KAC M110 SASS | suppressed 7.62 mm, 4× / 7× / 10× scope; enemies hear it from far less distance |
 | 2 | H&K P30 | 9 mm sidearm |
 | 3 | MATADOR | 90 mm rocket, two carried |
+
+Every weapon has its own reload: bullpups tip up to reach the magazine behind the grip, the
+Ultimax rolls its drum out, the FN MAG opens its feed cover for a new belt, the P30 slide locks
+back on an empty magazine. Reloading from empty takes longer and ends by working the action.
 
 `1` `2` `3` or the mouse wheel switch; swap the primary at the patrol base armoury with `T`.
 
