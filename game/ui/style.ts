@@ -93,13 +93,19 @@ const CSS = `
 .timer { position:absolute; top:84px; left:50%; transform:translateX(-50%); font-family:"JetBrains Mono",monospace; font-size:22px; font-weight:700; color:var(--amber); opacity:0; }
 .timer.on { opacity:1; }
 .scope { position:absolute; inset:0; opacity:0; pointer-events:none;
-  background:radial-gradient(circle at 50% 50%, transparent 0, transparent 37.2vh, rgba(0,0,0,.55) 37.8vh, #000 39vh, #000 100%); }
+  background:radial-gradient(circle at 50% 50%, transparent 0, transparent 41.4vh, rgba(0,0,0,.6) 42.4vh, #000 44vh, #000 100%);
+  box-shadow:inset 0 0 18vh rgba(0,0,0,.45); }
+.scope.wide { background:radial-gradient(circle at 50% 50%, transparent 0, transparent 46vh, rgba(0,0,0,.5) 47.5vh, #050505 50vh, #050505 100%); }
 .scope.on { opacity:1; }
-.scope:before,.scope:after { content:""; position:absolute; background:#0a0a0a; }
-.scope:before { left:50%; top:calc(50% - 38vh); width:1.2px; height:76vh; margin-left:-.6px;
-  -webkit-mask:linear-gradient(#000 0 24%, transparent 24% 26%, #000 26% 74%, transparent 74% 76%, #000 76%); }
-.scope:after { top:50%; left:calc(50% - 38vh); height:1.2px; width:76vh; margin-top:-.6px; }
-.scope i { position:absolute; left:50%; top:50%; width:5px; height:5px; margin:-2.5px; border-radius:50%; background:#0a0a0a; }
+.scope .ret { position:absolute; left:50%; top:50%; width:84vh; height:84vh; margin:-42vh 0 0 -42vh; }
+.scope .zm { position:absolute; left:50%; top:calc(50% + 34vh); transform:translateX(-50%); font-size:12px; color:rgba(233,230,220,.55); letter-spacing:.1em; }
+.scope .br { position:absolute; left:50%; top:calc(50% + 46vh); transform:translateX(-50%); text-align:center; font-size:11px; letter-spacing:.24em; color:rgba(233,230,220,.5); }
+.scope .br b { display:block; height:2px; width:100%; background:var(--amber); margin:0 auto 6px; max-width:120px; }
+.marks { position:absolute; inset:0; }
+.em { position:absolute; left:0; top:0; width:0; height:0; margin:-12px 0 0 -8px; display:none; will-change:transform;
+  border-left:8px solid transparent; border-right:8px solid transparent; border-top:11px solid #e0442c;
+  filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 4px rgba(224,68,44,.7)); }
+.ct { position:absolute; top:24px; left:50%; width:3px; height:9px; margin-left:-1.5px; background:#d2452f; display:none; will-change:transform; }
 .slots { display:flex; gap:10px; justify-content:flex-end; margin-top:8px; font-size:12px; font-weight:600; letter-spacing:.14em; color:var(--faint); }
 .slots span b { font-family:"JetBrains Mono",monospace; font-weight:400; margin-right:5px; }
 .slots span.on { color:var(--bone); }

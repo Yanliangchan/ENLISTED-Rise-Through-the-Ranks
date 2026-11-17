@@ -102,6 +102,10 @@ export class Soldier {
   lookYaw = 0;
   deadT = 0;
   alertDelay = -1;
+  /** Seconds this soldier stays marked for the player (fired at them, or spotted through a sight). */
+  revealed = 0;
+  /** Seconds the player has held a sight on this soldier, for scope spotting. */
+  spotAcc = 0;
   readonly pose: Pose = { phase: Math.random() * 6, speed: 0, crouch: 0, aimYaw: 0, aimPitch: 0, aim: 0, kick: 0, flinch: 0, dead: 0, deadKind: 0 };
   stepAcc = 0;
 
@@ -381,6 +385,7 @@ export class Soldiers implements TargetProvider {
         if (_c.distanceToSquared(_a) < 3.2) tp.whiz(_c);
       }
     }
+    s.revealed = Math.max(s.revealed, 3);
     this.vfx.tracer(o, end, 520);
     this.vfx.muzzle(o, _b, 0.9, true);
     if (dist < 60) this.vfx.flashLight(o, 16, 0.05);
@@ -395,6 +400,7 @@ export class Soldiers implements TargetProvider {
     for (let i = this.list.length - 1; i >= 0; i--) {
       const s = this.list[i];
       const ps = s.pose;
+      s.revealed = Math.max(0, s.revealed - dt);
       if (!s.alive) {
         s.deadT += dt;
         ps.dead = Math.min(1, s.deadT / 0.62);

@@ -8,15 +8,17 @@ const el = (cls: string, parent: HTMLElement, html = ""): HTMLDivElement => {
 
 const PX_PER_DEG = 3.4;
 
-/** Mil-dots along both arms of the scope reticle. */
-function mil(): string {
-  let h = "";
-  for (let i = -4; i <= 4; i++) {
-    if (i === 0) continue;
-    h += `<i style="margin-left:${i * 3.4}vh;margin-top:-2.5px"></i><i style="margin-top:${i * 3.4}vh;margin-left:-2.5px"></i>`;
-  }
-  return h;
-}
+/** Reticles as SVG on a 200-unit square that spans the scope's field. */
+const RETICLES: Record<"mil" | "sar", string> = {
+  // M110: thin duplex crosshair with mil-dots, heavy posts toward the edge.
+  mil: (() => {
+    let d = "";
+    for (let i = -4; i <= 4; i++) if (i) d += `<circle cx="${100 + i * 9}" cy="100" r="1.1"/><circle cx="100" cy="${100 + i * 9}" r="1.1"/>`;
+    return `<path d="M0 100H200M100 0V200" stroke="#0a0a0a" stroke-width=".45" fill="none"/><path d="M0 100H58M142 100H200M100 142V200M100 0V58" stroke="#0a0a0a" stroke-width="2.2"/><g fill="#0a0a0a">${d}</g>`;
+  })(),
+  // SAR 21: open ring, a post rising from below, bars in from the sides, a centre dot.
+  sar: `<circle cx="100" cy="100" r="15" stroke="#0a0a0a" stroke-width="1.2" fill="none"/><path d="M100 118V200M0 100H82M118 100H200" stroke="#0a0a0a" stroke-width="2"/><circle cx="100" cy="100" r="1.4" fill="#c8241a"/>`,
+};
 
 /** In-game heads-up display. Every setter caches its last value, so calling them each frame costs nothing. */
 export class Hud {
@@ -47,6 +49,8 @@ export class Hud {
   private readonly timerEl: HTMLDivElement;
   readonly fade: HTMLDivElement;
   private scopeEl!: HTMLDivElement;
+  private readonly marks: HTMLDivElement[] = [];
+  private readonly ticks: HTMLDivElement[] = [];
   private cache: Record<string, string | number | boolean> = {};
 
   constructor(parent: HTMLElement) {
@@ -73,7 +77,10 @@ export class Hud {
     this.hpNum = this.vit.querySelector("b")!;
     this.stance = el("stance", status, "STANDING");
     this.wpn = el("wpn", this.root, `<div class="nm"></div><div class="am"><b>30</b><span>150</span></div><div class="mt"><div class="fm"></div><div class="gr"></div></div><div class="slots"></div>`);
-    this.scopeEl = el("scope", this.root, mil());
+    this.scopeEl = el("scope", this.root, `<svg class="ret" viewBox="0 0 200 200"></svg><div class="zm mono"></div><div class="br"><b></b><span>SHIFT  HOLD BREATH</span></div>`);
+    const marks = el("marks", this.root);
+    for (let i = 0; i < 10; i++) this.marks.push(el("em", marks));
+    for (let i = 0; i < 8; i++) this.ticks.push(el("ct", this.tape.parentElement as HTMLDivElement));
     this.xh = el("xh", this.root, `<i class="l"></i><i class="r"></i><i class="u"></i><i class="d"></i><i class="c"></i>`);
     this.xhParts = Array.from(this.xh.querySelectorAll("i"));
     this.hm = el("hm", this.root);
@@ -176,8 +183,50 @@ export class Hud {
     this.wpn.querySelector(".slots")!.innerHTML = names.map((n, i) => `<span class="${i === active ? "on" : ""}"><b>${i + 1}</b>${n}</span>`).join("");
   }
 
-  scope(on: boolean): void {
-    if (this.set("sc", on)) this.scopeEl.classList.toggle("on", on);
+  scope(v: { style: "mil" | "sar"; mag: number; breath: number } | null): void {
+    if (this.set("sc", !!v)) this.scopeEl.classList.toggle("on", !!v);
+    if (!v) return;
+    if (this.set("ss", v.style)) {
+      this.scopeEl.querySelector(".ret")!.innerHTML = RETICLES[v.style];
+      this.scopeEl.classList.toggle("wide", v.style === "sar");
+    }
+    if (this.set("sm", v.mag)) this.scopeEl.querySelector(".zm")!.textContent = `${v.mag.toFixed(1)}×`;
+    const b = Math.round(v.breath * 40);
+    if (this.set("sb", b)) (this.scopeEl.querySelector(".br b") as HTMLElement).style.width = `${b * 2.5}%`;
+  }
+
+  /** Spotted enemies: screen position (px) and fade, nearest first. */
+  enemyMarks(items: Array<[number, number, number]>): void {
+    for (let i = 0; i < this.marks.length; i++) {
+      const m = this.marks[i];
+      const it = items[i];
+      if (!it) {
+        if (m.style.display !== "none") m.style.display = "none";
+        continue;
+      }
+      m.style.display = "block";
+      m.style.transform = `translate(${it[0].toFixed(0)}px,${it[1].toFixed(0)}px)`;
+      m.style.opacity = it[2].toFixed(2);
+    }
+  }
+
+  /** Red ticks on the compass for enemies that are shooting at you or have been spotted. */
+  threats(bearings: number[], heading: number): void {
+    const h = ((heading % 360) + 360) % 360;
+    for (let i = 0; i < this.ticks.length; i++) {
+      const t = this.ticks[i];
+      if (i >= bearings.length) {
+        if (t.style.display !== "none") t.style.display = "none";
+        continue;
+      }
+      const d = ((bearings[i] - h + 540) % 360) - 180;
+      if (Math.abs(d) > 64) {
+        t.style.display = "none";
+        continue;
+      }
+      t.style.display = "block";
+      t.style.transform = `translateX(${(d * PX_PER_DEG).toFixed(1)}px)`;
+    }
   }
 
   /** Spread half-angle in degrees → crosshair gap in pixels for the current vertical FOV. */

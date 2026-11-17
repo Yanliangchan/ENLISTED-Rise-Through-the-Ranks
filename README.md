@@ -23,13 +23,18 @@ Each is modelled at true scale from its real layout.
 
 | Slot | Weapon | Notes |
 |---|---|---|
-| 1 | SAR 21 | 5.56 mm bullpup, integral 1.5× optic |
+| 1 | SAR 21 | 5.56 mm bullpup, optic 1.5× / 3× |
 | 1 | Ultimax 100 Mk 3 | 100-round drum, slow to handle, steady in long bursts |
-| 1 | KAC M110 SASS | suppressed 7.62 mm, 3.5–10× scope; enemies hear it from far less distance |
+| 1 | KAC M110 SASS | suppressed 7.62 mm, 4× / 7× / 10× scope; enemies hear it from far less distance |
 | 2 | H&K P30 | 9 mm sidearm |
 | 3 | MATADOR | 90 mm rocket, two carried |
 
 `1` `2` `3` or the mouse wheel switch; swap the primary at the patrol base armoury with `T`.
+
+Sights are set by real magnification: SAR 21 optic 1.5× or 3×, M110 scope 4×, 7× or 10×. While
+aiming, the mouse wheel steps the zoom and Shift holds your breath to steady a magnified sight.
+Holding a sight on an enemy for a moment spots him (red marker and compass tick for eight
+seconds); anyone shooting at you is marked for three.
 
 ## Controls
 

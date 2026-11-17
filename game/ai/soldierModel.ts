@@ -115,7 +115,7 @@ export function opforCamo(): THREE.CanvasTexture {
     256,
     (c) => {
       const img = c.createImageData(256, 256);
-      const cols = [[60, 62, 65], [48, 50, 53], [72, 73, 72], [38, 40, 43], [56, 55, 52]];
+      const cols = [[74, 76, 79], [58, 60, 63], [92, 92, 89], [47, 49, 53], [70, 68, 63]];
       for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
         const v = fbm(x / 256, y / 256, 5, 4, 51) * 0.65 + fbm(x / 256, y / 256, 14, 2, 77) * 0.35;
         const k = v < 0.4 ? 0 : v < 0.5 ? 1 : v < 0.57 ? 2 : v < 0.64 ? 0 : v < 0.7 ? 4 : 3;

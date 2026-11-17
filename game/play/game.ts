@@ -403,6 +403,46 @@ export class Game implements MissionHost {
     this.audio.foley("pin");
   }
 
+  /**
+   * Holding a sight on an enemy for a moment marks him for eight seconds; anyone shooting at
+   * you is marked for three. Marked enemies get a red marker over the head and a compass tick.
+   */
+  private spotting(dt: number): void {
+    const cam = this.engine.camera;
+    cam.getWorldDirection(_v2);
+    const eye = this.player.eyePosition(_eye);
+    const aimed = this.weapon.ads > 0.8;
+    // Cone a little wider than the reticle centre, narrower at high magnification.
+    const cone = Math.cos(THREE.MathUtils.degToRad(Math.max(0.6, cam.fov * 0.045)));
+    const marks: Array<[number, number, number, number]> = [];
+    const bearings: number[] = [];
+    const w = window.innerWidth, hgt = window.innerHeight;
+    for (const s of this.soldiers.list) {
+      if (!s.alive) continue;
+      const hp = s.model.headPos;
+      _v.subVectors(s.model.chestPos, eye);
+      const dist = _v.length();
+      if (aimed && dist < 260 && _v.multiplyScalar(1 / dist).dot(_v2) > cone) {
+        s.spotAcc += dt;
+        if (s.spotAcc > 0.35 && s.revealed < 7.5) {
+          if (this.world.clear(eye, s.model.chestPos)) {
+            if (s.revealed <= 0) this.audio.ui("hover");
+            s.revealed = 8;
+          }
+          s.spotAcc = 0;
+        }
+      } else s.spotAcc = Math.max(0, s.spotAcc - dt * 2);
+      if (s.revealed <= 0 || dist < 8) continue;
+      bearings.push(THREE.MathUtils.radToDeg(Math.atan2(hp.x - eye.x, -(hp.z - eye.z))));
+      _v.set(hp.x, hp.y + 0.42, hp.z).project(cam);
+      if (_v.z > 1 || Math.abs(_v.x) > 1.02 || Math.abs(_v.y) > 1.02) continue;
+      marks.push([(_v.x * 0.5 + 0.5) * w, (-_v.y * 0.5 + 0.5) * hgt, Math.min(1, s.revealed / 0.8) * 0.95, dist]);
+    }
+    marks.sort((a, b) => a[3] - b[3]);
+    this.hud.enemyMarks(marks.map((m) => [m[0], m[1], m[2]] as [number, number, number]));
+    this.hud.threats(bearings, THREE.MathUtils.radToDeg(-this.player.yaw));
+  }
+
   private launchRocket(origin: THREE.Vector3, dir: THREE.Vector3): void {
     const g = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5, 10).rotateX(Math.PI / 2), this.nadeMat);
@@ -488,7 +528,8 @@ export class Game implements MissionHost {
     p.eyePosition(cam.position);
     this.shake = Math.max(0, this.shake - dt * 2.2);
     const sh = this.shake * this.shake * 0.05;
-    cam.rotation.set(p.pitch + (Math.random() - 0.5) * sh, p.yaw + (Math.random() - 0.5) * sh, -p.lean * 0.13 + (Math.random() - 0.5) * sh, "YXZ");
+    const sway = this.weapon.aimSway(dt);
+    cam.rotation.set(p.pitch + sway.y + (Math.random() - 0.5) * sh, p.yaw + sway.x + (Math.random() - 0.5) * sh, -p.lean * 0.13 + (Math.random() - 0.5) * sh, "YXZ");
     cam.updateMatrixWorld();
     this.weapon.update(dt);
     // Patrol base: weapons safe, nothing can touch you, and you mend quickly.
@@ -587,7 +628,8 @@ export class Game implements MissionHost {
     h.weapon(this.weapon.def.name, this.weapon.ammo, this.weapon.reserve, this.inCamp ? "SAFE" : this.weapon.auto ? "AUTO" : "SEMI", this.weapon.reloading, this.nades, this.weapon.def.magSize);
     h.crosshair(this.weapon.spread, cam.fov, this.weapon.ads < 0.5 && !p.sprinting && !this.weapon.reloading);
     h.slots(this.weapon.slotNames, this.weapon.slotIndex);
-    h.scope(this.weapon.scoped);
+    h.scope(this.weapon.scopeView);
+    this.spotting(dt);
     if (h.update(dt)) this.audio.radio(0.35);
 
     if (m.ended) this.end(m.ended === "win", m.endLine);

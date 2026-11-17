@@ -208,7 +208,7 @@ export class Engine {
     this.csm.setupMaterial(mat);
     const csmHook = mat.onBeforeCompile.bind(mat);
     const macro = opts.macro ?? 0;
-    const key = `enl4:${macro > 0 ? macro.toFixed(2) : 0}:${opts.wind ? 1 : 0}:${opts.viewmodel ? 1 : 0}:${opts.noVis ? 1 : 0}:${opts.rim ?? 0}`;
+    const key = `enl5:${macro > 0 ? macro.toFixed(2) : 0}:${opts.wind ? 1 : 0}:${opts.viewmodel ? 1 : 0}:${opts.noVis ? 1 : 0}:${opts.rim ?? 0}`;
     mat.customProgramCacheKey = () => key;
     mat.onBeforeCompile = (shader, renderer) => {
       csmHook(shader, renderer);
@@ -287,7 +287,8 @@ uniform sampler2D uMacro;`
     ${
       opts.rim
         ? /* glsl */ `
-    float chRim = pow(1.0 - max(dot(normal, normalize(vViewPosition)), 0.0), 3.0) * smoothstep(-0.3, 0.6, wN.y + 0.4);
+    // Far figures get a stronger rim: the silhouette edge the eye picks a man out by at range.
+    float chRim = pow(1.0 - max(dot(normal, normalize(vViewPosition)), 0.0), 3.0) * smoothstep(-0.3, 0.6, wN.y + 0.4) * (1.0 + smoothstep(25.0, 120.0, length(vViewPosition)) * 1.8);
     reflectedLight.directDiffuse += (material.diffuseColor * 0.9 + 0.03) * vec3(0.78, 0.86, 1.0) * chRim * ${opts.rim.toFixed(2)} * (0.3 + 0.7 * skyV) * 2.2;`
         : ""
     }

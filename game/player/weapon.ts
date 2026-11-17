@@ -45,7 +45,10 @@ export interface WeaponDef {
   recoilPitch: number;
   recoilYaw: number;
   adsTime: number;
-  adsFov: number;
+  /** Sight magnifications, ascending. The mouse wheel steps through them while aiming. */
+  zooms: number[];
+  /** Index into `zooms` the weapon is issued at. */
+  zoomDefault: number;
   reloadTime: number;
   sound: "rifle" | "lmg" | "pistol" | "dmr";
   modes: Array<"auto" | "semi">;
@@ -55,8 +58,8 @@ export interface WeaponDef {
   mobility: number;
   /** How far enemies hear a shot, metres. */
   noise: number;
-  /** Full-screen scope picture when aimed (magnified optics). */
-  scope?: boolean;
+  /** Reticle drawn as a full-screen sight picture at 2× and above (magnified optics). */
+  scope?: "mil" | "sar";
   /** Fires a rocket instead of a bullet. */
   rocket?: boolean;
   /** Weapon kick scale (viewmodel springs). */
@@ -73,7 +76,7 @@ export interface WeaponDef {
 export const SAR21: WeaponDef = {
   id: "sar21", name: "SAR 21", caliber: "5.56 × 45 mm", slot: "primary", build: buildSar21,
   magSize: 30, reserve: 150, rpm: 620, damage: 36, falloffStart: 45, falloffEnd: 140, falloffMin: 0.62,
-  hipSpread: 2.4, adsSpread: 0.12, recoilPitch: 0.0105, recoilYaw: 0.0042, adsTime: 0.2, adsFov: 50, reloadTime: 2.9,
+  hipSpread: 2.4, adsSpread: 0.12, recoilPitch: 0.0105, recoilYaw: 0.0042, adsTime: 0.2, zooms: [1.5, 3], zoomDefault: 1, scope: "sar", reloadTime: 2.9,
   sound: "rifle", modes: ["auto", "semi"], hip: [0.135, -0.2, -0.36], mobility: 1, noise: 75, kick: 1, boltTravel: 0.02,
   magHand: [-0.3, -0.12, 0], boltHand: [-0.1, 0.13, -0.03], magOut: [-0.03, -0.3, -0.06],
 };
@@ -82,7 +85,7 @@ export const SAR21: WeaponDef = {
 export const ULTIMAX: WeaponDef = {
   id: "ultimax100", name: "ULTIMAX 100", caliber: "5.56 × 45 mm", slot: "primary", build: buildUltimax,
   magSize: 100, reserve: 200, rpm: 540, damage: 33, falloffStart: 50, falloffEnd: 160, falloffMin: 0.6,
-  hipSpread: 3.2, adsSpread: 0.3, recoilPitch: 0.0062, recoilYaw: 0.0038, adsTime: 0.34, adsFov: 56, reloadTime: 5.4,
+  hipSpread: 3.2, adsSpread: 0.3, recoilPitch: 0.0062, recoilYaw: 0.0038, adsTime: 0.34, zooms: [1.45], zoomDefault: 0, reloadTime: 5.4,
   sound: "lmg", modes: ["auto"], hip: [0.15, -0.15, -0.37], mobility: 0.86, noise: 85, kick: 0.7, boltTravel: 0.0,
   magHand: [-0.16, -0.02, 0.02], boltHand: [-0.15, 0.1, 0.0], magOut: [0, -0.34, -0.05],
 };
@@ -91,15 +94,15 @@ export const ULTIMAX: WeaponDef = {
 export const M110: WeaponDef = {
   id: "m110", name: "M110 SASS", caliber: "7.62 × 51 mm", slot: "primary", build: buildM110,
   magSize: 20, reserve: 80, rpm: 320, damage: 74, falloffStart: 120, falloffEnd: 400, falloffMin: 0.8,
-  hipSpread: 3.6, adsSpread: 0.035, recoilPitch: 0.021, recoilYaw: 0.006, adsTime: 0.3, adsFov: 16, reloadTime: 3.2,
-  sound: "dmr", modes: ["semi"], hip: [0.15, -0.155, -0.35], mobility: 0.92, noise: 38, scope: true, kick: 1.5, boltTravel: 0.03,
+  hipSpread: 3.6, adsSpread: 0.035, recoilPitch: 0.021, recoilYaw: 0.006, adsTime: 0.3, zooms: [4, 7, 10], zoomDefault: 1, reloadTime: 3.2,
+  sound: "dmr", modes: ["semi"], hip: [0.15, -0.155, -0.35], mobility: 0.92, noise: 38, scope: "mil", kick: 1.5, boltTravel: 0.03,
   magHand: [-0.18, -0.1, 0.02], boltHand: [-0.2, 0.03, -0.01], magOut: [0.01, -0.3, -0.04],
 };
 
 export const P30: WeaponDef = {
   id: "p30", name: "H&K P30", caliber: "9 × 19 mm", slot: "sidearm", build: buildP30,
   magSize: 15, reserve: 60, rpm: 420, damage: 28, falloffStart: 18, falloffEnd: 60, falloffMin: 0.45,
-  hipSpread: 1.9, adsSpread: 0.4, recoilPitch: 0.017, recoilYaw: 0.006, adsTime: 0.12, adsFov: 62, reloadTime: 1.7,
+  hipSpread: 1.9, adsSpread: 0.4, recoilPitch: 0.017, recoilYaw: 0.006, adsTime: 0.12, zooms: [1.25], zoomDefault: 0, reloadTime: 1.7,
   sound: "pistol", modes: ["semi"], hip: [0.1, -0.09, -0.43], mobility: 1.06, noise: 60, kick: 1.3, boltTravel: 0.032,
   magHand: [0.0, -0.1, 0.01], boltHand: [-0.02, 0.085, 0.03], magOut: [-0.03, -0.26, 0],
 };
@@ -107,7 +110,7 @@ export const P30: WeaponDef = {
 export const MATADOR: WeaponDef = {
   id: "matador", name: "MATADOR", caliber: "90 mm HEAT / HESH", slot: "launcher", build: buildMatador,
   magSize: 1, reserve: 2, rpm: 30, damage: 0, falloffStart: 0, falloffEnd: 1, falloffMin: 1,
-  hipSpread: 1.2, adsSpread: 0.15, recoilPitch: 0.03, recoilYaw: 0.01, adsTime: 0.36, adsFov: 46, reloadTime: 4.6,
+  hipSpread: 1.2, adsSpread: 0.15, recoilPitch: 0.03, recoilYaw: 0.01, adsTime: 0.36, zooms: [2], zoomDefault: 0, reloadTime: 4.6,
   sound: "lmg", modes: ["semi"], hip: [0.2, -0.17, -0.32], mobility: 0.8, noise: 120, rocket: true, kick: 2.2, boltTravel: 0,
   magHand: [0, 0, 0], boltHand: [0, 0, 0], magOut: [0, 0, 0],
 };
@@ -124,6 +127,7 @@ interface Carried {
   flash: THREE.Group;
   reticle: THREE.Object3D | null;
   lenses: THREE.Object3D[];
+  zoomI: number;
   magHome: THREE.Vector3;
   leftHome: THREE.Vector3;
   boltHome: THREE.Vector3;
@@ -275,7 +279,7 @@ export class WeaponSystem {
     gun.root.traverse((o) => {
       if (o.name === "lens") lenses.push(o);
     });
-    return { lenses, def, gun, ammo: def.magSize, reserve: def.reserve, auto: def.modes[0] === "auto", flash, reticle: gun.root.getObjectByName("reticle") ?? null, magHome: gun.magazine.position.clone(), leftHome: gun.leftArm.position.clone(), boltHome: gun.bolt.position.clone() };
+    return { zoomI: def.zoomDefault, lenses, def, gun, ammo: def.magSize, reserve: def.reserve, auto: def.modes[0] === "auto", flash, reticle: gun.root.getObjectByName("reticle") ?? null, magHome: gun.magazine.position.clone(), leftHome: gun.leftArm.position.clone(), boltHome: gun.bolt.position.clone() };
   }
 
   get def(): WeaponDef {
@@ -301,7 +305,41 @@ export class WeaponSystem {
   }
   /** True while a magnified scope picture should replace the viewmodel. */
   get scoped(): boolean {
-    return !!this.cur.def.scope && this.ads > 0.86;
+    return !!this.cur.def.scope && this.ads > 0.86 && this.mag >= 2;
+  }
+  /** The selected magnification of the sight in hand. */
+  get zoom(): number {
+    return this.cur.def.zooms[this.cur.zoomI];
+  }
+  /** Sight picture for the HUD while scoped. */
+  get scopeView(): { style: "mil" | "sar"; mag: number; breath: number } | null {
+    return this.scoped ? { style: this.cur.def.scope!, mag: this.zoom, breath: this.breath } : null;
+  }
+  /** Magnification actually on screen right now (eases between steps and from the hip). */
+  private mag = 1;
+  /** Hold-breath reserve, 0..1, and whether it is being spent. */
+  breath = 1;
+  private holding = false;
+  private swayT = 0;
+  private readonly aimOff = new THREE.Vector2();
+
+  /**
+   * Scope sway: a slow figure-of-eight scaled by magnification and steadied by stance. Holding
+   * Shift while scoped holds the breath (about four seconds) to almost still the reticle.
+   * Returns a pitch/yaw offset the camera adds; the bullet follows the camera, so it is honest.
+   */
+  aimSway(dt: number): THREE.Vector2 {
+    const scoped = this.ads > 0.6 && this.mag >= 2;
+    this.holding = scoped && this.breath > 0.02 && (this.input.held("ShiftLeft") || this.input.held("ShiftRight"));
+    this.breath = this.holding ? Math.max(0, this.breath - dt / 4) : Math.min(1, this.breath + dt / (this.breath < 0.05 ? 5 : 2.5));
+    const winded = this.breath < 0.05 && !this.holding ? 1.8 : 1;
+    this.swayT += dt * (this.holding ? 0.35 : 1);
+    const p = this.player;
+    const stance = p.stance === "prone" ? 0.3 : p.stance === "crouch" ? 0.65 : 1;
+    const amp = scoped ? 0.00045 * this.mag * stance * winded * (this.holding ? 0.12 : 1) * sm(this.ads) : 0;
+    const t = this.swayT;
+    this.aimOff.set(Math.sin(t * 1.1) * Math.cos(t * 0.37) * amp, Math.sin(t * 0.55 + 1.3) * amp * 1.3);
+    return this.aimOff;
   }
   /** 1-based slot numbers that hold a weapon, with the active one, for the HUD. */
   get slotIndex(): number {
@@ -409,7 +447,14 @@ export class WeaponSystem {
       if (inp.hit("Digit1")) this.select(0);
       else if (inp.hit("Digit2")) this.select(1);
       else if (inp.hit("Digit3")) this.select(2);
-      else if (inp.wheel !== 0) this.select((this.slots.indexOf(this.pending ?? this.cur) + (inp.wheel > 0 ? 1 : this.slots.length - 1)) % this.slots.length);
+      else if (inp.wheel !== 0 && this.ads > 0.5 && d.zooms.length > 1) {
+        // Aiming: the wheel works the sight's magnification instead of changing weapons.
+        const next = Math.max(0, Math.min(d.zooms.length - 1, this.cur.zoomI + (inp.wheel < 0 ? 1 : -1)));
+        if (next !== this.cur.zoomI) {
+          this.cur.zoomI = next;
+          this.audio.ui("hover");
+        }
+      } else if (inp.wheel !== 0 && this.ads < 0.5) this.select((this.slots.indexOf(this.pending ?? this.cur) + (inp.wheel > 0 ? 1 : this.slots.length - 1)) % this.slots.length);
     }
     if (inp.hit("KeyV") && d.modes.length > 1) {
       this.cur.auto = !this.cur.auto;
@@ -528,7 +573,10 @@ export class WeaponSystem {
 
     this.flashT -= dt;
     c.flash.visible = this.flashT > 0 && !this.scoped;
-    this.engine.setFov(THREE.MathUtils.lerp(this.hipFov + this.sprintBlend * 5, d.adsFov, e));
+    // Field of view from true magnification: at N× the view is N times narrower in tangent terms.
+    this.mag += (THREE.MathUtils.lerp(1, d.zooms[c.zoomI], e) - this.mag) * Math.min(1, dt * 14);
+    const base = this.hipFov + this.sprintBlend * 5;
+    this.engine.setFov(THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(base) / 2) / this.mag)));
   }
 
   /** Look sensitivity scale for the current zoom. */
