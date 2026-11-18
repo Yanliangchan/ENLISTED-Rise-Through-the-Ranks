@@ -336,7 +336,14 @@ function buildGeometry(variant: SoldierVariant): THREE.BufferGeometry {
 }
 
 /** Rifle built along +Z with the grip at the origin: a railed, suppressed AK for OPFOR, a bullpup for the SAF. */
-function rifleGeometry(bullpup: boolean): THREE.BufferGeometry {
+/** What a soldier carries: assault rifle, the SAF bullpup, a belt-fed machine gun, or a rocket launcher. */
+export type EnemyWeapon = "ak" | "bullpup" | "pkm" | "rpg";
+
+/** Muzzle (or tube mouth) along the weapon's +Z, and its height, from the grip. */
+const MUZZLE: Record<EnemyWeapon, [number, number]> = { ak: [0.78, 0.055], bullpup: [0.6, 0.05], pkm: [0.98, 0.05], rpg: [0.66, 0.06] };
+
+function rifleGeometry(kind: EnemyWeapon): THREE.BufferGeometry {
+  const bullpup = kind === "bullpup";
   const parts: THREE.BufferGeometry[] = [];
   const add = (g: THREE.BufferGeometry, col: number, x: number, y: number, z: number, rx = 0): void => {
     const gg = g.index ? g.toNonIndexed() : g.clone();
@@ -352,7 +359,37 @@ function rifleGeometry(bullpup: boolean): THREE.BufferGeometry {
   };
   const steel = 0x1d1f22, poly = 0x26282b, worn = 0x3a3c40;
   const cyl = (r: number, l: number, seg = 10): THREE.BufferGeometry => new THREE.CylinderGeometry(r, r, l, seg);
-  if (bullpup) {
+  const wood = 0x6a3c22, olive = 0x4a5232;
+  if (kind === "pkm") {
+    // Belt-fed general-purpose machine gun: long receiver, fluted barrel with carry handle,
+    // skeleton wood stock, a green 100-round box hung on the right, folded bipod.
+    add(rbox(0.05, 0.07, 0.36, 0.008), steel, 0, 0.05, 0.06);
+    add(rbox(0.054, 0.016, 0.2, 0.004), steel, 0, 0.09, 0.02);
+    add(cyl(0.014, 0.6, 10), steel, 0, 0.055, 0.56, Math.PI / 2);
+    add(cyl(0.017, 0.06, 10), steel, 0, 0.055, 0.88, Math.PI / 2);
+    add(cyl(0.009, 0.4, 8), steel, 0, 0.022, 0.46, Math.PI / 2);
+    add(rbox(0.012, 0.06, 0.012, 0.003), steel, 0, 0.1, 0.82);
+    add(rbox(0.018, 0.05, 0.1, 0.004), wood, 0, 0.105, 0.34);
+    add(rbox(0.04, 0.03, 0.26, 0.006), wood, 0, 0.05, -0.24);
+    add(rbox(0.04, 0.03, 0.22, 0.006), wood, 0, -0.03, -0.25, 0.25);
+    add(rbox(0.04, 0.12, 0.03, 0.006), wood, 0, 0.015, -0.37);
+    add(rbox(0.036, 0.1, 0.045, 0.01), wood, 0, -0.035, -0.02, 0.25);
+    add(rbox(0.075, 0.1, 0.13, 0.008), olive, 0.06, -0.02, 0.06);
+    for (const sx of [-0.016, 0.016]) add(cyl(0.006, 0.34, 6), steel, sx, 0.01, 0.6, Math.PI / 2);
+    add(rbox(0.03, 0.12, 0.03, 0.006), steel, 0, -0.06, 0.2, -0.3);
+  } else if (kind === "rpg") {
+    // RPG-7: steel tube with wooden heat guard, two pistol grips, optical sight on the left,
+    // the flared venturi at the back and the warhead with its fins sitting in the muzzle.
+    add(cyl(0.022, 0.95, 12), steel, 0, 0.06, 0.05, Math.PI / 2);
+    add(cyl(0.028, 0.26, 12), wood, 0, 0.06, 0.04, Math.PI / 2);
+    add(new THREE.CylinderGeometry(0.045, 0.026, 0.12, 12), steel, 0, 0.06, -0.48, -Math.PI / 2);
+    add(rbox(0.036, 0.1, 0.045, 0.01), wood, 0, -0.02, -0.02, 0.25);
+    add(rbox(0.036, 0.09, 0.04, 0.01), wood, 0, -0.015, 0.22, 0.2);
+    add(rbox(0.03, 0.05, 0.09, 0.006), steel, -0.045, 0.1, 0.05);
+    add(cyl(0.02, 0.05, 10), olive, 0, 0.06, 0.55, Math.PI / 2);
+    add(new THREE.CylinderGeometry(0.0, 0.042, 0.2, 12), olive, 0, 0.06, 0.73, -Math.PI / 2);
+    add(new THREE.CylinderGeometry(0.042, 0.042, 0.04, 12), olive, 0, 0.06, 0.62, Math.PI / 2);
+  } else if (bullpup) {
     add(rbox(0.05, 0.085, 0.5, 0.014), poly, 0, 0.05, -0.08);
     add(rbox(0.046, 0.06, 0.2, 0.012), poly, 0, 0.04, 0.27);
     add(cyl(0.012, 0.2), steel, 0, 0.05, 0.45, Math.PI / 2);
@@ -465,7 +502,7 @@ export function soldierMaterials(engine: Engine, look: SoldierLook): SoldierMats
   };
 }
 
-const rifleCache = new Map<boolean, THREE.BufferGeometry>();
+const rifleCache = new Map<EnemyWeapon, THREE.BufferGeometry>();
 
 export class SoldierModel {
   readonly root = new THREE.Group();
@@ -480,12 +517,16 @@ export class SoldierModel {
   readonly chestPos = new THREE.Vector3();
   private limp = [0, 0, 0, 0];
 
-  constructor(mats: SoldierMats) {
+  private readonly muzzleZ: number;
+  private readonly muzzleY: number;
+
+  constructor(mats: SoldierMats, weapon?: EnemyWeapon) {
     let sharedGeo = geoCache.get(mats.variant);
     if (!sharedGeo) geoCache.set(mats.variant, (sharedGeo = buildGeometry(mats.variant)));
-    const bullpup = mats.variant === "saf";
-    let sharedRifle = rifleCache.get(bullpup);
-    if (!sharedRifle) rifleCache.set(bullpup, (sharedRifle = rifleGeometry(bullpup)));
+    const kind: EnemyWeapon = weapon ?? (mats.variant === "saf" ? "bullpup" : "ak");
+    let sharedRifle = rifleCache.get(kind);
+    if (!sharedRifle) rifleCache.set(kind, (sharedRifle = rifleGeometry(kind)));
+    [this.muzzleZ, this.muzzleY] = MUZZLE[kind];
     for (let i = 0; i < REST.length; i++) {
       const b = new THREE.Bone();
       const p = PARENT[i];
@@ -620,7 +661,7 @@ export class SoldierModel {
     // Derived world-space points.
     this.root.updateWorldMatrix(true, false);
     this.body.updateWorldMatrix(false, false);
-    this.muzzle.copy(this.rifle.position).addScaledVector(fwd, 0.78).addScaledVector(upv, 0.055).applyMatrix4(this.body.matrixWorld);
+    this.muzzle.copy(this.rifle.position).addScaledVector(fwd, this.muzzleZ).addScaledVector(upv, this.muzzleY).applyMatrix4(this.body.matrixWorld);
     this.chestPos.copy(pC).applyMatrix4(this.body.matrixWorld);
     this.headPos.copy(pC).add(_v.set(0, 0.42, 0.02).applyQuaternion(qC)).applyMatrix4(this.body.matrixWorld);
     void X;

@@ -26,6 +26,9 @@ interface Grenade {
   mesh: THREE.Mesh;
   vel: THREE.Vector3;
   fuse: number;
+  /** Thrown by the enemy: no kill credit, and it triggers the grenade warning. */
+  enemy?: boolean;
+  warned?: boolean;
 }
 
 const _v = new THREE.Vector3();
@@ -75,7 +78,7 @@ export class Game implements MissionHost {
   private menuShot = 0;
   private moteT = 0;
   private readonly grenades: Grenade[] = [];
-  private readonly rockets: Array<{ mesh: THREE.Group; vel: THREE.Vector3; life: number }> = [];
+  private readonly rockets: Array<{ mesh: THREE.Group; vel: THREE.Vector3; life: number; enemy: boolean; flown: number; warned?: boolean }> = [];
   private readonly fires: Fire[];
   private fireT = 0;
   private smokeT = 0;
@@ -182,6 +185,8 @@ export class Game implements MissionHost {
     this.vfx.onShellLand = (p) => this.audio.shellDrop(p.x, p.y, p.z);
     this.weapon.onShot = (o) => this.soldiers.noise(o, this.weapon.def.noise);
     this.weapon.onRocket = (o, d) => this.launchRocket(o, d);
+    this.soldiers.onRocket = (o, d) => this.launchRocket(o, d, true);
+    this.soldiers.onGrenade = (from, to) => this.enemyGrenade(from, to);
     this.weapon.onSafeTrigger = () => this.hud.banner("WEAPONS SAFE", "Leave the patrol base to fire");
     try {
       const saved = localStorage.getItem("enlisted.primary");
@@ -245,14 +250,14 @@ export class Game implements MissionHost {
     return this.world.clear(this.player.eyePosition(_eye), p);
   }
 
-  explode(pos: THREE.Vector3, scale: number): void {
+  explode(pos: THREE.Vector3, scale: number, byPlayer = true, playerMax = 150): void {
     this.vfx.explosion(pos, scale);
     this.audio.explosion(pos.x, pos.y, pos.z, scale);
     const radius = 7.5 * scale;
-    const k = this.soldiers.explode(pos, radius, 190);
-    this.explosiveKills += k;
+    const k = this.soldiers.explode(pos, radius, 190, byPlayer);
+    if (byPlayer) this.explosiveKills += k;
     const d = this.player.eyePosition(_eye).distanceTo(pos);
-    if (d < radius * 1.2 && (d < 2 || this.world.clear(pos, _eye))) this.hurt(Math.max(0, 150 * (1 - d / (radius * 1.2))), pos);
+    if (d < radius * 1.2 && (d < 2 || this.world.clear(pos, _eye))) this.hurt(Math.max(0, playerMax * (1 - d / (radius * 1.2))), pos);
     this.shake = Math.max(this.shake, Math.min(1, (14 * scale) / (d + 2)));
     const fl = this.world.floor(pos.x, pos.z, pos.y + 0.5, 3);
     if (fl) this.vfx.decal(_v.set(pos.x, fl.y, pos.z), _v2.set(0, 1, 0), 2.6 * scale, 0.25);
@@ -443,7 +448,20 @@ export class Game implements MissionHost {
     this.hud.threats(bearings, THREE.MathUtils.radToDeg(-this.player.yaw));
   }
 
-  private launchRocket(origin: THREE.Vector3, dir: THREE.Vector3): void {
+  /** An enemy lob: a ballistic arc that lands near (not exactly on) where he last saw you. */
+  private enemyGrenade(from: THREE.Vector3, to: THREE.Vector3): void {
+    const target = to.clone().add(_v.set((Math.random() - 0.5) * 3, 0.2, (Math.random() - 0.5) * 3));
+    const t = THREE.MathUtils.clamp(from.distanceTo(target) / 13, 0.9, 1.7);
+    const vel = target.clone().sub(from).multiplyScalar(1 / t);
+    vel.y += 0.5 * 14 * t;
+    const mesh = new THREE.Mesh(this.nadeGeo, this.nadeMat);
+    mesh.castShadow = true;
+    mesh.position.copy(from);
+    this.engine.scene.add(mesh);
+    this.grenades.push({ mesh, vel, fuse: 3.4, enemy: true });
+  }
+
+  private launchRocket(origin: THREE.Vector3, dir: THREE.Vector3, enemy = false): void {
     const g = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5, 10).rotateX(Math.PI / 2), this.nadeMat);
     const nose = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 10).rotateX(Math.PI / 2), this.nadeMat);
@@ -454,8 +472,9 @@ export class Game implements MissionHost {
     g.position.copy(origin);
     g.lookAt(origin.clone().add(dir));
     this.engine.scene.add(g);
-    this.rockets.push({ mesh: g, vel: dir.clone().multiplyScalar(150), life: 4 });
-    this.shake = Math.max(this.shake, 0.6);
+    // Enemy RPG rounds are slow enough to see coming and get out of the way of.
+    this.rockets.push({ mesh: g, vel: dir.clone().multiplyScalar(enemy ? 72 : 150), life: 4, enemy, flown: 0 });
+    if (!enemy) this.shake = Math.max(this.shake, 0.6);
   }
 
   private stepRockets(dt: number): void {
@@ -466,12 +485,24 @@ export class Game implements MissionHost {
       const sp = r.vel.length();
       _v.copy(r.vel).multiplyScalar(1 / sp);
       const step = sp * dt;
+      r.flown += step;
       const wh = this.world.raycast(r.mesh.position, _v, step + 0.3);
-      const th = this.soldiers.raycast(r.mesh.position, _v, wh ? wh.distance : step + 0.3);
+      // An enemy round ignores its own firer for the first few metres of flight.
+      const th = !r.enemy || r.flown > 4 ? this.soldiers.raycast(r.mesh.position, _v, wh ? wh.distance : step + 0.3) : null;
       let hit: THREE.Vector3 | null = null;
       if (th) hit = th.point;
       else if (wh) hit = wh.point.clone().addScaledVector(wh.normal, 0.25);
-      else {
+      else if (r.enemy) {
+        // Proximity fuse against the player; the round also cracks past audibly on a near miss.
+        const eye = this.player.eyePosition(_eye);
+        const d2 = eye.distanceToSquared(r.mesh.position);
+        if (d2 < 2.6) hit = r.mesh.position.clone();
+        else if (d2 < 30 && !r.warned) {
+          r.warned = true;
+          this.audio.whiz(r.mesh.position.x, r.mesh.position.y, r.mesh.position.z);
+          this.suppress = Math.min(1, this.suppress + 0.5);
+        }
+      } else {
         // Proximity: a near miss on a man still counts.
         for (const so of this.soldiers.list) {
           if (so.alive && so.model.chestPos.distanceToSquared(r.mesh.position) < 4.4) {
@@ -483,7 +514,8 @@ export class Game implements MissionHost {
       if (hit || r.life <= 0) {
         this.engine.scene.remove(r.mesh);
         this.rockets.splice(i, 1);
-        this.explode(hit ?? r.mesh.position.clone(), 2);
+        // An RPG near miss leaves you badly hurt rather than dead; a second one finishes the job.
+        this.explode(hit ?? r.mesh.position.clone(), r.enemy ? 1.15 : 2, !r.enemy, r.enemy ? 82 : 150);
         continue;
       }
       r.mesh.position.addScaledVector(r.vel, dt);
@@ -513,7 +545,7 @@ export class Game implements MissionHost {
       if (g.fuse <= 0) {
         this.engine.scene.remove(g.mesh);
         this.grenades.splice(i, 1);
-        this.explode(g.mesh.position.clone(), 1);
+        this.explode(g.mesh.position.clone(), 1, !g.enemy, g.enemy ? 120 : 150);
       }
     }
   }
@@ -630,6 +662,24 @@ export class Game implements MissionHost {
     h.slots(this.weapon.slotNames, this.weapon.slotIndex);
     h.scope(this.weapon.scopeView);
     this.spotting(dt);
+    // Grenade warning: the nearest live grenade within throwing-danger range, with its direction.
+    let near: Grenade | null = null;
+    let nd = 9;
+    for (const g of this.grenades) {
+      const d = g.mesh.position.distanceTo(p.pos);
+      if (d < nd) {
+        nd = d;
+        near = g;
+      }
+    }
+    if (near) {
+      const gp = near.mesh.position;
+      h.grenadeWarn(Math.atan2(gp.x - p.pos.x, -(gp.z - p.pos.z)) + p.yaw, nd);
+      if (near.enemy && !near.warned && near.vel.length() < 6) {
+        near.warned = true;
+        this.say("SECT COMD", "Grenade! Get clear!", 1.6);
+      }
+    } else h.grenadeWarn(null, 0);
     if (h.update(dt)) this.audio.radio(0.35);
 
     if (m.ended) this.end(m.ended === "win", m.endLine);

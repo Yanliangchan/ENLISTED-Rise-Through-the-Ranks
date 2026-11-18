@@ -50,6 +50,13 @@ aiming, the mouse wheel steps the zoom and Shift holds your breath to steady a m
 Holding a sight on an enemy for a moment spots him (red marker and compass tick for eight
 seconds); anyone shooting at you is marked for three.
 
+## Enemies
+
+Three roles, mixed in every squad: **riflemen** fire aimed bursts and lob a grenade at anyone who
+stays hidden behind nearby cover; **machine gunners** lay down long, suppressing bursts; **rocket men**
+fire an RPG round every ten seconds or so (two near-misses will kill you). A live grenade near you
+shows a warning marker pointing at it.
+
 ## Controls
 
 `WASD` move · mouse look · `LMB` fire · `RMB` aim · `Shift` sprint · `C` crouch · `Z` prone ·

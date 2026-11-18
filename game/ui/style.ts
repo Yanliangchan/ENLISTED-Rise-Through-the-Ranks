@@ -102,6 +102,12 @@ const CSS = `
 .scope .br { position:absolute; left:50%; top:calc(50% + 46vh); transform:translateX(-50%); text-align:center; font-size:11px; letter-spacing:.24em; color:rgba(233,230,220,.5); }
 .scope .br b { display:block; height:2px; width:100%; background:var(--amber); margin:0 auto 6px; max-width:120px; }
 .marks { position:absolute; inset:0; }
+.gw { position:absolute; left:50%; top:50%; width:0; height:0; display:none; }
+.gw .gi { position:absolute; left:-22px; top:-148px; width:44px; text-align:center; animation:gwp .5s ease-in-out infinite alternate; }
+.gw .gi b { display:block; width:18px; height:22px; margin:0 auto; border-radius:45% 45% 40% 40%; background:#e0442c; box-shadow:0 0 10px rgba(224,68,44,.8);
+  -webkit-mask:radial-gradient(circle at 50% 70%, #000 58%, transparent 60%), linear-gradient(#000,#000) 50% 0/6px 6px no-repeat; mask:radial-gradient(circle at 50% 70%, #000 58%, transparent 60%), linear-gradient(#000,#000) 50% 0/6px 6px no-repeat; }
+.gw .gi span { display:block; font-family:"JetBrains Mono",monospace; font-size:11px; color:#f2c8b8; margin-top:3px; }
+@keyframes gwp { from { opacity:.55 } to { opacity:1 } }
 .em { position:absolute; left:0; top:0; width:0; height:0; margin:-12px 0 0 -8px; display:none; will-change:transform;
   border-left:8px solid transparent; border-right:8px solid transparent; border-top:11px solid #e0442c;
   filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 4px rgba(224,68,44,.7)); }

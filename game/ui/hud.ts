@@ -199,6 +199,20 @@ export class Hud {
     if (this.set("sb", b)) (this.scopeEl.querySelector(".br b") as HTMLElement).style.width = `${b * 2.5}%`;
   }
 
+  /** Live grenade nearby: an icon swung round the crosshair toward it, or `null` to clear. */
+  grenadeWarn(angle: number | null, dist: number): void {
+    if (!this.gw) {
+      this.gw = el("gw", this.root, `<div class="gi"><b></b><span></span></div>`);
+    }
+    if (this.set("gwv", angle !== null)) this.gw.style.display = angle !== null ? "block" : "none";
+    if (angle === null) return;
+    this.gw.style.transform = `rotate(${angle.toFixed(3)}rad)`;
+    (this.gw.firstChild as HTMLElement).style.transform = `rotate(${(-angle).toFixed(3)}rad)`;
+    const m = Math.round(dist);
+    if (this.set("gwd", m)) this.gw.querySelector("span")!.textContent = `${m} m`;
+  }
+  private gw: HTMLDivElement | null = null;
+
   /** Spotted enemies: screen position (px) and fade, nearest first. */
   enemyMarks(items: Array<[number, number, number]>): void {
     for (let i = 0; i < this.marks.length; i++) {

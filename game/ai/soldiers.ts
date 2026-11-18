@@ -5,7 +5,7 @@ import type { Vfx } from "~/gfx/vfx";
 import type { CollisionWorld } from "~/world/collision";
 import type { BodyPart, TargetHit, TargetProvider } from "~/player/weapon";
 import type { NavGrid } from "./nav";
-import { SoldierModel, opforCamo, soldierMaterials, type Pose, type SoldierMats } from "./soldierModel";
+import { SoldierModel, opforCamo, soldierMaterials, type EnemyWeapon, type Pose, type SoldierMats } from "./soldierModel";
 
 /** What the AI needs to know about the player. */
 export interface AiTarget {
@@ -30,7 +30,17 @@ export interface SpawnOpts {
   alerted?: boolean;
   tag?: string;
   accuracy?: number;
+  /** Force a role; otherwise most are riflemen with the odd machine gunner and rocket man. */
+  role?: Role;
 }
+
+/**
+ * Rifleman: aimed bursts, and a grenade for anyone who stays hidden behind cover.
+ * Gunner: long, less accurate bursts that pin the player down.
+ * Rocket: an RPG round at the player's position every ten seconds or so; no rifle.
+ */
+export type Role = "rifleman" | "gunner" | "rocket";
+const ROLE_WEAPON: Record<Role, EnemyWeapon> = { rifleman: "ak", gunner: "pkm", rocket: "rpg" };
 
 const rr = (a: number, b: number): number => a + Math.random() * (b - a);
 const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
@@ -109,8 +119,15 @@ export class Soldier {
   readonly pose: Pose = { phase: Math.random() * 6, speed: 0, crouch: 0, aimYaw: 0, aimPitch: 0, aim: 0, kick: 0, flinch: 0, dead: 0, deadKind: 0 };
   stepAcc = 0;
 
-  constructor(mats: SoldierMats) {
-    this.model = new SoldierModel(mats);
+  role: Role;
+  /** Seconds the player has been out of sight while this soldier is fighting. */
+  hiddenT = 0;
+  nadeCd = rr(4, 10);
+  rocketCd = rr(1.5, 4);
+
+  constructor(mats: SoldierMats, role: Role) {
+    this.role = role;
+    this.model = new SoldierModel(mats, ROLE_WEAPON[role]);
   }
 }
 
@@ -122,6 +139,14 @@ export class Soldiers implements TargetProvider {
   readonly list: Soldier[] = [];
   onKill?: (s: Soldier, part: BodyPart) => void;
   onAlert?: () => void;
+  /** A rocket man fired: the game flies the round. */
+  onRocket?: (origin: THREE.Vector3, dir: THREE.Vector3) => void;
+  /** A rifleman threw a grenade from `from` toward `to`. */
+  onGrenade?: (from: THREE.Vector3, to: THREE.Vector3) => void;
+  /** Seconds before any soldier may throw another grenade (one at a time keeps it fair). */
+  private nadeGlobal = 6;
+  /** False while an explosion that the player did not cause is being applied. */
+  private credit = true;
   /** Global accuracy scale (difficulty). */
   difficulty = 1;
   private readonly mats: SoldierMats[];
@@ -160,7 +185,9 @@ export class Soldiers implements TargetProvider {
   spawn(x: number, z: number, o: SpawnOpts = {}): Soldier | null {
     const p = this.nav.nearest(x, z, 10);
     if (!p) return null;
-    const s = new Soldier(this.mats[Math.floor(Math.random() * this.mats.length)]);
+    const roll = Math.random();
+    const role: Role = o.role ?? (roll < 0.17 ? "gunner" : roll < 0.28 ? "rocket" : "rifleman");
+    const s = new Soldier(this.mats[Math.floor(Math.random() * this.mats.length)], role);
     s.pos.copy(p);
     s.home.copy(p);
     s.yaw = s.lookYaw = o.yaw ?? Math.random() * Math.PI * 2;
@@ -204,8 +231,9 @@ export class Soldiers implements TargetProvider {
   }
 
   /** Blast damage with line-of-sight falloff. Returns kills. */
-  explode(pos: THREE.Vector3, radius: number, maxDamage: number): number {
+  explode(pos: THREE.Vector3, radius: number, maxDamage: number, byPlayer = true): number {
     let kills = 0;
+    this.credit = byPlayer;
     for (const s of this.list) {
       if (!s.alive) continue;
       _a.copy(s.pos).setY(s.pos.y + 1);
@@ -215,6 +243,7 @@ export class Soldiers implements TargetProvider {
       const dmg = maxDamage * (1 - d / radius) * (1 - d / radius) + 20;
       if (this.hurt(s, dmg, _b.subVectors(_a, pos).normalize(), "torso")) kills++;
     }
+    this.credit = true;
     this.noise(pos, 90);
     return kills;
   }
@@ -273,7 +302,7 @@ export class Soldiers implements TargetProvider {
       s.deadT = 0;
       const f = Math.sin(s.yaw) * dir.x + Math.cos(s.yaw) * dir.z;
       s.pose.deadKind = Math.abs(f) < 0.45 ? 2.5 : f < 0 ? 0.5 : 1.5;
-      this.onKill?.(s, part);
+      if (this.credit) this.onKill?.(s, part);
       this.alertNear(s.pos, 30, 0.3);
       return true;
     }
@@ -348,13 +377,29 @@ export class Soldiers implements TargetProvider {
     }
   }
 
+  /** Launch an RPG round at the player, with aiming error that grows with range. */
+  private fireRocket(s: Soldier, dist: number): void {
+    const tp = this.target;
+    const o = s.model.muzzle;
+    _a.set(tp.pos.x + gauss() * dist * 0.02, tp.pos.y + tp.eye * 0.6 + gauss() * dist * 0.008, tp.pos.z + gauss() * dist * 0.02);
+    _b.subVectors(_a, o).normalize();
+    // A little loft so a long shot does not fall short.
+    _b.y += dist * 0.0004;
+    _b.normalize();
+    s.revealed = Math.max(s.revealed, 4);
+    s.pose.kick = 1;
+    this.vfx.muzzle(o, _b, 2.4, true);
+    this.audio.shot("lmg", o.x, o.y, o.z);
+    this.onRocket?.(o.clone(), _b.clone());
+  }
+
   private fire(s: Soldier, dist: number): void {
     const m = s.model;
     const tp = this.target;
     const o = m.muzzle;
     // Aim at the upper body; error shrinks as the shooter settles on target.
     _a.set(tp.pos.x, tp.pos.y + tp.eye * 0.74, tp.pos.z);
-    const sigma = (0.017 + tp.speed * 0.0042 + (1 - Math.min(1, s.settle / 1.3)) * 0.03 + s.pose.speed * 0.01) / (s.accuracy * this.difficulty);
+    const sigma = (s.role === "gunner" ? 1.35 : 1) * (0.017 + tp.speed * 0.0042 + (1 - Math.min(1, s.settle / 1.3)) * 0.03 + s.pose.speed * 0.01) / (s.accuracy * this.difficulty);
     _b.subVectors(_a, o).normalize();
     _n.set(-_b.z, 0, _b.x).normalize();
     _b.addScaledVector(_n, gauss() * sigma);
@@ -368,7 +413,7 @@ export class Soldiers implements TargetProvider {
     const end = new THREE.Vector3();
     if (t >= 0) {
       end.copy(o).addScaledVector(_b, t);
-      const dmg = (dist < 40 ? 15 : dist < 80 ? 12 : 9) * rr(0.85, 1.15);
+      const dmg = (dist < 40 ? 15 : dist < 80 ? 12 : 9) * rr(0.85, 1.15) * (s.role === "gunner" ? 0.85 : 1);
       tp.damage(dmg, s.pos);
     } else {
       if (wh) {
@@ -389,13 +434,14 @@ export class Soldiers implements TargetProvider {
     this.vfx.tracer(o, end, 520);
     this.vfx.muzzle(o, _b, 0.9, true);
     if (dist < 60) this.vfx.flashLight(o, 16, 0.05);
-    this.audio.shot("rifle", o.x, o.y, o.z);
+    this.audio.shot(s.role === "gunner" ? "lmg" : "rifle", o.x, o.y, o.z);
     s.pose.kick = 1;
   }
 
   update(dt: number): void {
     const tp = this.target;
     this.time += dt;
+    this.nadeGlobal -= dt;
     this.tEye.set(tp.pos.x, tp.pos.y + tp.eye, tp.pos.z);
     for (let i = this.list.length - 1; i >= 0; i--) {
       const s = this.list[i];
@@ -492,15 +538,38 @@ export class Soldiers implements TargetProvider {
         // Shooting.
         s.shotCd -= dt;
         const canFire = s.sees && tp.alive && ps.aim > 0.8 && ps.crouch < 0.35 && Math.abs(wrap(toT - s.yaw - ps.aimYaw)) < 0.2;
-        if (canFire) {
+        s.hiddenT = s.sees ? 0 : s.hiddenT + dt;
+        s.rocketCd -= dt;
+        s.nadeCd -= dt;
+        if (canFire && s.role === "rocket") {
+          // Rocket man: settle, then one round at the player; long reload. Too close and he holds fire.
+          s.settle += dt;
+          if (s.rocketCd <= 0 && s.settle > 0.8 && dist > 16 && dist < 120) {
+            this.fireRocket(s, dist);
+            s.rocketCd = rr(9, 13);
+            s.settle = 0;
+          }
+        } else if (canFire) {
           s.settle += dt;
           if (s.shotCd <= 0) {
-            if (s.burst <= 0) s.burst = 2 + Math.floor(Math.random() * 4);
+            const gunner = s.role === "gunner";
+            if (s.burst <= 0) s.burst = gunner ? 6 + Math.floor(Math.random() * 9) : 2 + Math.floor(Math.random() * 4);
             this.fire(s, dist);
             s.burst--;
-            s.shotCd = s.burst > 0 ? 0.105 : rr(0.55, 1.5) * (dist > 60 ? 1.5 : 1);
+            s.shotCd = s.burst > 0 ? (gunner ? 0.092 : 0.105) : rr(0.55, 1.5) * (dist > 60 ? 1.5 : 1) * (gunner ? 0.8 : 1);
           }
         } else if (!s.sees) s.settle = Math.max(0, s.settle - dt * 0.5);
+        // Grenade: a rifleman whose target has gone to ground nearby flushes him out.
+        if (s.role === "rifleman" && tp.alive && s.hiddenT > 3.5 && s.nadeCd <= 0 && this.nadeGlobal <= 0 && s.sinceSeen < 25) {
+          const ld = Math.hypot(s.lastKnown.x - s.pos.x, s.lastKnown.z - s.pos.z);
+          if (ld > 8 && ld < 30 && Math.random() < dt * 0.8) {
+            _c.set(s.pos.x, s.pos.y + 1.7, s.pos.z);
+            this.onGrenade?.(_c.clone(), s.lastKnown.clone());
+            s.nadeCd = rr(16, 24);
+            this.nadeGlobal = rr(7, 11);
+            ps.kick = 1;
+          }
+        }
       } else if (s.state === "search") {
         wantAim = 0.5;
         if (s.waitT > 0) {
